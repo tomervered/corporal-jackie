@@ -44,7 +44,7 @@ export CMAKE_PREFIX_PATH="$(brew --prefix qt)"
 
 ```sh
 sudo apt install ninja-build pkg-config qt6-base-dev qt6-declarative-dev \
-  qml6-module-qtquick qml6-module-qtquick-window libmpv-dev libtorrent-rasterbar-dev libsqlite3-dev
+  qml6-module-qtquick qml6-module-qtquick-window qml6-module-qtqml-workerscript libmpv-dev libtorrent-rasterbar-dev libsqlite3-dev
 ```
 
 Then, on any platform:
