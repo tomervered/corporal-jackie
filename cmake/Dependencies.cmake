@@ -10,7 +10,9 @@
 find_package(PkgConfig QUIET)
 
 # --- libmpv -----------------------------------------------------------------
-if(PKG_CONFIG_FOUND)
+# On Windows (MSYS2) mpv's pkg-config file reports MSYS-style paths such as
+# /ucrt64/include that native CMake cannot use, so look the files up directly.
+if(PKG_CONFIG_FOUND AND NOT WIN32)
     pkg_check_modules(MPV QUIET IMPORTED_TARGET mpv)
 endif()
 if(TARGET PkgConfig::MPV)
@@ -41,4 +43,8 @@ endif()
 
 # --- SQLite -----------------------------------------------------------------
 find_package(SQLite3 REQUIRED)
-add_library(cj::sqlite ALIAS SQLite::SQLite3)
+if(TARGET SQLite3::SQLite3)          # CMake 4.1 and newer
+    add_library(cj::sqlite ALIAS SQLite3::SQLite3)
+else()
+    add_library(cj::sqlite ALIAS SQLite::SQLite3)
+endif()
