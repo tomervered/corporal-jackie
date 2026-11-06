@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows (MSYS2 UCRT64)
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          pacboy: >-
+            toolchain:p cmake:p ninja:p pkgconf:p
+            qt6-base:p qt6-declarative:p qt6-tools:p
+            mpv:p libtorrent-rasterbar:p sqlite3:p
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Smoke test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ./build/src/app/CorporalJackie.exe --smoke-test
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp build/src/app/CorporalJackie.exe dist/
+          WDQ=$(command -v windeployqt6 || command -v windeployqt-qt6 || command -v windeployqt)
+          "$WDQ" --release --qmldir src/ui --no-translations dist/CorporalJackie.exe
+          # Copy every MSYS2 DLL the app and its Qt plugins need (mpv, FFmpeg, libtorrent...).
+          for f in dist/CorporalJackie.exe $(find dist -name '*.dll'); do
+            ldd "$f" | awk '/\/ucrt64\// {print $3}'
+          done | sort -u | xargs -r -I{} cp -n {} dist/
+          cp LICENSE dist/LICENSE.txt
+          ./dist/CorporalJackie.exe --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CorporalJackie-windows-x64
+          path: dist/
+
+  macos:
+    name: macOS (Apple silicon)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install qt mpv libtorrent-rasterbar ninja pkgconf
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Smoke test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ./build/src/app/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp -R build/src/app/CorporalJackie.app dist/
+          "$(brew --prefix qt)/bin/macdeployqt" dist/CorporalJackie.app -qmldir=src/ui -verbose=1
+          QT_QPA_PLATFORM=offscreen ./dist/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test
+          cp LICENSE dist/LICENSE.txt
+          ditto -c -k --keepParent dist CorporalJackie-macos-arm64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CorporalJackie-macos-arm64
+          path: CorporalJackie-macos-arm64.zip
+
+  linux:
+    name: Linux (build and test only)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build pkg-config \
+            qt6-base-dev qt6-declarative-dev qml6-module-qtquick qml6-module-qtquick-window \
+            libmpv-dev libtorrent-rasterbar-dev libsqlite3-dev
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Smoke test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ./build/src/app/CorporalJackie --smoke-test
