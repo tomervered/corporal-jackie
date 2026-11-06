@@ -92,7 +92,8 @@ jobs:
           mkdir -p dist
           cp -R build/src/app/CorporalJackie.app dist/
           "$(brew --prefix qt)/bin/macdeployqt" dist/CorporalJackie.app -qmldir=src/ui -verbose=1
-          QT_QPA_PLATFORM=offscreen ./dist/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test
+          # The bundle ships only the cocoa platform plugin; the runner has a GUI session.
+          ./dist/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test
           cp LICENSE dist/LICENSE.txt
           ditto -c -k --keepParent dist CorporalJackie-macos-arm64.zip
 
