@@ -3,13 +3,20 @@
 #include "CrashHandler.h"
 #include "DependencyInfo.h"
 #include "Logging.h"
+#include "MpvPlayer.h"
+#include "MpvVideoItem.h"
+#include "SleepBlocker.h"
 
 #include <QCommandLineParser>
 #include <QDir>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QSettings>
 #include <QTimer>
+#include <clocale>
+#include <exception>
+#include <memory>
 
 int main(int argc, char* argv[])
 {
@@ -27,9 +34,13 @@ int main(int argc, char* argv[])
     args.addVersionOption();
     const QCommandLineOption smokeTest(
         QStringLiteral("smoke-test"),
-        QStringLiteral("Open the window, then quit after one second. Used by CI."));
+        QStringLiteral("Open the window (and play the given file), then quit. Used by CI."));
     args.addOption(smokeTest);
+    args.addPositionalArgument(QStringLiteral("file"), QStringLiteral("A video file to open."));
     args.process(app);
+
+    // mpv parses numbers with the C locale; Qt may have changed it.
+    std::setlocale(LC_NUMERIC, "C");
 
     const cj::AppPaths paths = cj::AppPaths::resolve();
     if (!paths.ensureExist() || !cj::logging::init(paths.logs))
@@ -44,6 +55,31 @@ int main(int argc, char* argv[])
     if (const QString crash = cj::crash::takePreviousReport(paths.logs); !crash.isEmpty())
         qCWarning(lcApp).noquote() << "Previous run crashed:" << crash;
 
+    // Rule 3: one mpv instance for the whole app, reused for every item.
+    std::unique_ptr<cj::MpvPlayer> player;
+    try {
+        player = std::make_unique<cj::MpvPlayer>();
+    } catch (const std::exception& e) {
+        qCCritical(lcTargets) << "Could not start mpv:" << e.what();
+        return 1;
+    }
+
+    QSettings settings;
+    player->setHwdecEnabled(settings.value(QStringLiteral("playback/hwdec"), true).toBool());
+    QObject::connect(player.get(), &cj::MpvPlayer::hwdecEnabledChanged, &app, [&] {
+        QSettings().setValue(QStringLiteral("playback/hwdec"), player->hwdecEnabled());
+    });
+
+    cj::SleepBlocker sleepBlocker;
+    const auto updateSleep = [&] { sleepBlocker.setActive(player->fileLoaded() && !player->paused()); };
+    QObject::connect(player.get(), &cj::MpvPlayer::pausedChanged, &app, updateSleep);
+    QObject::connect(player.get(), &cj::MpvPlayer::fileLoadedChanged, &app, updateSleep);
+
+    cj::MpvVideoItem::useOpenGL();
+    qmlRegisterType<cj::MpvVideoItem>("CorporalJackie.Video", 1, 0, "MpvVideo");
+    qmlRegisterUncreatableType<cj::MpvPlayer>("CorporalJackie.Video", 1, 0, "MpvPlayer",
+                                              QStringLiteral("Use the app's player"));
+
     QQmlApplicationEngine engine;
     // Packaged builds keep Qt's QML modules in a "qml" folder next to the app.
     // Without this, Qt looks in its build machine's install path and fails.
@@ -52,6 +88,7 @@ int main(int argc, char* argv[])
         engine.addImportPath(bundled);
     engine.rootContext()->setContextProperty(QStringLiteral("appVersion"),
                                              QString::fromLatin1(cj::app::kVersion));
+    engine.rootContext()->setContextProperty(QStringLiteral("player"), player.get());
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
     engine.load(QUrl(QStringLiteral("qrc:/CorporalJackie/Main.qml")));
@@ -60,9 +97,20 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    if (const QStringList files = args.positionalArguments(); !files.isEmpty())
+        player->openPath(files.first());
+
     if (args.isSet(smokeTest)) {
-        QTimer::singleShot(1000, &app, [] {
-            qCInfo(lcApp) << "Smoke test passed: window opened";
+        // With a file, the smoke test also checks that it loads and plays.
+        const bool withFile = !args.positionalArguments().isEmpty();
+        QTimer::singleShot(withFile ? 4000 : 1000, &app, [&] {
+            if (withFile && !(player->fileLoaded() && player->position() > 0.5)) {
+                qCCritical(lcApp) << "Smoke test failed: file did not play (loaded:"
+                                  << player->fileLoaded() << "position:" << player->position() << ")";
+                QCoreApplication::exit(2);
+                return;
+            }
+            qCInfo(lcApp) << "Smoke test passed: window opened" << (withFile ? "and the file played" : "");
             QCoreApplication::quit();
         });
     }

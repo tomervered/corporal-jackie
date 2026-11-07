@@ -4,7 +4,22 @@ A native desktop media player that browses Stremio add-on catalogs and local fil
 
 Built with C++20, Qt 6/QML, libmpv, libtorrent-rasterbar and SQLite. Windows and macOS first, Linux after.
 
-**Status:** Step 0 (groundwork). The app opens an empty window; nothing plays yet.
+**Status:** Step 1 (video in a native window). Plays local video files with controls drawn over the video.
+
+## Using it
+
+Open a file with the **Open** button, by dropping it on the window, or by passing its path on the command line.
+
+| Key | Action |
+| --- | --- |
+| Space or K | Play / pause |
+| ← / → | Seek 5 seconds (hold Shift for 60) |
+| ↑ / ↓ | Volume |
+| M | Mute |
+| F or double-click | Full screen |
+| I | Debug overlay: decoder, codec, resolution, FPS, dropped frames |
+| H | Hardware decoding on/off (remembered) |
+| O | Open a file |
 
 ## Layout
 
@@ -44,7 +59,10 @@ export CMAKE_PREFIX_PATH="$(brew --prefix qt)"
 
 ```sh
 sudo apt install ninja-build pkg-config qt6-base-dev qt6-declarative-dev \
-  qml6-module-qtquick qml6-module-qtquick-window qml6-module-qtqml-workerscript libmpv-dev libtorrent-rasterbar-dev libsqlite3-dev
+  qml6-module-qtquick qml6-module-qtquick-window qml6-module-qtqml-workerscript \
+  qml6-module-qtquick-controls qml6-module-qtquick-templates qml6-module-qtquick-dialogs \
+  qml6-module-qtquick-layouts qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-shapes \
+  libmpv-dev libtorrent-rasterbar-dev libsqlite3-dev
 ```
 
 Then, on any platform:
@@ -62,6 +80,8 @@ Every push builds Windows and macOS packages. Open the latest run under **Action
 The builds are not signed yet. On macOS, right-click the app and choose **Open** the first time. On Windows, choose **More info → Run anyway** if SmartScreen asks.
 
 ## Logs
+
+Set `CJ_MPV_LOG=v` to include mpv's detailed log, and `CJ_MPV_OPTS="name=value,..."` to pass extra mpv options.
 
 Logs are written to the `logs` folder inside the app's data folder (for example `%APPDATA%\Corporal Jackie\logs` or `~/Library/Application Support/Corporal Jackie/logs`). Turn on detailed logs for a layer with `QT_LOGGING_RULES="cj.broker.debug=true"`.
 
