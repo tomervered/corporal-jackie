@@ -65,6 +65,7 @@ meson setup build --prefix="$PREFIX" --buildtype=release \
     -Dvulkan=disabled -Dshaderc=disabled -Dspirv-cross=disabled \
     -Dsdl2-audio=disabled -Dsdl2-video=disabled -Dsdl2-gamepad=disabled -Dopenal=disabled \
     -Dlibavdevice=disabled -Djpeg=disabled -Dvapoursynth=disabled \
+    -Dvaapi=disabled -Dcuda-hwaccel=disabled -Dcuda-interop=disabled \
     -Degl-angle=disabled -Degl-angle-lib=disabled -Degl-angle-win32=disabled \
     -Dgl=enabled -Dgl-win32=enabled -Dd3d11=disabled -Dd3d-hwaccel=enabled \
     -Dwasapi=enabled -Dlcms2=enabled -Duchardet=enabled -Dzimg=enabled -Diconv=enabled
