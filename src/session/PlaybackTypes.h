@@ -40,6 +40,26 @@ enum class Capability : unsigned {
 Q_ENUM_NS(Capability)
 Q_DECLARE_FLAGS(Capabilities, Capability)
 
+// Where a streamed item (a torrent) is, for the buffering display. Local
+// files and plain links stay at None.
+enum class StreamPhase {
+    Inactive,          // not a stream, or nothing loaded
+    FindingPeers,      // looking for anyone who has it
+    FetchingMetadata,  // peers found, getting the file list
+    Buffering,         // downloading the part the player needs next
+    Stalled,           // nothing arriving for a while; still retrying
+    Ready,             // the player has what it needs
+};
+Q_ENUM_NS(StreamPhase)
+
+struct StreamStatus {
+    StreamPhase phase = StreamPhase::Inactive;
+    int percent = 0;          // of the part being waited for, while buffering
+    int peers = 0;
+    qint64 downloadRate = 0;  // bytes per second
+    bool operator==(const StreamStatus&) const = default;
+};
+
 // Something a target can play. Source adapters (Step 5) produce these.
 struct PlayableSource {
     QUrl url;
@@ -80,3 +100,4 @@ Q_DECLARE_OPERATORS_FOR_FLAGS(cj::Capabilities)
 Q_DECLARE_METATYPE(cj::PlayableSource)
 Q_DECLARE_METATYPE(cj::Track)
 Q_DECLARE_METATYPE(cj::Chapter)
+Q_DECLARE_METATYPE(cj::StreamStatus)

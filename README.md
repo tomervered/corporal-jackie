@@ -4,7 +4,9 @@ A native desktop media player that browses Stremio add-on catalogs and local fil
 
 Built with C++20, Qt 6/QML, libmpv, libtorrent-rasterbar and SQLite. Windows and macOS first, Linux after.
 
-**Status:** Step 3 (torrent stream broker). Plays local video files. The interface talks only to the Session, which sends commands to the mpv target; the contract between them is in [docs/TARGET_CONTRACT.md](docs/TARGET_CONTRACT.md). The torrent stream broker (Step 3) is built and tested on its own; it plays in the app from Step 4. Its contract is in [docs/BROKER_CONTRACT.md](docs/BROKER_CONTRACT.md).
+**Status:** Step 4 (torrents in the player). Plays local video files, magnet links, torrent info hashes and .torrent files. The interface talks only to the Session, which sends commands to the mpv target; the contract between them is in [docs/TARGET_CONTRACT.md](docs/TARGET_CONTRACT.md). Torrents reach mpv through a `torrent://` stream protocol backed by the stream broker, with no local HTTP server; the broker's contract is in [docs/BROKER_CONTRACT.md](docs/BROKER_CONTRACT.md) and the protocol is described in [src/transports/README.md](src/transports/README.md).
+
+To play a torrent, press U (or "Open a link…") and paste a magnet link, press Ctrl+V with one copied, drop it on the window, or pass it on the command line. While it loads, the window says what it is doing: looking for peers, getting the file list, buffering with a percentage, or waiting for peers when the swarm goes quiet.
 
 ## Using it
 
@@ -20,6 +22,8 @@ Open a file with the **Open** button, by dropping it on the window, or by passin
 | I | Debug overlay: decoder, codec, resolution, FPS, dropped frames |
 | H | Hardware decoding on/off (remembered) |
 | O | Open a file |
+| U | Open a link (magnet link, info hash, web address) |
+| Ctrl+V | Open the copied link |
 | [ / ] , Backspace | Slower / faster, normal speed |
 | J / Y | Next subtitle track (including off) / next audio track |
 | Z / X | Subtitle delay −/+ 100 ms (with Shift: audio delay) |

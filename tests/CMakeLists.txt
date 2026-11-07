@@ -23,3 +23,13 @@ if(WIN32)
     target_compile_definitions(tst_broker PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 endif()
 set_tests_properties(tst_broker PROPERTIES TIMEOUT 300)
+
+# Magnet links played end to end: Session, mpv, the torrent:// protocol and
+# the broker, against local seeders.
+cj_add_test(tst_torrentstream TorrentHarness.h)
+target_link_libraries(tst_torrentstream PRIVATE cj_targets cj_transports cj_broker cj::libtorrent)
+target_compile_definitions(tst_torrentstream PRIVATE CJ_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
+if(WIN32)
+    target_compile_definitions(tst_torrentstream PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+endif()
+set_tests_properties(tst_torrentstream PROPERTIES TIMEOUT 300)

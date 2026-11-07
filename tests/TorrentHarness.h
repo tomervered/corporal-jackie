@@ -86,6 +86,28 @@ inline TestTorrent makeTorrent(const QString& root, const QString& name, const s
     return t;
 }
 
+// Makes a one-file torrent of an existing file (a real video, so mpv can play
+// it), copied to root/name.
+inline TestTorrent makeTorrentOfFile(const QString& root, const QString& name, const QString& source,
+                                     int pieceSize)
+{
+    TestTorrent t;
+    t.root = root;
+    QFile in(source);
+    in.open(QIODevice::ReadOnly);
+    t.data.push_back(in.readAll());
+    const QString content = QDir(root).filePath(name);
+    writeFile(content, t.data.back());
+    lt::file_storage fs;
+    lt::add_files(fs, QFile::encodeName(content).toStdString());
+    lt::create_torrent ct(fs, pieceSize, lt::create_torrent::v1_only);
+    lt::set_piece_hashes(ct, QFile::encodeName(root).toStdString());
+    std::vector<char> buffer;
+    lt::bencode(std::back_inserter(buffer), ct.generate());
+    t.info = std::make_shared<lt::torrent_info>(buffer.data(), int(buffer.size()));
+    return t;
+}
+
 class Seeder
 {
 public:

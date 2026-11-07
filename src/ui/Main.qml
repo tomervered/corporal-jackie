@@ -35,6 +35,35 @@ Window {
         return h > 0 ? h + ":" + pad(m) + ":" + pad(s) : m + ":" + pad(s)
     }
 
+    function formatRate(bytesPerSecond) {
+        const mb = bytesPerSecond / (1024 * 1024)
+        return mb >= 1 ? mb.toFixed(1) + " MB/s" : Math.round(bytesPerSecond / 1024) + " KB/s"
+    }
+
+    // What a torrent is doing, in words, while the player waits for it.
+    readonly property bool streaming: session.streamPhase !== Playback.Inactive
+    readonly property string streamText: {
+        const peers = session.streamPeers === 1 ? "1 peer" : session.streamPeers + " peers"
+        switch (session.streamPhase) {
+        case Playback.FindingPeers: return "Looking for peers…"
+        case Playback.FetchingMetadata: return "Getting the file list from " + peers + "…"
+        case Playback.Stalled: return "Waiting for peers… still trying (" + peers + ")"
+        case Playback.Buffering:
+            return "Buffering " + session.streamPercent + "% · " + peers + " · " + formatRate(session.streamRate)
+        default:
+            return "Buffering " + session.bufferPercent + "% · " + peers + " · " + formatRate(session.streamRate)
+        }
+    }
+
+    // Opens what was pasted or typed: a magnet link, an info hash, a web link
+    // or a file path. Returns false if it is empty.
+    function openText(text) {
+        text = (text || "").trim()
+        if (text === "") return false
+        session.openPath(text)
+        return true
+    }
+
     function signedMs(seconds) {
         const ms = Math.round(seconds * 1000)
         return (ms > 0 ? "+" : "") + ms + " ms"
@@ -150,6 +179,56 @@ Window {
         onAccepted: session.open(selectedFile)
     }
 
+    // "Open a link": a magnet link, an info hash or a web address
+    Popup {
+        id: linkPopup
+        anchors.centerIn: parent
+        width: Math.min(560, root.width - 48)
+        modal: true
+        focus: true
+        padding: 20
+        background: Rectangle { radius: 12; color: root.panel; border.color: "#30ffffff" }
+        onOpened: { linkField.text = ""; linkField.paste(); linkField.selectAll(); linkField.forceActiveFocus() }
+        onClosed: inputLayer.forceActiveFocus()
+        Column {
+            width: parent.width
+            spacing: 12
+            Text {
+                text: "Open a link"
+                color: root.textColor
+                font.pixelSize: 18
+                font.weight: Font.DemiBold
+            }
+            Text {
+                width: parent.width
+                wrapMode: Text.WordWrap
+                text: "A magnet link, a torrent info hash, or a web address of a video."
+                color: root.mutedText
+                font.pixelSize: 13
+            }
+            TextField {
+                id: linkField
+                width: parent.width
+                placeholderText: "magnet:?xt=urn:btih:…"
+                onAccepted: if (root.openText(text)) linkPopup.close()
+            }
+            Row {
+                anchors.right: parent.right
+                spacing: 8
+                Button { text: "Cancel"; onClicked: linkPopup.close() }
+                Button { text: "Open"; enabled: linkField.text.trim() !== ""; onClicked: if (root.openText(linkField.text)) linkPopup.close() }
+            }
+        }
+    }
+
+    // Reads the clipboard: QML has no clipboard API, but a text field can paste.
+    TextInput { id: clipboardReader; visible: false }
+    function pasteAndOpen() {
+        clipboardReader.text = ""
+        clipboardReader.paste()
+        if (!root.openText(clipboardReader.text)) linkPopup.open()
+    }
+
     FileDialog {
         id: subtitleDialog
         title: "Load a subtitle file"
@@ -184,6 +263,11 @@ Window {
                 root.osd("Hardware decoding " + (session.hardwareDecoding ? "on" : "off"))
                 break
             case Qt.Key_O:     openDialog.open(); break
+            case Qt.Key_U:     linkPopup.open(); break
+            case Qt.Key_V:
+                if (!(event.modifiers & Qt.ControlModifier)) return
+                root.pasteAndOpen()
+                break
             case Qt.Key_Question: case Qt.Key_Slash: root.helpVisible = !root.helpVisible; break
             // Speed
             case Qt.Key_BracketLeft:  session.speed = session.speed - 0.25; root.osd("Speed " + session.speed + "×"); break
@@ -257,8 +341,10 @@ Window {
         DropArea {
             anchors.fill: parent
             onDropped: drop => {
-                if (!drop.hasUrls) return
+                // A magnet link dragged from a browser arrives as text.
+                if (!drop.hasUrls) { if (drop.hasText) root.openText(drop.text); return }
                 const url = drop.urls[0].toString()
+                if (/^magnet:/i.test(url)) { root.openText(url); return }
                 // A subtitle file dropped on a playing video is added to it.
                 if (session.hasMedia && /\.(srt|ass|ssa|vtt|sub|sup)$/i.test(url)) session.addExternalSubtitle(drop.urls[0])
                 else session.open(drop.urls[0])
@@ -282,14 +368,16 @@ Window {
         }
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: session.loading ? "Opening…" : "Drop a video here, or open one"
+            text: session.loading ? (root.streaming ? root.streamText : "Opening…")
+                                  : "Drop a video or a magnet link here, or open one"
             color: root.mutedText
             font.pixelSize: 16
         }
-        Button {
+        Row {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: "Open a video…"
-            onClicked: openDialog.open()
+            spacing: 8
+            Button { text: "Open a video…"; onClicked: openDialog.open() }
+            Button { text: "Open a link…"; onClicked: linkPopup.open() }
         }
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
@@ -339,7 +427,10 @@ Window {
     // Buffering
     Rectangle {
         anchors.centerIn: parent
-        visible: session.buffering && root.seekTotal === 0
+        // A torrent that stalls mid-play shows here too, even before mpv's own
+        // buffer runs out.
+        visible: root.seekTotal === 0 && session.hasMedia
+                 && (session.buffering || session.streamPhase === Playback.Stalled)
         width: bufferLabel.implicitWidth + 32
         height: bufferLabel.implicitHeight + 18
         radius: 10
@@ -347,7 +438,7 @@ Window {
         Text {
             id: bufferLabel
             anchors.centerIn: parent
-            text: "Buffering… " + session.bufferPercent + "%"
+            text: root.streaming ? root.streamText : "Buffering… " + session.bufferPercent + "%"
             color: root.textColor
             font.pixelSize: 18
         }
@@ -392,6 +483,7 @@ Window {
                 for (const key in session.stats)
                     lines.push(key + ": " + session.stats[key])
                 lines.push("Speed: " + session.speed + "×")
+                if (root.streaming) lines.push("Torrent: " + session.streamPeers + " peers, " + root.formatRate(session.streamRate))
                 if (session.subtitleDelay !== 0) lines.push("Subtitle delay: " + root.signedMs(session.subtitleDelay))
                 if (session.audioDelay !== 0) lines.push("Audio delay: " + root.signedMs(session.audioDelay))
                 return lines.join("\n")
@@ -419,6 +511,7 @@ Window {
                     "Space", "Play / pause",               "← →", "Seek (hold to go faster)",
                     "↑ ↓", "Volume",                        "M", "Mute",
                     "F", "Full screen",                     "O", "Open a file",
+                    "U", "Open a link (magnet, web)",       "Ctrl+V", "Open the copied link",
                     "[ ]", "Slower / faster",               "Backspace", "Normal speed",
                     "J", "Next subtitle track",             "Y", "Next audio track",
                     "Z X", "Subtitle delay −/+",            "Shift+Z X", "Audio delay −/+",

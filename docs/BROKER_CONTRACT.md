@@ -6,7 +6,8 @@ The broker turns one file inside a torrent into bytes that a reader can read at 
 
 `open(request)` takes a magnet link, a 40-character info hash or a path to a `.torrent` file, plus an optional file index and the video's duration if known.
 
-- If the torrent is new, it is added. If it is already loaded, the same torrent is reused and any peers in the new magnet link are added to it.
+- If the torrent is new, it is added. If it is already loaded, the same torrent is reused and any peers and trackers in the new magnet link are added to it. A torrent that had an error (a full disk, say) clears it and tries again.
+- Torrents are named by their v1 info hash when they have one (the hash in a magnet link's `btih`), so callers can find them by it.
 - The call blocks until the file list (metadata) arrives, the metadata timeout passes (60 s by default), or the caller's cancel check returns true. The file list is saved in the cache, so a torrent watched before opens without waiting for peers.
 - File index -1 picks the largest file.
 - The result is a handle. Each handle is one reader with its own position. Several handles can be open on one file, or on different files of one torrent.
@@ -35,13 +36,21 @@ Deadlines are refreshed every second, since libtorrent counts them from the mome
 
 ## Cache
 
-Each torrent lives in its own folder under the cache folder, named by its info hash. After every open and close, the broker adds up the disk space the cache really uses (sparse files count only the parts written). While that is over the cap (10 GB by default), it deletes whole torrents, least recently used first. A torrent with an open handle is never deleted.
+Each torrent lives in its own folder under the cache folder, named by its info hash. After every open and close, and once a minute while anything plays, the broker adds up the disk space the cache really uses (sparse files count only the parts written). While that is over the cap, it deletes whole torrents, least recently used first. A torrent with an open handle is never deleted, and neither is the one being opened.
+
+The cap is 10 GB by default, and smaller when the disk is short of space: the cache always leaves 2 GB free.
 
 The plan asked for least recently used pieces. libtorrent cannot forget single pieces it has verified, so the unit of eviction is the torrent. Because only watched parts of a file download, a torrent's folder holds roughly what was watched plus the read-ahead.
 
 ## Stats
 
-`stats()` on a handle gives the state (finding peers, fetching the file list, buffering, ready), peers, seeds, download and upload speed, and how many bytes and seconds are verified in a row from the reader's position.
+`stats()` on a handle gives the state (finding peers, fetching the file list, buffering, stalled, ready), peers, seeds, download and upload speed, how many bytes and seconds are verified in a row from the reader's position, and while buffering, how much of the piece the reader waits for has arrived.
+
+Stalled means buffering with no new piece for 10 seconds. The broker keeps trying: when a torrent someone is reading has had no peers for 15 seconds, it asks the trackers and the DHT again.
+
+`torrentStats(infoHash)` gives the same for a torrent that is still opening, before there is a handle.
+
+Piece data handed to readers is kept in memory up to 64 MB per torrent, so pieces of 16 MB and more (common in 4K torrents) do not use hundreds of MB.
 
 ## Settings
 

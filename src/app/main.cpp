@@ -7,6 +7,7 @@
 #include "MpvVideoItem.h"
 #include "Session.h"
 #include "SleepBlocker.h"
+#include "TorrentTransport.h"
 
 #include <QCommandLineParser>
 #include <QDir>
@@ -60,6 +61,11 @@ int main(int argc, char* argv[])
     if (const QString crash = cj::crash::takePreviousReport(paths.logs); !crash.isEmpty())
         qCWarning(lcApp).noquote() << "Previous run crashed:" << crash;
 
+    // Torrents reach mpv through this; it must outlive mpv, so it comes first.
+    cj::BrokerSettings brokerSettings;
+    brokerSettings.cacheDir = QDir(paths.cache).filePath(QStringLiteral("torrents"));
+    cj::TorrentTransport torrents(brokerSettings);
+
     // Rule 3: one mpv instance for the whole app, reused for every item.
     std::unique_ptr<cj::MpvTarget> target;
     try {
@@ -71,6 +77,21 @@ int main(int argc, char* argv[])
 
     // The UI talks only to the Session (rule 1).
     cj::Session session(target.get());
+
+    if (torrents.registerWith(target->handle())) {
+        session.addSourceResolver([&](const QString& input) { return torrents.resolve(input); });
+        QObject::connect(&session, &cj::Session::sourceChanged, &torrents, [&] {
+            torrents.setCurrent(session.source());
+        });
+        QObject::connect(&session, &cj::Session::stateChanged, &torrents, [&] {
+            if (session.state() == cj::PlaybackState::Idle)
+                torrents.setCurrent({});
+        });
+        QObject::connect(&session, &cj::Session::durationChanged, &torrents, [&] {
+            torrents.setDuration(session.duration());
+        });
+        QObject::connect(&torrents, &cj::TorrentTransport::statusChanged, &session, &cj::Session::setStreamStatus);
+    }
 
     QSettings settings;
     session.setHardwareDecoding(settings.value(QStringLiteral("playback/hwdec"), true).toBool());
@@ -140,6 +161,10 @@ int main(int argc, char* argv[])
             QCoreApplication::quit();
         });
     }
+
+    // mpv waits for its streams when it shuts down; a torrent still looking
+    // for peers must not hold that up.
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, &torrents, &cj::TorrentTransport::abort);
 
     const int code = app.exec();
     qCInfo(lcApp) << "Exiting with code" << code;

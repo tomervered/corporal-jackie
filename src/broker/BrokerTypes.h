@@ -40,6 +40,7 @@ enum class StreamState {
     FetchingMetadata,  // peers found, waiting for the file list
     Buffering,         // the bytes at the read position are not here yet
     Ready,             // the bytes at the read position are here
+    Stalled,           // buffering, and no new data for 10 s (peers lost?); it keeps trying
 };
 
 struct StreamStats
@@ -51,6 +52,7 @@ struct StreamStats
     qint64 uploadRate = 0;        // bytes/s
     qint64 bufferedBytes = 0;     // verified bytes in a row from the read position
     double bufferedSeconds = 0;   // the same, at the file's bitrate
+    int waitingPercent = 0;       // while buffering: how much of the piece at the read position is here
 };
 
 // Bytes per second assumed when the duration is not known yet (about 12 Mbit/s).
