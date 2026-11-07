@@ -24,7 +24,7 @@ jobs:
         with:
           msystem: UCRT64
           update: true
-          install: git
+          install: git make diffutils
           # mpv is built by packaging/windows/build-mpv.sh (playback only);
           # these are its dependencies.
           pacboy: >-
