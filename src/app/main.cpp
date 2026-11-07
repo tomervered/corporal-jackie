@@ -3,8 +3,9 @@
 #include "CrashHandler.h"
 #include "DependencyInfo.h"
 #include "Logging.h"
-#include "MpvPlayer.h"
+#include "MpvTarget.h"
 #include "MpvVideoItem.h"
+#include "Session.h"
 #include "SleepBlocker.h"
 
 #include <QCommandLineParser>
@@ -60,29 +61,40 @@ int main(int argc, char* argv[])
         qCWarning(lcApp).noquote() << "Previous run crashed:" << crash;
 
     // Rule 3: one mpv instance for the whole app, reused for every item.
-    std::unique_ptr<cj::MpvPlayer> player;
+    std::unique_ptr<cj::MpvTarget> target;
     try {
-        player = std::make_unique<cj::MpvPlayer>();
+        target = std::make_unique<cj::MpvTarget>();
     } catch (const std::exception& e) {
         qCCritical(lcTargets) << "Could not start mpv:" << e.what();
         return 1;
     }
 
+    // The UI talks only to the Session (rule 1).
+    cj::Session session(target.get());
+
     QSettings settings;
-    player->setHwdecEnabled(settings.value(QStringLiteral("playback/hwdec"), true).toBool());
-    QObject::connect(player.get(), &cj::MpvPlayer::hwdecEnabledChanged, &app, [&] {
-        QSettings().setValue(QStringLiteral("playback/hwdec"), player->hwdecEnabled());
+    session.setHardwareDecoding(settings.value(QStringLiteral("playback/hwdec"), true).toBool());
+    QObject::connect(&session, &cj::Session::hardwareDecodingChanged, &app, [&] {
+        QSettings().setValue(QStringLiteral("playback/hwdec"), session.hardwareDecoding());
+    });
+
+    // Resume points are saved to the library in Step 6; for now they are logged.
+    QObject::connect(&session, &cj::Session::resumePoint, &app,
+                     [](const cj::PlayableSource& source, double position, double duration) {
+        qCDebug(lcSession).noquote() << "Resume point" << source.url.toDisplayString() << position << "/" << duration;
     });
 
     cj::SleepBlocker sleepBlocker;
-    const auto updateSleep = [&] { sleepBlocker.setActive(player->fileLoaded() && !player->paused()); };
-    QObject::connect(player.get(), &cj::MpvPlayer::pausedChanged, &app, updateSleep);
-    QObject::connect(player.get(), &cj::MpvPlayer::fileLoadedChanged, &app, updateSleep);
+    QObject::connect(&session, &cj::Session::stateChanged, &app, [&] {
+        sleepBlocker.setActive(session.state() == cj::PlaybackState::Playing);
+    });
 
     cj::MpvVideoItem::useOpenGL();
-    qmlRegisterType<cj::MpvVideoItem>("CorporalJackie.Video", 1, 0, "MpvVideo");
-    qmlRegisterUncreatableType<cj::MpvPlayer>("CorporalJackie.Video", 1, 0, "MpvPlayer",
-                                              QStringLiteral("Use the app's player"));
+    qmlRegisterType<cj::MpvVideoItem>("CorporalJackie", 1, 0, "VideoSurface");
+    qmlRegisterUncreatableType<cj::Session>("CorporalJackie", 1, 0, "Session",
+                                            QStringLiteral("Use the app's session"));
+    qmlRegisterUncreatableMetaObject(cj::staticMetaObject, "CorporalJackie", 1, 0, "Playback",
+                                     QStringLiteral("Enums only"));
 
     QQmlApplicationEngine engine;
     // Packaged builds keep Qt's QML modules in a "qml" folder next to the app.
@@ -92,7 +104,7 @@ int main(int argc, char* argv[])
         engine.addImportPath(bundled);
     engine.rootContext()->setContextProperty(QStringLiteral("appVersion"),
                                              QString::fromLatin1(cj::app::kVersion));
-    engine.rootContext()->setContextProperty(QStringLiteral("player"), player.get());
+    engine.rootContext()->setContextProperty(QStringLiteral("session"), &session);
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
     engine.load(QUrl(QStringLiteral("qrc:/CorporalJackie/Main.qml")));
@@ -112,15 +124,15 @@ int main(int argc, char* argv[])
 #endif
 
     if (const QStringList files = args.positionalArguments(); !files.isEmpty())
-        player->openPath(files.first());
+        session.openPath(files.first());
 
     if (args.isSet(smokeTest)) {
         // With a file, the smoke test also checks that it loads and plays.
         const bool withFile = !args.positionalArguments().isEmpty();
         QTimer::singleShot(withFile ? 4000 : 1000, &app, [&] {
-            if (withFile && !(player->fileLoaded() && player->position() > 0.5)) {
-                qCCritical(lcApp) << "Smoke test failed: file did not play (loaded:"
-                                  << player->fileLoaded() << "position:" << player->position() << ")";
+            if (withFile && !(session.hasMedia() && session.position() > 0.5)) {
+                qCCritical(lcApp) << "Smoke test failed: file did not play (state:"
+                                  << session.state() << "position:" << session.position() << ")";
                 QCoreApplication::exit(2);
                 return;
             }

@@ -1,3 +1,4 @@
 add_subdirectory(common)
+add_subdirectory(session)
 add_subdirectory(targets)
 add_subdirectory(app)
