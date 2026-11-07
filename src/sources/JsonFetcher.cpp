@@ -56,8 +56,9 @@ void JsonFetcher::get(const QUrl& url, Done done)
             error = QStringLiteral("the answer was too large");
         else if (reply->property("cjAborted").toBool())
             error = QStringLiteral("cancelled");
-        else if (reply->error() == QNetworkReply::OperationCanceledError)
-            error = QStringLiteral("timed out");  // transfer timeouts arrive as cancels
+        else if (reply->error() == QNetworkReply::OperationCanceledError
+                 || reply->error() == QNetworkReply::TimeoutError)
+            error = QStringLiteral("timed out");  // a transfer timeout, as a cancel or a timeout by Qt version
         else if (status >= 400)
             error = QStringLiteral("HTTP %1").arg(status);
         else if (reply->error() != QNetworkReply::NoError)

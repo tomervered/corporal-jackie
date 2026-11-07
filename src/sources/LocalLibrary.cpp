@@ -140,7 +140,8 @@ LocalLibrary::ScanResult LocalLibrary::scan(const QStringList& folders, const st
                 return r;
             it.next();
             const QFileInfo info = it.fileInfo();
-            if (info.fileName().startsWith(QLatin1Char('.')))
+            // Nothing inside hidden folders either (".git", ".Trash").
+            if (info.filePath().mid(folder.size()).contains(QLatin1String("/.")))
                 continue;
             if (info.isDir()) {
                 if (info.filePath().count(QLatin1Char('/')) - baseDepth <= kMaxDepth && r.dirs.size() < kMaxWatchedDirs)
