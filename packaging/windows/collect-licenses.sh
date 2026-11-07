@@ -52,7 +52,14 @@ for p in $pkgs; do
     files=$(pacman -Qlq "$p" | grep -v '/$' \
         | grep -E '/share/licenses/|/share/doc/[^/]+/(COPYING|LICEN[CS]E|COPYRIGHT|NOTICE)[^/]*$' || true)
     if [ -z "$files" ]; then
-        missing="$missing $name"
+        # A few packages ship no license file; packaging/licenses has them.
+        fallback="$ROOT/packaging/licenses/$name"
+        case $name in qt*) fallback="$ROOT/packaging/licenses/qt" ;; esac
+        if [ -d "$fallback" ]; then
+            mkdir -p "$LIC/$name" && cp "$fallback"/* "$LIC/$name/"
+        else
+            missing="$missing $name"
+        fi
         continue
     fi
     mkdir -p "$LIC/$name"
@@ -82,5 +89,6 @@ done
 echo "License folders: $(ls "$LIC" | wc -l)"
 ls "$LIC" | tr '\n' ' '; echo
 if [ -n "$missing" ]; then
-    echo "::warning::No license files found in these MSYS2 packages:$missing"
+    echo "::error::No license files found in these MSYS2 packages:$missing"
+    exit 1
 fi

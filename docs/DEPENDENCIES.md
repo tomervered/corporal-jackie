@@ -37,7 +37,7 @@ Not used, though the build plan named it: KDE MpvQt. Step 1 wrote its own bridge
 
 ## Notices in the packages
 
-CI adds three things to each package: `THIRD_PARTY_NOTICES.txt` (from `packaging/`), a `licenses` folder with the license files of every library in the package, and `SOURCE.txt` with the exact versions and where to get their source. `packaging/windows/collect-licenses.sh` finds the MSYS2 package behind each shipped DLL and fetches the license files of FFmpeg, libplacebo and mpv at the tags `build-mpv.sh` builds. `packaging/macos/collect-licenses.sh` does the same for the Homebrew formulae behind each bundled library. When a dependency with a new license joins, add it to `THIRD_PARTY_NOTICES.txt` too.
+CI adds three things to each package: `THIRD_PARTY_NOTICES.txt` (from `packaging/`), a `licenses` folder with the license files of every library in the package, and `SOURCE.txt` with the exact versions and where to get their source. `packaging/windows/collect-licenses.sh` finds the MSYS2 package behind each shipped DLL and fetches the license files of FFmpeg, libplacebo and mpv at the tags `build-mpv.sh` builds. `packaging/macos/collect-licenses.sh` does the same for the Homebrew formulae behind each bundled library. A few packages ship no license file (MSYS2's ICU and libass, Homebrew's Qt and GLib); `packaging/licenses` holds theirs, taken from upstream. The Package step fails when a shipped library has no license file at all. When a dependency with a new license joins, add it to `THIRD_PARTY_NOTICES.txt` too.
 
 ## Version pinning
 
