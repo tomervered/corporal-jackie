@@ -1,6 +1,6 @@
 #pragma once
 // Reads quality, size and seeders out of an add-on's free-text stream labels
-// ("Torrentio\n4k HDR", "👤 41 💾 15.2 GB"), and orders stream choices.
+// ("Example\n4k HDR", "👤 41 💾 15.2 GB"), and orders stream choices.
 
 #include "SourceTypes.h"
 

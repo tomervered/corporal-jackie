@@ -68,7 +68,7 @@ ParsedName parseTitle(const QString& text)
     QString s = spaced(text);
     s.remove(kLeadingTag);
     int cut = s.size();
-    // The last year that leaves a title in front ("2001 A Space Odyssey 1968").
+    // The last year that leaves a title in front ("1984 Garden Tour 2010").
     auto years = kYear.globalMatch(s);
     while (years.hasNext()) {
         const auto m = years.next();

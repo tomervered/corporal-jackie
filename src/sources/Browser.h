@@ -100,7 +100,7 @@ signals:
     void itemsChanged();
     void detailChanged();
     void streamsChanged();
-    // Short messages for the panel: "Torrentio installed", "Not an add-on link".
+    // Short messages for the panel: "Example installed", "Not an add-on link".
     void notice(const QString& text, bool isError);
     // A choice was handed to the Session.
     void playStarted(const QString& title);

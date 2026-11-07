@@ -30,7 +30,7 @@ Every request is bounded (`JsonFetcher`): 15 s timeout, 8 MB answer limit, JSON 
 
 `LocalLibrary` keeps its folder list in `local-folders.json`. Scans run on a pool thread, skip hidden folders, samples and trailers, and stop at 50,000 videos and 8 levels deep. A `QFileSystemWatcher` on the scanned folders (at most 2,000) starts a new scan 2 s after a change.
 
-`LocalNames` reads names the way release groups and people write them: `The.Matrix.1999.1080p.BluRay.mkv`, `Show.S01E02.Title.mkv`, `Show 2x05`, `Show/Season 2/03 - Title.mkv`. Episodes are grouped into one show per title. Subtitle files belong to a video when they sit next to it and their name starts with the video's name (`Movie.en.srt`), or sit in a `Subs/<video name>/` folder, or loose in `Subs/` when the folder has one video. The text after the video's name gives the language.
+`LocalNames` reads the common naming styles: `Nosferatu.1922.1080p.BluRay.mkv`, `Show.S01E02.Title.mkv`, `Show 2x05`, `Show/Season 2/03 - Title.mkv`. Episodes are grouped into one show per title. Subtitle files belong to a video when they sit next to it and their name starts with the video's name (`Movie.en.srt`), or sit in a `Subs/<video name>/` folder, or loose in `Subs/` when the folder has one video. The text after the video's name gives the language.
 
 A local stream id is `local:<path>`, and only paths from the last scan are played.
 

@@ -27,7 +27,7 @@ struct MetaPreview
 {
     QString adapter;
     QString provider;
-    QString id;         // e.g. "tt0111161" or "local:/path/to/file.mkv"
+    QString id;         // e.g. "tt1234567" or "local:/path/to/file.mkv"
     QString type;
     QString name;
     QString poster;     // image URL, may be empty
@@ -38,7 +38,7 @@ struct MetaPreview
 // An episode of a series, or the single "video" of a movie.
 struct VideoEntry
 {
-    QString id;         // what streams are requested for, e.g. "tt0944947:1:1"
+    QString id;         // what streams are requested for, e.g. "tt1234567:1:1"
     QString title;
     int season = 0;     // 0 when not a series episode
     int episode = 0;
@@ -59,7 +59,7 @@ struct StreamOption
 {
     PlayableSource source;
     QString providerName;  // the add-on's name, or "This computer"
-    QString name;          // the add-on's short label, e.g. "Torrentio 4K"
+    QString name;          // the add-on's short label, e.g. "Example 4K"
     QString description;   // the add-on's details line(s)
     int quality = 0;       // vertical resolution: 2160, 1080, 720, 480; 0 = unknown
     qint64 sizeBytes = -1;
