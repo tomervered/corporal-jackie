@@ -13,7 +13,7 @@ jobs:
   windows:
     name: Windows (MSYS2 UCRT64)
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 90
     defaults:
       run:
         shell: msys2 {0}
@@ -24,13 +24,30 @@ jobs:
         with:
           msystem: UCRT64
           update: true
+          install: git
+          # mpv is built by packaging/windows/build-mpv.sh (playback only);
+          # these are its dependencies.
           pacboy: >-
-            toolchain:p cmake:p ninja:p pkgconf:p
+            toolchain:p cmake:p ninja:p pkgconf:p meson:p nasm:p
             qt6-base:p qt6-declarative:p qt6-tools:p
-            mpv:p libtorrent-rasterbar:p sqlite3:p mesa:p
+            libtorrent-rasterbar:p sqlite3:p mesa:p
+            dav1d:p mbedtls:p libass:p lcms2:p uchardet:p zimg:p libdovi:p libiconv:p
+
+      - name: Cache the mpv build
+        uses: actions/cache@v4
+        with:
+          path: .deps
+          key: mpv-${{ runner.os }}-${{ hashFiles('packaging/windows/build-mpv.sh') }}
+
+      - name: Build FFmpeg, libplacebo and mpv (playback only)
+        timeout-minutes: 40
+        run: packaging/windows/build-mpv.sh "$(cygpath -u "$GITHUB_WORKSPACE")/.deps"
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: |
+          DEPS="$(cygpath -u "$GITHUB_WORKSPACE")/.deps"
+          export PATH="$DEPS/bin:$PATH" PKG_CONFIG_PATH="$DEPS/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(cygpath -m "$DEPS")"
 
       - name: Build
         run: cmake --build build
@@ -38,17 +55,22 @@ jobs:
       - name: Test
         env:
           QT_QPA_PLATFORM: offscreen
-        run: ctest --test-dir build --output-on-failure
+        run: |
+          export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
+          ctest --test-dir build --output-on-failure
 
       - name: Smoke test
         env:
           QT_QPA_PLATFORM: offscreen
-        run: ./build/src/app/CorporalJackie.exe --smoke-test
+        run: |
+          export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
+          ./build/src/app/CorporalJackie.exe --smoke-test
 
       # The shipped folder: the small launcher and the license at the top, and
       # the real app with all its DLLs, plugins and QML in app\.
       - name: Package
         run: |
+          export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
           rm -rf dist && mkdir -p dist/app
           cp build/src/app/CorporalJackie.exe dist/app/
           WDQ=$(command -v windeployqt6 || command -v windeployqt-qt6 || command -v windeployqt)
@@ -61,9 +83,10 @@ jobs:
             rm -f dist/app/Qt6QuickControls2${style}.dll dist/app/Qt6QuickControls2${style}StyleImpl.dll
           done
           rm -rf dist/app/qml/QtQuick/NativeStyle dist/app/Qt6QuickNativeStyle.dll
-          # Copy every MSYS2 DLL the app and its Qt plugins need (mpv, FFmpeg, libtorrent...).
+          # Copy every DLL the app and its Qt plugins need: our mpv build, and
+          # MSYS2's Qt, libtorrent and the rest.
           for f in dist/app/CorporalJackie.exe $(find dist/app -name '*.dll'); do
-            ldd "$f" | awk '/\/ucrt64\// {print $3}'
+            ldd "$f" | awk '/\/ucrt64\/|\/\.deps\// {print $3}'
           done | sort -u | xargs -r -I{} cp -n {} dist/app/
           # Point Qt at the bundled plugins and QML modules instead of /ucrt64.
           printf '[Paths]\nPrefix = .\nPlugins = .\nQmlImports = qml\n' > dist/app/qt.conf
