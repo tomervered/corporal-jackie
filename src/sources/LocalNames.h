@@ -1,7 +1,7 @@
 #pragma once
-// Reads what a video file is from its name and folders, the way people and
-// release groups name them:
-//   "The.Matrix.1999.1080p.BluRay.x264.mkv"        -> The Matrix (1999)
+// Reads what a video file is from its name and folders, in the common naming
+// styles:
+//   "Nosferatu.1922.1080p.BluRay.x264.mkv"         -> Nosferatu (1922)
 //   "Show.Name.S01E02.Episode.Title.720p.mkv"      -> Show Name, 1x2
 //   "Show Name/Season 2/03 - Title.mkv"            -> Show Name, 2x3
 // And finds subtitle files that belong to a video: next to it with the same

@@ -8,6 +8,8 @@ Built with C++20, Qt 6/QML, libmpv, libtorrent-rasterbar and SQLite. Windows and
 
 Press B (or "Browse…") to browse. Discover lists the catalogs of your add-ons and your folders; pick an item, then an episode, then one of the ways to play it, best first. Add-ons installs an add-on from its link (ending in `manifest.json`); Cinemeta comes installed and gives catalogs and details, but streams need a stream add-on. Your folders adds folders with videos; new files show up on their own, and subtitle files next to a video load with it. How it works: [src/sources/README.md](src/sources/README.md).
 
+Corporal Jackie comes with no streams of its own. Use it only for videos you have the right to watch and share. While a torrent plays, the app also uploads it to other peers, and they can see your IP address.
+
 To play a torrent, press U (or "Open a link…") and paste a magnet link, press Ctrl+V with one copied, drop it on the window, or pass it on the command line. While it loads, the window says what it is doing: looking for peers, getting the file list, buffering with a percentage, or waiting for peers when the swarm goes quiet.
 
 ## Using it
@@ -97,7 +99,7 @@ ctest --test-dir build --output-on-failure
 
 Every push builds Windows and macOS packages. Open the latest run under **Actions**, and download `CorporalJackie-windows-x64` or `CorporalJackie-macos-arm64` from its Artifacts section.
 
-The Windows folder holds `CorporalJackie.exe` (start this one), `LICENSE.txt` and an `app` folder with the real program and everything it needs. Keep `app` next to the exe. The top `CorporalJackie.exe` is a small launcher, because Windows only finds a program's DLLs when they sit next to it.
+The Windows folder holds `CorporalJackie.exe` (start this one), the license files and an `app` folder with the real program and everything it needs. Keep `app` next to the exe. The top `CorporalJackie.exe` is a small launcher, because Windows only finds a program's DLLs when they sit next to it.
 
 The builds are not signed yet. On macOS, right-click the app and choose **Open** the first time. On Windows, choose **More info → Run anyway** if SmartScreen asks.
 
@@ -110,3 +112,5 @@ Logs are written to the `logs` folder inside the app's data folder (for example 
 ## License
 
 GPL-3.0-or-later. See [LICENSE](LICENSE) and [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md).
+
+Each package also holds `THIRD_PARTY_NOTICES.txt`, a `licenses` folder with the license files of every library it ships, and `SOURCE.txt`, which links the exact source of the build and of each library.
