@@ -62,6 +62,18 @@ jobs:
           name: CorporalJackie-windows-x64
           path: dist/
 
+      # Runs the packaged app the way a user would: outside MSYS2, with only
+      # Windows' own folders on PATH, so a missing DLL or plugin fails here.
+      - name: Smoke test packaged app
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:SystemRoot\system32;$env:SystemRoot"
+          $p = Start-Process -FilePath dist\CorporalJackie.exe -ArgumentList '--smoke-test' -PassThru -Wait
+          $log = Join-Path $env:APPDATA 'Corporal Jackie\logs\corporal-jackie.log'
+          if (Test-Path $log) { Get-Content $log } else { Write-Host "No log file at $log" }
+          Write-Host "Exit code: $($p.ExitCode)"
+          exit $p.ExitCode
+
   macos:
     name: macOS (Apple silicon)
     runs-on: macos-15
