@@ -318,7 +318,10 @@ private slots:
         QVERIFY(lib.addFolder(videos.path()));
         QVERIFY(!lib.addFolder(videos.filePath("Movies")));  // inside a folder already there
         QVERIFY(changed.wait(10000));
-        QCOMPARE(lib.videos().size(), 5);
+        QStringList found;
+        for (const LocalVideo& v : lib.videos())
+            found << v.path;
+        QVERIFY2(lib.videos().size() == 5, qPrintable(found.join(", ")));
         QCOMPARE(lib.catalogs().size(), 2);
 
         Waiter<QList<MetaPreview>> movies;
