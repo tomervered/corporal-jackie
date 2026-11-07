@@ -38,6 +38,7 @@ struct Magnet
 {
     QString hash;  // lower-case hex, empty if none
     QString name;
+    int fileIndex = -1;  // "so" (select only, BEP 53): which file to play
 };
 
 Magnet parseMagnet(const QString& uri)
@@ -53,6 +54,11 @@ Magnet parseMagnet(const QString& uri)
                 m.hash = base32ToHex(h);
         } else if (key == QLatin1String("dn")) {
             m.name = QString(value).replace(QLatin1Char('+'), QLatin1Char(' '));
+        } else if (key == QLatin1String("so")) {
+            bool ok = false;
+            const int index = value.section(QLatin1Char(','), 0, 0).section(QLatin1Char('-'), 0, 0).toInt(&ok);
+            if (ok && index >= 0)
+                m.fileIndex = index;
         }
     }
     return m;
@@ -127,11 +133,12 @@ std::optional<PlayableSource> TorrentTransport::resolve(const QString& input)
 {
     const QString text = input.trimmed();
     QString hash, name;
+    int fileIndex = -1;
     if (text.startsWith(QLatin1String("torrent://"), Qt::CaseInsensitive)) {
         const QUrl url(text);
         if (infoHashOf(url).isEmpty())
             return std::nullopt;
-        return PlayableSource{url, url.host()};
+        return PlayableSource::fromUrl(url, url.host());
     }
     if (text.startsWith(QLatin1String("magnet:"), Qt::CaseInsensitive)) {
         const Magnet m = parseMagnet(text);
@@ -141,6 +148,7 @@ std::optional<PlayableSource> TorrentTransport::resolve(const QString& input)
         }
         hash = m.hash;
         name = m.name;
+        fileIndex = m.fileIndex;
     } else if (kHex40.match(text).hasMatch()) {
         hash = text.toLower();
     } else if (text.endsWith(QLatin1String(".torrent"), Qt::CaseInsensitive) && QFileInfo(text).isFile()) {
@@ -157,7 +165,7 @@ std::optional<PlayableSource> TorrentTransport::resolve(const QString& input)
         m_requests.insert(hash, text);
     }
     qCInfo(lcTransports).noquote() << "Torrent" << hash << (name.isEmpty() ? QString() : "(" + name + ")");
-    return PlayableSource{streamUrl(hash, -1), name.isEmpty() ? hash.left(12) : name};
+    return PlayableSource::fromUrl(streamUrl(hash, fileIndex), name.isEmpty() ? hash.left(12) : name);
 }
 
 void TorrentTransport::setCurrent(const QUrl& url)

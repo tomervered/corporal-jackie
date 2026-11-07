@@ -50,6 +50,7 @@ public:
     void setAudioTrack(int id) override { log("audioTrack", id); }
     void setSubtitleTrack(int id) override { log("subtitleTrack", id); }
     void addExternalSubtitle(const QUrl& u) override { log("addSubtitle", u.toString()); }
+    void addSubtitleTrack(const SubtitleSource& s) override { log("subtitleTrack+", s.url.toString(), s.language); }
     void setSpeed(double f) override { log("speed", f); }
     void setVolume(double v) override { log("volume", v); }
     void setMuted(bool m) override { log("muted", m); }

@@ -19,7 +19,7 @@ set(CJ_BUNDLE_ID       "com.tomervered.corporaljackie")
 
 option(CJ_BUILD_TESTS "Build the test suite" ON)
 
-find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Qml Quick)
+find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Network Qml Quick)
 include(Dependencies)   # libmpv, libtorrent-rasterbar, SQLite
 
 set(CMAKE_AUTOMOC ON)

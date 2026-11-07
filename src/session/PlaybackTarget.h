@@ -29,7 +29,13 @@ public:
     virtual void seek(double seconds) = 0;
     virtual void setAudioTrack(int id) = 0;
     virtual void setSubtitleTrack(int id) = 0;   // -1 = none
-    virtual void addExternalSubtitle(const QUrl& url) = 0;
+    virtual void addExternalSubtitle(const QUrl& url) = 0;  // added and shown
+    // Added as a track the user can pick. May be called while the item is
+    // still loading; the target keeps it until it can add it. Added during
+    // loading, the target's usual rules may show it (as players show a
+    // subtitle file found next to a video); added later, it is never
+    // switched on by itself.
+    virtual void addSubtitleTrack(const SubtitleSource& subtitle) = 0;
     virtual void setSpeed(double factor) = 0;
     virtual void setVolume(double volume) = 0;    // 0–100
     virtual void setMuted(bool muted) = 0;

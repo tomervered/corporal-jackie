@@ -69,10 +69,43 @@ struct StreamStatus {
     bool operator==(const StreamStatus&) const = default;
 };
 
-// Something a target can play. Source adapters (Step 5) produce these.
-struct PlayableSource {
+// A subtitle file that goes with a source: next to a local video, or from a
+// subtitle add-on.
+struct SubtitleSource {
     QUrl url;
+    QString language;       // as given: "en", "eng", "English"...
+    QString label;          // shown in the track menu; may be empty
+    bool operator==(const SubtitleSource&) const = default;
+};
+
+// The one record every source adapter produces (Step 5), so the Session never
+// cares where an item came from.
+struct PlayableSource {
+    enum class Kind { LocalFile, Http, Torrent };
+
+    QUrl url;               // file://, http(s)://, magnet: or torrent://
     QString title;          // shown in the UI; the target may report a better one
+    Kind kind = Kind::LocalFile;
+    QMap<QString, QString> headers;   // HTTP request headers the server needs
+    QList<SubtitleSource> subtitles;  // added as tracks, not selected
+    // Hints for a Cast target later; filled from add-on hints when known.
+    QString container;
+    QString videoCodec;
+    QString audioCodec;
+    QString adapter;        // which source adapter made it, e.g. "stremio:org.example"
+
+    // A source for a plain link or path: the kind follows from the URL.
+    static PlayableSource fromUrl(const QUrl& url, const QString& title)
+    {
+        PlayableSource s;
+        s.url = url;
+        s.title = title;
+        const QString scheme = url.scheme().toLower();
+        s.kind = url.isLocalFile() ? Kind::LocalFile
+               : (scheme == QLatin1String("magnet") || scheme == QLatin1String("torrent")) ? Kind::Torrent
+               : Kind::Http;
+        return s;
+    }
     bool operator==(const PlayableSource&) const = default;
 };
 
@@ -107,6 +140,7 @@ struct VideoEqualizer {
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(cj::Capabilities)
 Q_DECLARE_METATYPE(cj::PlayableSource)
+Q_DECLARE_METATYPE(cj::SubtitleSource)
 Q_DECLARE_METATYPE(cj::Track)
 Q_DECLARE_METATYPE(cj::Chapter)
 Q_DECLARE_METATYPE(cj::StreamStatus)

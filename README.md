@@ -4,7 +4,9 @@ A native desktop media player that browses Stremio add-on catalogs and local fil
 
 Built with C++20, Qt 6/QML, libmpv, libtorrent-rasterbar and SQLite. Windows and macOS first, Linux after.
 
-**Status:** Step 4 (torrents in the player). Plays local video files, magnet links, torrent info hashes and .torrent files. The interface talks only to the Session, which sends commands to the mpv target; the contract between them is in [docs/TARGET_CONTRACT.md](docs/TARGET_CONTRACT.md). Torrents reach mpv through a `torrent://` stream protocol backed by the stream broker, with no local HTTP server; the broker's contract is in [docs/BROKER_CONTRACT.md](docs/BROKER_CONTRACT.md) and the protocol is described in [src/transports/README.md](src/transports/README.md).
+**Status:** Step 5 (source adapters). Browses Stremio add-on catalogs and your own folders, and plays local video files, web links, magnet links, torrent info hashes and .torrent files. The interface talks only to the Session, which sends commands to the mpv target; the contract between them is in [docs/TARGET_CONTRACT.md](docs/TARGET_CONTRACT.md). Torrents reach mpv through a `torrent://` stream protocol backed by the stream broker, with no local HTTP server; the broker's contract is in [docs/BROKER_CONTRACT.md](docs/BROKER_CONTRACT.md) and the protocol is described in [src/transports/README.md](src/transports/README.md).
+
+Press B (or "Browse…") to browse. Discover lists the catalogs of your add-ons and your folders; pick an item, then an episode, then one of the ways to play it, best first. Add-ons installs an add-on from its link (ending in `manifest.json`); Cinemeta comes installed and gives catalogs and details, but streams need a stream add-on. Your folders adds folders with videos; new files show up on their own, and subtitle files next to a video load with it. How it works: [src/sources/README.md](src/sources/README.md).
 
 To play a torrent, press U (or "Open a link…") and paste a magnet link, press Ctrl+V with one copied, drop it on the window, or pass it on the command line. While it loads, the window says what it is doing: looking for peers, getting the file list, buffering with a percentage, or waiting for peers when the swarm goes quiet.
 
@@ -22,6 +24,7 @@ Open a file with the **Open** button, by dropping it on the window, or by passin
 | I | Debug overlay: decoder, codec, resolution, FPS, dropped frames |
 | H | Hardware decoding on/off (remembered) |
 | O | Open a file |
+| B | Browse add-ons and your folders |
 | U | Open a link (magnet link, info hash, web address) |
 | Ctrl+V | Open the copied link |
 | [ / ] , Backspace | Slower / faster, normal speed |

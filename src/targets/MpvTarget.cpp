@@ -234,6 +234,8 @@ void MpvTarget::load(const PlayableSource& source, double startSeconds)
                                                 : url.toString(QUrl::FullyEncoded).toUtf8();
     m_fileLoaded = false;
     m_eof = false;
+    m_headers = source.headers;
+    m_pendingSubtitles = source.subtitles;
     setState(PlaybackState::Loading);
     if (m_mode == Mode::Video && !m_renderReady) {
         qCInfo(lcTargets).noquote() << "Will open" << QString::fromUtf8(target) << "once video output is ready";
@@ -250,8 +252,34 @@ void MpvTarget::startLoad(const QByteArray& target, double startSeconds)
     // "start" applies to the next file loaded; reset it every time.
     mpv_set_property_string(m_mpv, "start", startSeconds > 0 ? number(startSeconds).constData() : "none");
     mpv_set_property_string(m_mpv, "pause", "no");
+    applyHeaders();
     ++m_loadsInFlight;
     command({"loadfile", target.constData(), "replace"});
+}
+
+// Some add-on streams need request headers (a referer, a token). They apply
+// to the next file only, so they are set, or cleared, before every load.
+void MpvTarget::applyHeaders()
+{
+    QByteArray userAgent = "libmpv";  // mpv's own default
+    std::vector<QByteArray> lines;
+    for (auto it = m_headers.cbegin(); it != m_headers.cend(); ++it) {
+        if (it.key().compare(QLatin1String("User-Agent"), Qt::CaseInsensitive) == 0)
+            userAgent = it.value().toUtf8();
+        else
+            lines.push_back((it.key() + QStringLiteral(": ") + it.value()).toUtf8());
+    }
+    std::vector<mpv_node> items(lines.size());
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        items[i].format = MPV_FORMAT_STRING;
+        items[i].u.string = lines[i].data();
+    }
+    mpv_node_list list{int(items.size()), items.data(), nullptr};
+    mpv_node node;
+    node.format = MPV_FORMAT_NODE_ARRAY;
+    node.u.list = &list;
+    mpv_set_property(m_mpv, "http-header-fields", MPV_FORMAT_NODE, &node);
+    mpv_set_property_string(m_mpv, "user-agent", userAgent.constData());
 }
 
 void MpvTarget::markRenderReady()
@@ -290,6 +318,24 @@ void MpvTarget::addExternalSubtitle(const QUrl& url)
 {
     const QByteArray path = url.isLocalFile() ? QFile::encodeName(url.toLocalFile()) : url.toString().toUtf8();
     command({"sub-add", path.constData(), "select"});
+}
+
+void MpvTarget::addSubtitleTrack(const SubtitleSource& subtitle)
+{
+    if (m_fileLoaded)
+        addSubtitleNow(subtitle);
+    else
+        m_pendingSubtitles.append(subtitle);
+}
+
+void MpvTarget::addSubtitleNow(const SubtitleSource& subtitle)
+{
+    const QByteArray path = subtitle.url.isLocalFile() ? QFile::encodeName(subtitle.url.toLocalFile())
+                                                       : subtitle.url.toString(QUrl::FullyEncoded).toUtf8();
+    const QByteArray title = (subtitle.label.isEmpty() ? subtitle.language : subtitle.label).toUtf8();
+    const QByteArray lang = subtitle.language.toUtf8();
+    // "auto": add it as a choice; mpv's own language rules pick what shows.
+    command({"sub-add", path.constData(), "auto", title.constData(), lang.constData()});
 }
 
 void MpvTarget::setSpeed(double factor)  { setProperty("speed", number(factor)); }
@@ -389,6 +435,8 @@ void MpvTarget::processEvents()
             qCInfo(lcTargets) << "File loaded";
             m_fileLoaded = true;
             m_eof = false;
+            for (const SubtitleSource& sub : std::exchange(m_pendingSubtitles, {}))
+                addSubtitleNow(sub);
             applyCrop();
             updateState();
             break;
