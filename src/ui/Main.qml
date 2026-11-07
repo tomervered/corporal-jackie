@@ -2,8 +2,10 @@ import QtQuick
 import QtQuick.Window
 import QtQuick.Controls.Basic
 import QtQuick.Dialogs
-import CorporalJackie.Video
+import CorporalJackie
 
+// The main window. It binds only to `session` (the Playback Session) and never
+// to the player behind it, so a Cast target can replace it later.
 Window {
     id: root
     width: 1280
@@ -12,36 +14,19 @@ Window {
     minimumHeight: 360
     visible: true
     color: "black"
-    title: player.fileLoaded && player.title !== "" ? player.title + " — Corporal Jackie" : "Corporal Jackie"
+    title: session.hasMedia && session.title !== "" ? session.title + " — Corporal Jackie" : "Corporal Jackie"
 
     readonly property color textColor: "#f2f2f5"
     readonly property color mutedText: "#9a9aa6"
     readonly property color accent: "#e8b04b"
+    readonly property color panel: "#e01a1a20"
     property bool controlsVisible: true
     property bool statsVisible: false
+    property bool helpVisible: false
     property string errorText: ""
+    property string osdText: ""
 
-    // Arrow-key seeking: a tap jumps 10 s. Holding keeps jumping every 250 ms,
-    // further the longer it is held: 10 s steps, then 30 s, then 60 s.
-    property int seekSteps: 0
-    property real seekTotal: 0
-    property real lastSeekAt: 0
-
-    function arrowSeek(direction, isAutoRepeat) {
-        if (!player.fileLoaded) return
-        if (!isAutoRepeat) {
-            seekSteps = 0
-            seekTotal = 0
-        } else if (Date.now() - lastSeekAt < 250) {
-            return
-        }
-        const step = seekSteps < 5 ? 10 : seekSteps < 12 ? 30 : 60
-        seekSteps++
-        lastSeekAt = Date.now()
-        seekTotal += direction * step
-        player.seekRelative(direction * step)
-        seekToastTimer.restart()
-    }
+    // --- Helpers -----------------------------------------------------------
 
     function formatTime(seconds) {
         if (!isFinite(seconds) || seconds < 0) seconds = 0
@@ -50,16 +35,14 @@ Window {
         return h > 0 ? h + ":" + pad(m) + ":" + pad(s) : m + ":" + pad(s)
     }
 
-    component BarButton: ToolButton {
-        id: barButton
-        palette.buttonText: root.textColor
-        font.pixelSize: 16
-        implicitWidth: Math.max(36, implicitContentWidth + 16)
-        implicitHeight: 36
-        background: Rectangle {
-            radius: 6
-            color: barButton.down ? "#40ffffff" : barButton.hovered ? "#26ffffff" : "transparent"
-        }
+    function signedMs(seconds) {
+        const ms = Math.round(seconds * 1000)
+        return (ms > 0 ? "+" : "") + ms + " ms"
+    }
+
+    function osd(text) {
+        root.osdText = text
+        osdTimer.restart()
     }
 
     function toggleFullscreen() {
@@ -71,64 +54,191 @@ Window {
         hideTimer.restart()
     }
 
+    function cycleTrack(tracks, current, allowOff) {
+        const ids = tracks.map(t => t.id)
+        if (allowOff) ids.push(-1)
+        if (ids.length === 0) return undefined
+        const i = ids.indexOf(current)
+        return ids[(i + 1) % ids.length]
+    }
+
+    function trackLabel(tracks, id) {
+        if (id < 0) return "Off"
+        const t = tracks.find(t => t.id === id)
+        return t ? t.label : "Track " + id
+    }
+
+    // Arrow-key seeking: a tap jumps 10 s. Holding keeps jumping every 250 ms,
+    // further the longer it is held: 10 s steps, then 30 s, then 60 s.
+    property int seekSteps: 0
+    property real seekTotal: 0
+    property real lastSeekAt: 0
+
+    function arrowSeek(direction, isAutoRepeat) {
+        if (!session.hasMedia) return
+        if (!isAutoRepeat) {
+            seekSteps = 0
+            seekTotal = 0
+        } else if (Date.now() - lastSeekAt < 250) {
+            return
+        }
+        const step = seekSteps < 5 ? 10 : seekSteps < 12 ? 30 : 60
+        seekSteps++
+        lastSeekAt = Date.now()
+        seekTotal += direction * step
+        session.seekRelative(direction * step)
+        seekToastTimer.restart()
+    }
+
+    // name: brightness, contrast, saturation, gamma, hue
+    function nudgeEqualizer(name, delta) {
+        if (!session.supports("VideoEqualizer")) return
+        session.setEqualizer(name, session[name] + delta)
+        osd(name.charAt(0).toUpperCase() + name.slice(1) + " " + session[name])
+    }
+
+    component BarButton: ToolButton {
+        id: barButton
+        palette.buttonText: root.textColor
+        font.pixelSize: 13
+        implicitWidth: Math.max(36, implicitContentWidth + 16)
+        implicitHeight: 36
+        background: Rectangle {
+            radius: 6
+            color: barButton.down ? "#40ffffff" : barButton.hovered ? "#26ffffff" : "transparent"
+        }
+    }
+
+    // --- Session events ---------------------------------------------------
+
     Connections {
-        target: player
+        target: session
         function onErrorOccurred(error, message) {
-            root.errorText = error === MpvPlayer.UnsupportedFile
+            root.errorText = error === Playback.UnsupportedFile
                 ? "This file isn't a video or audio format the player understands."
-                : error === MpvPlayer.LoadFailed
+                : error === Playback.LoadFailed
                     ? "The file couldn't be opened. It may have moved, or it may be damaged."
-                    : "Something went wrong inside the player (" + message + "). The log has details."
+                    : error === Playback.TargetUnavailable
+                        ? "The playback device stopped responding."
+                        : "Something went wrong inside the player (" + message + "). The log has details."
             errorTimer.restart()
         }
-        function onFileLoadedChanged() { if (player.fileLoaded) root.errorText = "" }
+        function onStateChanged() { if (session.hasMedia) root.errorText = "" }
+        function onScreenshotSaved(path) { root.osd("Screenshot saved to Pictures › Corporal Jackie") }
     }
 
     Timer { id: errorTimer; interval: 8000; onTriggered: root.errorText = "" }
     Timer { id: seekToastTimer; interval: 900; onTriggered: root.seekTotal = 0 }
-
+    Timer { id: osdTimer; interval: 1600; onTriggered: root.osdText = "" }
     Timer {
         id: hideTimer
         interval: 2500
-        onTriggered: if (player.fileLoaded && !player.paused && !controlBar.hovered) root.controlsVisible = false
+        onTriggered: if (session.hasMedia && !session.paused && !controlBar.hovered && !moreMenu.visible) root.controlsVisible = false
     }
 
-    // The video. QML controls below are drawn on top of it.
-    // "player" inside MpvVideo would mean its own property, so go through root.
-    readonly property MpvPlayer appPlayer: player
+    // --- Video --------------------------------------------------------------
 
-    MpvVideo {
-        id: video
+    VideoSurface {
         anchors.fill: parent
-        player: root.appPlayer
+        playbackSession: session  // not "session:", which would bind to itself
     }
 
     FileDialog {
         id: openDialog
         title: "Open a video"
         nameFilters: ["Videos (*.mkv *.mp4 *.m4v *.avi *.mov *.webm *.ts *.m2ts *.wmv *.flv)", "All files (*)"]
-        onAccepted: player.open(selectedFile)
+        onAccepted: session.open(selectedFile)
     }
 
-    // Keyboard shortcuts and mouse activity
+    FileDialog {
+        id: subtitleDialog
+        title: "Load a subtitle file"
+        nameFilters: ["Subtitles (*.srt *.ass *.ssa *.vtt *.sub *.sup)", "All files (*)"]
+        onAccepted: session.addExternalSubtitle(selectedFile)
+    }
+
+    // --- Keyboard and mouse ------------------------------------------------
+
     Item {
         id: inputLayer
         anchors.fill: parent
         focus: true
 
         Keys.onPressed: event => {
+            const shift = event.modifiers & Qt.ShiftModifier
             switch (event.key) {
-            case Qt.Key_Space: case Qt.Key_K: player.togglePause(); break
+            case Qt.Key_Space: case Qt.Key_K: session.togglePause(); break
             case Qt.Key_Left:  root.arrowSeek(-1, event.isAutoRepeat); break
             case Qt.Key_Right: root.arrowSeek(1, event.isAutoRepeat); break
-            case Qt.Key_Up:    player.volume = Math.min(100, player.volume + 5); break
-            case Qt.Key_Down:  player.volume = Math.max(0, player.volume - 5); break
-            case Qt.Key_M:     player.muted = !player.muted; break
+            case Qt.Key_Up:    session.volume = Math.min(100, session.volume + 5); root.osd("Volume " + Math.round(session.volume)); break
+            case Qt.Key_Down:  session.volume = Math.max(0, session.volume - 5); root.osd("Volume " + Math.round(session.volume)); break
+            case Qt.Key_M:     session.muted = !session.muted; root.osd(session.muted ? "Muted" : "Sound on"); break
             case Qt.Key_F:     root.toggleFullscreen(); break
-            case Qt.Key_Escape: if (root.visibility === Window.FullScreen) root.visibility = Window.Windowed; break
+            case Qt.Key_Escape:
+                if (root.helpVisible) root.helpVisible = false
+                else if (root.visibility === Window.FullScreen) root.visibility = Window.Windowed
+                break
             case Qt.Key_I:     root.statsVisible = !root.statsVisible; break
-            case Qt.Key_H:     player.hwdecEnabled = !player.hwdecEnabled; break
+            case Qt.Key_H:
+                session.hardwareDecoding = !session.hardwareDecoding
+                root.osd("Hardware decoding " + (session.hardwareDecoding ? "on" : "off"))
+                break
             case Qt.Key_O:     openDialog.open(); break
+            case Qt.Key_Question: case Qt.Key_Slash: root.helpVisible = !root.helpVisible; break
+            // Speed
+            case Qt.Key_BracketLeft:  session.speed = session.speed - 0.25; root.osd("Speed " + session.speed + "×"); break
+            case Qt.Key_BracketRight: session.speed = session.speed + 0.25; root.osd("Speed " + session.speed + "×"); break
+            case Qt.Key_Backspace:    session.speed = 1; root.osd("Speed 1×"); break
+            // Tracks
+            case Qt.Key_J: {
+                const id = root.cycleTrack(session.subtitleTracks, session.subtitleTrack, true)
+                if (id !== undefined) { session.setSubtitleTrack(id); root.osd("Subtitles: " + root.trackLabel(session.subtitleTracks, id)) }
+                break
+            }
+            case Qt.Key_Y: {
+                const id = root.cycleTrack(session.audioTracks, session.audioTrack, false)
+                if (id !== undefined) { session.setAudioTrack(id); root.osd("Audio: " + root.trackLabel(session.audioTracks, id)) }
+                break
+            }
+            // Subtitle and audio sync (Shift = audio)
+            case Qt.Key_Z:
+                if (shift) { session.audioDelay = session.audioDelay - 0.1; root.osd("Audio delay " + root.signedMs(session.audioDelay)) }
+                else { session.subtitleDelay = session.subtitleDelay - 0.1; root.osd("Subtitle delay " + root.signedMs(session.subtitleDelay)) }
+                break
+            case Qt.Key_X:
+                if (shift) { session.audioDelay = session.audioDelay + 0.1; root.osd("Audio delay " + root.signedMs(session.audioDelay)) }
+                else { session.subtitleDelay = session.subtitleDelay + 0.1; root.osd("Subtitle delay " + root.signedMs(session.subtitleDelay)) }
+                break
+            case Qt.Key_G:
+                session.subtitleScale = session.subtitleScale + (shift ? -0.1 : 0.1)
+                root.osd("Subtitle size " + Math.round(session.subtitleScale * 100) + "%")
+                break
+            // Chapters, frames, screenshots, A-B
+            case Qt.Key_PageDown: session.nextChapter(); break
+            case Qt.Key_PageUp:   session.previousChapter(); break
+            case Qt.Key_Period:   session.frameStep(true); break
+            case Qt.Key_Comma:    session.frameStep(false); break
+            case Qt.Key_S:        session.screenshot(); break
+            case Qt.Key_L:
+                session.toggleAbLoop()
+                root.osd(session.abLoopA < 0 ? "A-B repeat off"
+                         : session.abLoopB < 0 ? "A-B repeat: start set at " + root.formatTime(session.abLoopA)
+                         : "A-B repeat " + root.formatTime(session.abLoopA) + " – " + root.formatTime(session.abLoopB))
+                break
+            // Picture
+            case Qt.Key_A: session.cycleAspectRatio(); root.osd("Aspect: " + (session.aspectRatio || "automatic")); break
+            case Qt.Key_C: session.cycleCrop(); root.osd("Crop: " + (session.crop || "none")); break
+            case Qt.Key_1: root.nudgeEqualizer("contrast", -5); break
+            case Qt.Key_2: root.nudgeEqualizer("contrast", 5); break
+            case Qt.Key_3: root.nudgeEqualizer("brightness", -5); break
+            case Qt.Key_4: root.nudgeEqualizer("brightness", 5); break
+            case Qt.Key_5: root.nudgeEqualizer("gamma", -5); break
+            case Qt.Key_6: root.nudgeEqualizer("gamma", 5); break
+            case Qt.Key_7: root.nudgeEqualizer("saturation", -5); break
+            case Qt.Key_8: root.nudgeEqualizer("saturation", 5); break
+            case Qt.Key_9: root.nudgeEqualizer("hue", -5); break
+            case Qt.Key_0: root.nudgeEqualizer("hue", 5); break
+            case Qt.Key_R: session.resetEqualizer(); root.osd("Picture reset"); break
             default: return
             }
             root.showControls()
@@ -138,23 +248,30 @@ Window {
         MouseArea {
             anchors.fill: parent
             hoverEnabled: true
-            cursorShape: root.controlsVisible || !player.fileLoaded ? Qt.ArrowCursor : Qt.BlankCursor
+            cursorShape: root.controlsVisible || !session.hasMedia ? Qt.ArrowCursor : Qt.BlankCursor
             onPositionChanged: root.showControls()
-            onClicked: { inputLayer.forceActiveFocus(); if (player.fileLoaded) player.togglePause() }
+            onClicked: { inputLayer.forceActiveFocus(); if (session.hasMedia) session.togglePause() }
             onDoubleClicked: root.toggleFullscreen()
         }
 
         DropArea {
             anchors.fill: parent
-            onDropped: drop => { if (drop.hasUrls) player.open(drop.urls[0]) }
+            onDropped: drop => {
+                if (!drop.hasUrls) return
+                const url = drop.urls[0].toString()
+                // A subtitle file dropped on a playing video is added to it.
+                if (session.hasMedia && /\.(srt|ass|ssa|vtt|sub|sup)$/i.test(url)) session.addExternalSubtitle(drop.urls[0])
+                else session.open(drop.urls[0])
+            }
         }
     }
 
-    // Empty state
+    // --- Empty state -------------------------------------------------------
+
     Column {
         anchors.centerIn: parent
         spacing: 12
-        visible: !player.fileLoaded
+        visible: !session.hasMedia
 
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
@@ -165,7 +282,7 @@ Window {
         }
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: "Drop a video here, or open one"
+            text: session.loading ? "Opening…" : "Drop a video here, or open one"
             color: root.mutedText
             font.pixelSize: 16
         }
@@ -176,11 +293,13 @@ Window {
         }
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: "Build " + appVersion
+            text: "Press ? for keyboard shortcuts · Build " + appVersion
             color: "#5c5c66"
             font.pixelSize: 12
         }
     }
+
+    // --- Overlays ------------------------------------------------------------
 
     // Seek indicator, e.g. "+40 s", while tapping or holding an arrow key
     Rectangle {
@@ -197,6 +316,40 @@ Window {
             color: root.textColor
             font.pixelSize: 28
             font.weight: Font.DemiBold
+        }
+    }
+
+    // Short messages for shortcuts, top centre
+    Rectangle {
+        anchors { top: parent.top; horizontalCenter: parent.horizontalCenter; topMargin: 24 }
+        visible: root.osdText !== "" && root.errorText === ""
+        width: osdLabel.implicitWidth + 28
+        height: osdLabel.implicitHeight + 14
+        radius: 8
+        color: "#b0000000"
+        Text {
+            id: osdLabel
+            anchors.centerIn: parent
+            text: root.osdText
+            color: root.textColor
+            font.pixelSize: 16
+        }
+    }
+
+    // Buffering
+    Rectangle {
+        anchors.centerIn: parent
+        visible: session.buffering && root.seekTotal === 0
+        width: bufferLabel.implicitWidth + 32
+        height: bufferLabel.implicitHeight + 18
+        radius: 10
+        color: "#a0000000"
+        Text {
+            id: bufferLabel
+            anchors.centerIn: parent
+            text: "Buffering… " + session.bufferPercent + "%"
+            color: root.textColor
+            font.pixelSize: 18
         }
     }
 
@@ -234,22 +387,66 @@ Window {
             color: root.textColor
             font.family: "monospace"
             font.pixelSize: 13
-            text: "Decoder:    " + (player.hwdecCurrent !== "" ? player.hwdecCurrent + " (hardware)" : "software")
-                  + "\nHW decode:  " + (player.hwdecEnabled ? "on" : "off") + "  (H to toggle)"
-                  + "\nCodec:      " + (player.videoCodec || "-")
-                  + "\nResolution: " + (player.videoWidth > 0 ? player.videoWidth + "×" + player.videoHeight : "-")
-                  + "\nFPS:        " + (player.fps > 0 ? player.fps.toFixed(2) : "-")
-                  + "\nDropped:    " + player.droppedFrames
+            text: {
+                let lines = ["Playing on: " + session.targetName]
+                for (const key in session.stats)
+                    lines.push(key + ": " + session.stats[key])
+                lines.push("Speed: " + session.speed + "×")
+                if (session.subtitleDelay !== 0) lines.push("Subtitle delay: " + root.signedMs(session.subtitleDelay))
+                if (session.audioDelay !== 0) lines.push("Audio delay: " + root.signedMs(session.audioDelay))
+                return lines.join("\n")
+            }
         }
     }
 
-    // Controls bar
+    // Keyboard shortcuts (press ?)
+    Rectangle {
+        anchors.centerIn: parent
+        visible: root.helpVisible
+        width: helpGrid.implicitWidth + 48
+        height: helpGrid.implicitHeight + 48
+        radius: 12
+        color: root.panel
+        border.color: "#30ffffff"
+        Grid {
+            id: helpGrid
+            anchors.centerIn: parent
+            columns: 4
+            columnSpacing: 16
+            rowSpacing: 6
+            Repeater {
+                model: [
+                    "Space", "Play / pause",               "← →", "Seek (hold to go faster)",
+                    "↑ ↓", "Volume",                        "M", "Mute",
+                    "F", "Full screen",                     "O", "Open a file",
+                    "[ ]", "Slower / faster",               "Backspace", "Normal speed",
+                    "J", "Next subtitle track",             "Y", "Next audio track",
+                    "Z X", "Subtitle delay −/+",            "Shift+Z X", "Audio delay −/+",
+                    "G", "Bigger subtitles (Shift: smaller)", "PgUp PgDn", "Previous / next chapter",
+                    ", .", "Frame back / forward",          "S", "Screenshot",
+                    "L", "A-B repeat",                      "A", "Aspect ratio",
+                    "C", "Crop",                            "1–0", "Contrast, brightness, gamma, saturation, hue",
+                    "R", "Reset picture",                   "I", "Debug overlay",
+                    "H", "Hardware decoding on/off",        "Esc", "Close / leave full screen",
+                ]
+                Text {
+                    text: modelData
+                    color: index % 2 === 0 ? root.accent : root.textColor
+                    font.pixelSize: 14
+                    font.weight: index % 2 === 0 ? Font.DemiBold : Font.Normal
+                }
+            }
+        }
+    }
+
+    // --- Controls bar ---------------------------------------------------------
+
     Rectangle {
         id: controlBar
         property bool hovered: barHover.hovered
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
         height: 64
-        visible: player.fileLoaded
+        visible: session.hasMedia
         opacity: root.controlsVisible ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: 200 } }
         gradient: Gradient {
@@ -263,12 +460,13 @@ Window {
             anchors { left: parent.left; leftMargin: 12; verticalCenter: parent.verticalCenter }
             spacing: 8
             BarButton {
-                text: player.paused ? "▶" : "❚❚"
-                onClicked: player.togglePause()
+                text: session.paused || session.state === Playback.Ended ? "▶" : "❚❚"
+                font.pixelSize: 16
+                onClicked: session.togglePause()
             }
             Text {
                 anchors.verticalCenter: parent.verticalCenter
-                text: root.formatTime(seek.pressed ? seek.value : player.position) + " / " + root.formatTime(player.duration)
+                text: root.formatTime(seek.pressed ? seek.value : session.position) + " / " + root.formatTime(session.duration)
                 color: root.textColor
                 font.pixelSize: 13
             }
@@ -278,9 +476,30 @@ Window {
             id: seek
             anchors { left: leftGroup.right; right: rightGroup.left; leftMargin: 12; rightMargin: 12; verticalCenter: parent.verticalCenter }
             from: 0
-            to: Math.max(1, player.duration)
-            value: pressed ? value : player.position
-            onMoved: player.seek(value)
+            to: Math.max(1, session.duration)
+            value: pressed ? value : session.position
+            onMoved: session.seek(value)
+
+            // Chapter marks
+            Repeater {
+                model: session.chapters
+                Rectangle {
+                    visible: modelData.start > 0 && session.duration > 0
+                    x: seek.leftPadding + (modelData.start / session.duration) * seek.availableWidth - 1
+                    y: seek.topPadding + seek.availableHeight / 2 - 5
+                    width: 2; height: 10
+                    color: root.accent
+                }
+            }
+            // A-B repeat range
+            Rectangle {
+                visible: session.abLoopA >= 0 && session.duration > 0
+                x: seek.leftPadding + (session.abLoopA / Math.max(1, session.duration)) * seek.availableWidth
+                width: session.abLoopB >= 0 ? ((session.abLoopB - session.abLoopA) / Math.max(1, session.duration)) * seek.availableWidth : 2
+                y: seek.topPadding + seek.availableHeight / 2 + 6
+                height: 3
+                color: root.accent
+            }
         }
 
         Row {
@@ -288,25 +507,110 @@ Window {
             anchors { right: parent.right; rightMargin: 12; verticalCenter: parent.verticalCenter }
             spacing: 4
             BarButton {
-                text: player.muted || player.volume === 0 ? "Muted" : "Vol"
-                font.pixelSize: 13
-                onClicked: player.muted = !player.muted
+                text: session.muted || session.volume === 0 ? "Muted" : "Vol"
+                onClicked: session.muted = !session.muted
             }
             Slider {
                 width: 100
                 anchors.verticalCenter: parent.verticalCenter
                 from: 0; to: 100
-                value: player.volume
-                onMoved: { player.volume = value; if (player.muted) player.muted = false }
+                value: session.volume
+                onMoved: { session.volume = value; if (session.muted) session.muted = false }
+            }
+            BarButton {
+                id: moreButton
+                text: "Options"
+                onClicked: moreMenu.open()
+
+                Menu {
+                    id: moreMenu
+                    y: -height
+
+                    Menu {
+                        id: audioMenu
+                        title: "Audio track"
+                        enabled: session.audioTracks.length > 0
+                        Instantiator {
+                            model: session.audioTracks
+                            delegate: MenuItem {
+                                text: modelData.label
+                                checkable: true
+                                checked: modelData.selected
+                                onTriggered: session.setAudioTrack(modelData.id)
+                            }
+                            onObjectAdded: (index, object) => audioMenu.insertItem(index, object)
+                            onObjectRemoved: (index, object) => audioMenu.removeItem(object)
+                        }
+                    }
+
+                    Menu {
+                        id: subtitleMenu
+                        title: "Subtitles"
+                        MenuItem {
+                            text: "Off"
+                            checkable: true
+                            checked: session.subtitleTrack < 0
+                            onTriggered: session.setSubtitleTrack(-1)
+                        }
+                        Instantiator {
+                            model: session.subtitleTracks
+                            delegate: MenuItem {
+                                text: modelData.label
+                                checkable: true
+                                checked: modelData.selected
+                                onTriggered: session.setSubtitleTrack(modelData.id)
+                            }
+                            onObjectAdded: (index, object) => subtitleMenu.insertItem(index + 1, object)
+                            onObjectRemoved: (index, object) => subtitleMenu.removeItem(object)
+                        }
+                        MenuSeparator {}
+                        MenuItem { text: "Load subtitle file…"; onTriggered: subtitleDialog.open() }
+                    }
+
+                    Menu {
+                        title: "Speed (" + session.speed + "×)"
+                        Repeater {
+                            model: [0.5, 0.75, 1, 1.25, 1.5, 2]
+                            MenuItem {
+                                text: modelData + "×"
+                                checkable: true
+                                checked: session.speed === modelData
+                                onTriggered: session.speed = modelData
+                            }
+                        }
+                    }
+
+                    MenuSeparator {}
+                    MenuItem {
+                        text: "Aspect ratio: " + (session.aspectRatio || "automatic")
+                        enabled: session.supports("AspectRatio")
+                        onTriggered: session.cycleAspectRatio()
+                    }
+                    MenuItem {
+                        text: "Crop: " + (session.crop || "none")
+                        enabled: session.supports("Crop")
+                        onTriggered: session.cycleCrop()
+                    }
+                    MenuItem {
+                        text: "Reset picture"
+                        enabled: session.supports("VideoEqualizer")
+                        onTriggered: session.resetEqualizer()
+                    }
+                    MenuItem {
+                        text: "Take screenshot"
+                        enabled: session.supports("Screenshot")
+                        onTriggered: session.screenshot()
+                    }
+                    MenuSeparator {}
+                    MenuItem { text: "Keyboard shortcuts"; onTriggered: root.helpVisible = true }
+                }
             }
             BarButton {
                 text: "Open"
-                font.pixelSize: 13
                 onClicked: openDialog.open()
             }
             BarButton {
                 text: root.visibility === Window.FullScreen ? "Exit full screen" : "Full screen"
-                font.pixelSize: 13
                 onClicked: root.toggleFullscreen()
             }
         }

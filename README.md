@@ -4,11 +4,11 @@ A native desktop media player that browses Stremio add-on catalogs and local fil
 
 Built with C++20, Qt 6/QML, libmpv, libtorrent-rasterbar and SQLite. Windows and macOS first, Linux after.
 
-**Status:** Step 1 (video in a native window). Plays local video files with controls drawn over the video.
+**Status:** Step 2 (Playback Session). Plays local video files. The interface talks only to the Session, which sends commands to the mpv target; the contract between them is in [docs/TARGET_CONTRACT.md](docs/TARGET_CONTRACT.md).
 
 ## Using it
 
-Open a file with the **Open** button, by dropping it on the window, or by passing its path on the command line.
+Open a file with the **Open** button, by dropping it on the window, or by passing its path on the command line. Drop a subtitle file on a playing video to add it. Press **?** in the app for this list.
 
 | Key | Action |
 | --- | --- |
@@ -20,6 +20,18 @@ Open a file with the **Open** button, by dropping it on the window, or by passin
 | I | Debug overlay: decoder, codec, resolution, FPS, dropped frames |
 | H | Hardware decoding on/off (remembered) |
 | O | Open a file |
+| [ / ] , Backspace | Slower / faster, normal speed |
+| J / Y | Next subtitle track (including off) / next audio track |
+| Z / X | Subtitle delay −/+ 100 ms (with Shift: audio delay) |
+| G | Bigger subtitles (Shift+G: smaller) |
+| PgUp / PgDn | Previous / next chapter |
+| , / . | One frame back / forward |
+| S | Screenshot, saved to Pictures/Corporal Jackie |
+| L | A-B repeat: first press marks A, second marks B, third clears |
+| A / C | Cycle aspect ratio / crop |
+| 1 to 0 | Contrast, brightness, gamma, saturation, hue (down, up) |
+| R | Reset picture |
+| Esc | Close a panel, or leave full screen |
 
 ## Layout
 

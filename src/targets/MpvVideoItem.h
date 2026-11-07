@@ -1,12 +1,15 @@
 #pragma once
+#include "Session.h"
 #include <QPointer>
 #include <QQuickFramebufferObject>
 
 namespace cj {
 
-class MpvPlayer;
+class MpvTarget;
 
-// A Qt Quick item that shows the video of an MpvPlayer. It renders through
+// The video surface the UI places in its window (QML name: VideoSurface).
+// It shows the video of the Session's target when that target is this
+// computer's mpv, and nothing otherwise (e.g. while casting). It renders through
 // mpv's OpenGL render API into a framebuffer that Qt Quick composites like any
 // other item, so QML controls can be drawn on top without flicker.
 //
@@ -14,13 +17,14 @@ class MpvPlayer;
 class MpvVideoItem : public QQuickFramebufferObject
 {
     Q_OBJECT
-    Q_PROPERTY(cj::MpvPlayer* player READ player WRITE setPlayer NOTIFY playerChanged)
+    Q_PROPERTY(cj::Session* playbackSession READ session WRITE setSession NOTIFY sessionChanged)
 
 public:
     explicit MpvVideoItem(QQuickItem* parent = nullptr);
 
-    MpvPlayer* player() const { return m_player; }
-    void setPlayer(MpvPlayer* player);
+    Session* session() const { return m_session; }
+    void setSession(Session* session);
+    MpvTarget* target() const;
 
     Renderer* createRenderer() const override;
 
@@ -29,10 +33,10 @@ public:
     static void useOpenGL();
 
 signals:
-    void playerChanged();
+    void sessionChanged();
 
 private:
-    QPointer<MpvPlayer> m_player;
+    QPointer<Session> m_session;
 };
 
 } // namespace cj

@@ -1,7 +1,8 @@
 #include "MpvVideoItem.h"
 
 #include "Logging.h"
-#include "MpvPlayer.h"
+#include "MpvTarget.h"
+#include "Session.h"
 
 #include <QOpenGLContext>
 #include <QOpenGLFramebufferObject>
@@ -34,8 +35,8 @@ public:
     void synchronize(QQuickFramebufferObject* item) override
     {
         auto* video = static_cast<MpvVideoItem*>(item);
-        if (!m_ctx && video->player())
-            createContext(video, video->player());
+        if (!m_ctx && video->target())
+            createContext(video, video->target());
     }
 
     QOpenGLFramebufferObject* createFramebufferObject(const QSize& size) override
@@ -64,7 +65,7 @@ public:
     }
 
 private:
-    void createContext(MpvVideoItem* item, MpvPlayer* player)
+    void createContext(MpvVideoItem* item, MpvTarget* player)
     {
         mpv_opengl_init_params gl{getProcAddress, nullptr};
         mpv_render_param params[] = {
@@ -96,13 +97,18 @@ MpvVideoItem::MpvVideoItem(QQuickItem* parent)
 {
 }
 
-void MpvVideoItem::setPlayer(MpvPlayer* player)
+void MpvVideoItem::setSession(Session* session)
 {
-    if (player == m_player)
+    if (session == m_session)
         return;
-    m_player = player;
-    emit playerChanged();
+    m_session = session;
+    emit sessionChanged();
     update();
+}
+
+MpvTarget* MpvVideoItem::target() const
+{
+    return m_session ? qobject_cast<MpvTarget*>(m_session->target()) : nullptr;
 }
 
 QQuickFramebufferObject::Renderer* MpvVideoItem::createRenderer() const
