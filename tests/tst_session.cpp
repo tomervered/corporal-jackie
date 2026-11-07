@@ -4,6 +4,7 @@
 #include "FakeTarget.h"
 #include "Session.h"
 
+#include <QFileInfo>
 #include <QSignalSpy>
 #include <QtTest>
 
@@ -55,8 +56,11 @@ private slots:
         QVERIFY(t.sent(QStringLiteral("load torrent://abc 0")));
         QCOMPARE(s.title(), QStringLiteral("A movie"));
 
-        s.openPath(QStringLiteral("/videos/other.mkv"));
-        QVERIFY(t.sent(QStringLiteral("load file:///videos/other.mkv 0")));
+        // Not claimed: a plain path (absolute paths differ by OS, e.g. D:/ on Windows).
+        const QString path = QStringLiteral("/videos/other.mkv");
+        s.openPath(path);
+        const QString url = QUrl::fromLocalFile(QFileInfo(path).absoluteFilePath()).toString();
+        QVERIFY2(t.sent("load " + url + " 0"), qPrintable(t.commands.join('\n')));
     }
 
     void streamStatusResetsOnLoad()
