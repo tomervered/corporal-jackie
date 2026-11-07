@@ -246,6 +246,9 @@ Engine::Engine(const BrokerSettings& s)
     pack.set_int(lt::settings_pack::tick_interval, 100);
     pack.set_int(lt::settings_pack::piece_timeout, 5);
     pack.set_bool(lt::settings_pack::strict_end_game_mode, false);
+    // Room for bursts of alerts (each finished piece is one); a dropped
+    // alert costs a 2 s retry in read().
+    pack.set_int(lt::settings_pack::alert_queue_size, 20000);
     // More peers, sooner: announce to every tracker (not just the first that
     // answers in each tier), and open new connections faster at the start.
     pack.set_bool(lt::settings_pack::announce_to_all_tiers, true);
@@ -531,7 +534,9 @@ void Engine::handleAlert(lt::alert* a)
 {
     if (m_debugAlerts)
         qCDebug(lcBroker).noquote() << "alert:" << QString::fromStdString(a->message());
-    if (auto* pf = lt::alert_cast<lt::piece_finished_alert>(a)) {
+    if (lt::alert_cast<lt::alerts_dropped_alert>(a)) {
+        qCWarning(lcBroker) << "libtorrent dropped alerts; reads check pieces directly";
+    } else if (auto* pf = lt::alert_cast<lt::piece_finished_alert>(a)) {
         if (auto t = find(pf->handle)) {
             std::lock_guard tl(t->mutex);
             const int p = int(static_cast<int>(pf->piece_index));
@@ -1088,6 +1093,10 @@ qint64 StreamHandle::read(qint64 offset, char* buffer, qint64 length)
     m_engine->schedule(t, false);
 
     auto stopped = [&] { return r.cancelled || r.closed || t.removed || m_engine->closing.load(); };
+    // Alerts can be dropped when libtorrent's queue overflows (many pieces
+    // finishing at once). A read must never wait on an alert that will not
+    // come, so every 2 s it asks libtorrent directly.
+    int waits = 0;
     // 1. Wait until the piece is downloaded and verified.
     while (!t.have[piece]) {
         if (stopped())
@@ -1095,13 +1104,26 @@ qint64 StreamHandle::read(qint64 offset, char* buffer, qint64 length)
         if (t.failed)
             return -2;
         t.cv.wait_for(lock, std::chrono::milliseconds(250));
+        if (++waits % 8 == 0) {
+            try {
+                if (!t.have[piece] && t.handle.have_piece(lt::piece_index_t(piece))) {
+                    qCInfo(lcBroker) << "Piece" << piece << "was done without an alert";
+                    t.have[piece] = true;
+                    t.scheduled.erase(piece);
+                }
+            } catch (const std::exception&) {
+            }
+        }
     }
     // 2. Get its bytes from libtorrent (or the in-memory copy).
+    waits = 0;
     while (!t.pieces.count(piece)) {
         if (stopped())
             return -1;
         if (t.readErrors[piece] > 3)
             return -2;
+        if (++waits % 20 == 0)
+            t.readsPending.erase(piece);  // 5 s without an answer: ask again
         if (!t.readsPending.count(piece)) {
             try {
                 t.handle.read_piece(lt::piece_index_t(piece));

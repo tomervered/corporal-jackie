@@ -55,6 +55,9 @@ jobs:
       - name: Test
         env:
           QT_QPA_PLATFORM: offscreen
+          # Qt's per-function watchdog fires before ctest's 300 s limit and
+          # names the hung test function (ctest shows nothing on a timeout).
+          QTEST_FUNCTION_TIMEOUT: "150000"
         run: |
           export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
           ctest --test-dir build --output-on-failure
@@ -157,6 +160,9 @@ jobs:
       - name: Test
         env:
           QT_QPA_PLATFORM: offscreen
+          # Qt's per-function watchdog fires before ctest's 300 s limit and
+          # names the hung test function (ctest shows nothing on a timeout).
+          QTEST_FUNCTION_TIMEOUT: "150000"
         run: ctest --test-dir build --output-on-failure
 
       - name: Smoke test
@@ -203,6 +209,9 @@ jobs:
       - name: Test
         env:
           QT_QPA_PLATFORM: offscreen
+          # Qt's per-function watchdog fires before ctest's 300 s limit and
+          # names the hung test function (ctest shows nothing on a timeout).
+          QTEST_FUNCTION_TIMEOUT: "150000"
         run: ctest --test-dir build --output-on-failure
 
       # Real rendering on Mesa's software OpenGL: opens the window and plays the
