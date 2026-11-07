@@ -149,8 +149,9 @@ int main(int argc, char* argv[])
 
     if (args.isSet(smokeTest)) {
         // With a file, the smoke test also checks that it loads and plays.
+        // withFile by value: this block ends long before the timer fires.
         const bool withFile = !args.positionalArguments().isEmpty();
-        QTimer::singleShot(withFile ? 4000 : 1000, &app, [&] {
+        QTimer::singleShot(withFile ? 4000 : 1000, &app, [&, withFile] {
             if (withFile && !(session.hasMedia() && session.position() > 0.5)) {
                 qCCritical(lcApp) << "Smoke test failed: file did not play (state:"
                                   << session.state() << "position:" << session.position() << ")";
