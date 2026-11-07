@@ -82,6 +82,11 @@ public:
     std::shared_ptr<StreamHandle> open(const OpenRequest& request, BrokerError* error = nullptr,
                                        const std::function<bool()>& cancelled = {});
 
+    // Peers and state of a torrent that may still be opening (no handle yet):
+    // FindingPeers, FetchingMetadata, or Buffering once the file list is here.
+    // Default stats if the broker does not have it.
+    StreamStats torrentStats(const QString& infoHash) const;
+
     // The libtorrent listen port, for tests and the debug overlay.
     int listenPort() const;
 
@@ -89,6 +94,10 @@ public:
     // Torrents with an open handle are never deleted. Runs on its own after
     // open and close; public for tests.
     void enforceCacheCap();
+
+    // The info hash (lower-case hex) of a .torrent file, and its name. Empty
+    // if the file cannot be read as a torrent.
+    static QString infoHashOfFile(const QString& torrentFile, QString* name = nullptr);
 
     // Disk space the cache folder really uses (sparse files count only the
     // parts written).

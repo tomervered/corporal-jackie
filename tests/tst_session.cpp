@@ -21,6 +21,61 @@ private:
     }
 
 private slots:
+    void heldArrowKeepsJumpingFromTheSeekTarget()
+    {
+        FakeTarget t;
+        Session s(&t);
+        startItem(s, t, 600);
+        t.movePosition(100);
+        // Three quick jumps while the target has not reported a new position
+        // yet (a torrent seek takes a moment): each adds to the last target.
+        s.seekRelative(10);
+        s.seekRelative(10);
+        s.seekRelative(10);
+        QVERIFY(t.sent(QStringLiteral("seek 110")));
+        QVERIFY(t.sent(QStringLiteral("seek 120")));
+        QVERIFY(t.sent(QStringLiteral("seek 130")));
+        // Once there, relative seeks start from the real position again.
+        t.movePosition(130.2);
+        t.movePosition(131);
+        s.seekRelative(-10);
+        QVERIFY(t.sent(QStringLiteral("seek 121")));
+    }
+
+    void resolversClaimInputFirst()
+    {
+        FakeTarget t;
+        Session s(&t);
+        s.addSourceResolver([](const QString& input) -> std::optional<PlayableSource> {
+            if (!input.startsWith(QLatin1String("magnet:")))
+                return std::nullopt;
+            return PlayableSource{QUrl(QStringLiteral("torrent://abc")), QStringLiteral("A movie")};
+        });
+        s.openPath(QStringLiteral("magnet:?xt=urn:btih:abc"));
+        QVERIFY(t.sent(QStringLiteral("load torrent://abc 0")));
+        QCOMPARE(s.title(), QStringLiteral("A movie"));
+
+        s.openPath(QStringLiteral("/videos/other.mkv"));
+        QVERIFY(t.sent(QStringLiteral("load file:///videos/other.mkv 0")));
+    }
+
+    void streamStatusResetsOnLoad()
+    {
+        FakeTarget t;
+        Session s(&t);
+        startItem(s, t);
+        QSignalSpy spy(&s, &Session::streamStatusChanged);
+        s.setStreamStatus({StreamPhase::Buffering, 40, 7, 2048});
+        QCOMPARE(s.streamPhase(), StreamPhase::Buffering);
+        QCOMPARE(s.streamPercent(), 40);
+        QCOMPARE(s.streamPeers(), 7);
+        s.setStreamStatus({StreamPhase::Buffering, 40, 7, 2048});  // unchanged: no signal
+        QCOMPARE(spy.count(), 1);
+        startItem(s, t);
+        QCOMPARE(s.streamPhase(), StreamPhase::Inactive);
+        QCOMPARE(spy.count(), 2);
+    }
+
     void loadSendsCommandAndResetsItem()
     {
         FakeTarget t;

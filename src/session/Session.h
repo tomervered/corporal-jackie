@@ -1,11 +1,15 @@
 #pragma once
 #include "PlaybackTarget.h"
 
+#include <QElapsedTimer>
 #include <QObject>
 #include <QPointer>
 #include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
+
+#include <functional>
+#include <optional>
 
 namespace cj {
 
@@ -50,6 +54,10 @@ class Session : public QObject
     Q_PROPERTY(int hue READ hue NOTIFY equalizerChanged)
     Q_PROPERTY(bool hardwareDecoding READ hardwareDecoding WRITE setHardwareDecoding NOTIFY hardwareDecodingChanged)
     Q_PROPERTY(QVariantMap stats READ stats NOTIFY statsChanged)
+    Q_PROPERTY(cj::StreamPhase streamPhase READ streamPhase NOTIFY streamStatusChanged)
+    Q_PROPERTY(int streamPercent READ streamPercent NOTIFY streamStatusChanged)
+    Q_PROPERTY(int streamPeers READ streamPeers NOTIFY streamStatusChanged)
+    Q_PROPERTY(double streamRate READ streamRate NOTIFY streamStatusChanged)
 
 public:
     // The Session does not own the target; it must outlive the Session.
@@ -91,6 +99,21 @@ public:
     int gamma() const { return m_eq.gamma; }
     int hue() const { return m_eq.hue; }
     bool hardwareDecoding() const { return m_hardwareDecoding; }
+    StreamPhase streamPhase() const { return m_stream.phase; }
+    int streamPercent() const { return m_stream.percent; }
+    int streamPeers() const { return m_stream.peers; }
+    double streamRate() const { return double(m_stream.downloadRate); }
+
+    // Turns what the user typed, pasted or dropped (a magnet link, say) into
+    // something playable, or returns nothing if it is not theirs. Tried in
+    // order before the input is treated as a plain path or URL. Source
+    // adapters register here.
+    using SourceResolver = std::function<std::optional<PlayableSource>(const QString& input)>;
+    void addSourceResolver(SourceResolver resolver) { m_resolvers.push_back(std::move(resolver)); }
+
+    // Set by whoever delivers the current item's bytes (the torrent transport).
+    // Cleared to None whenever a new item loads.
+    void setStreamStatus(const StreamStatus& status);
     QVariantMap stats() const { return m_stats; }
 
     // How often a resume point is emitted while playing. Default 5 s.
@@ -151,6 +174,7 @@ signals:
     void equalizerChanged();
     void hardwareDecodingChanged();
     void statsChanged();
+    void streamStatusChanged();
     void ended();
     void errorOccurred(cj::PlaybackError error, const QString& message);
     void screenshotSaved(const QString& filePath);
@@ -165,6 +189,7 @@ private:
     void applyItemSettings();
     QVariantList tracksOf(Track::Type type) const;
     int selectedOf(Track::Type type) const;
+    std::optional<PlayableSource> resolve(const QString& input) const;
 
     QPointer<PlaybackTarget> m_target;
     PlaybackState m_state = PlaybackState::Idle;
@@ -189,6 +214,12 @@ private:
     VideoEqualizer m_eq;
     bool m_hardwareDecoding = true;
     QVariantMap m_stats;
+    StreamStatus m_stream;
+    std::vector<SourceResolver> m_resolvers;
+    // Where the last seek is going. Until the target gets there, relative
+    // seeks (a held arrow key) add to this, not to the old position.
+    double m_seekTarget = -1;
+    QElapsedTimer m_seekClock;
     QTimer m_resumeTimer;
 };
 

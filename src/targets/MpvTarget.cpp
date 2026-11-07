@@ -269,7 +269,12 @@ void MpvTarget::pause() { setProperty("pause", "yes"); }
 void MpvTarget::stop()
 {
     m_pendingTarget.clear();
+    // A loadfile mpv has not started yet never will: it gets no START_FILE,
+    // so stop counting it, or the state would stay Loading for good.
+    m_loadsInFlight = 0;
     command({"stop"});
+    if (!m_fileLoaded)
+        setState(PlaybackState::Idle);
 }
 
 void MpvTarget::seek(double seconds)

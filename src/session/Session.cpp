@@ -39,6 +39,8 @@ Session::Session(PlaybackTarget* target, QObject* parent)
     });
     connect(target, &PlaybackTarget::positionChanged, this, [this](double seconds) {
         m_position = seconds;
+        if (m_seekTarget >= 0 && qAbs(seconds - m_seekTarget) < 1.0)
+            m_seekTarget = -1;  // arrived
         emit positionChanged();
     });
     connect(target, &PlaybackTarget::durationChanged, this, [this](double seconds) {
@@ -131,16 +133,34 @@ void Session::emitResumePoint()
 
 // --- Items -------------------------------------------------------------------
 
+std::optional<PlayableSource> Session::resolve(const QString& input) const
+{
+    for (const SourceResolver& resolver : m_resolvers)
+        if (auto source = resolver(input))
+            return source;
+    return std::nullopt;
+}
+
 void Session::open(const QUrl& url, double startSeconds)
 {
     if (!url.isValid() || url.isEmpty())
         return;
+    // A dropped .torrent file, say, is a local file that a resolver claims.
+    if (auto source = resolve(url.isLocalFile() ? url.toLocalFile() : url.toString())) {
+        load(*source, startSeconds);
+        return;
+    }
     load({url, url.isLocalFile() ? QFileInfo(url.toLocalFile()).completeBaseName() : url.fileName()},
          startSeconds);
 }
 
 void Session::openPath(const QString& pathOrUrl, double startSeconds)
 {
+    // Magnet links and info hashes have no "://", so ask the resolvers first.
+    if (auto source = resolve(pathOrUrl.trimmed())) {
+        load(*source, startSeconds);
+        return;
+    }
     // "scheme://..." is a URL; anything else, including C:\..., is a local path.
     static const QRegularExpression scheme(QStringLiteral("^[A-Za-z][A-Za-z0-9+.-]+://"));
     if (scheme.match(pathOrUrl).hasMatch())
@@ -166,6 +186,9 @@ void Session::load(const PlayableSource& source, double startSeconds)
     m_abA = m_abB = -1;
     m_aspect.clear();
     m_crop.clear();
+    m_seekTarget = -1;
+    const bool streamWasSet = m_stream.phase != StreamPhase::Inactive;
+    m_stream = {};
 
     qCInfo(lcSession).noquote() << "Loading" << source.url.toDisplayString() << "at" << startSeconds;
     setState(PlaybackState::Loading);
@@ -184,6 +207,18 @@ void Session::load(const PlayableSource& source, double startSeconds)
     emit abLoopChanged();
     emit aspectRatioChanged();
     emit cropChanged();
+    if (streamWasSet)
+        emit streamStatusChanged();
+}
+
+void Session::setStreamStatus(const StreamStatus& status)
+{
+    if (status == m_stream)
+        return;
+    if (status.phase != m_stream.phase)
+        qCInfo(lcSession) << "Stream" << status.phase << status.percent << "%" << status.peers << "peers";
+    m_stream = status;
+    emit streamStatusChanged();
 }
 
 void Session::applyItemSettings()
@@ -210,10 +245,19 @@ void Session::seek(double seconds)
     if (!hasMedia())
         return;
     seconds = qMax(0.0, m_duration > 0 ? qMin(seconds, m_duration) : seconds);
+    m_seekTarget = seconds;
+    m_seekClock.start();
     m_target->seek(seconds);
 }
 
-void Session::seekRelative(double seconds) { seek(m_position + seconds); }
+void Session::seekRelative(double seconds)
+{
+    // A streamed seek can take a few seconds; a held arrow key must keep
+    // jumping from where the last jump is going, not from where playback was.
+    // After 10 s without arriving, trust the reported position again.
+    const bool seeking = m_seekTarget >= 0 && m_seekClock.isValid() && m_seekClock.elapsed() < 10000;
+    seek((seeking ? m_seekTarget : m_position) + seconds);
+}
 
 // --- Tracks ------------------------------------------------------------------
 

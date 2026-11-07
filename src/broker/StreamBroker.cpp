@@ -9,6 +9,7 @@
 #include <QFileInfo>
 #include <QHash>
 #include <QRegularExpression>
+#include <QStorageInfo>
 
 #include <libtorrent/alert_types.hpp>
 #include <libtorrent/bencode.hpp>
@@ -43,7 +44,11 @@ using Clock = std::chrono::steady_clock;
 
 constexpr qint64 kHeadBytes = 4 * 1024 * 1024;   // fetched first: headers
 constexpr qint64 kTailBytes = 4 * 1024 * 1024;   // and the index at the end
-constexpr int kPieceCacheCount = 16;             // pieces kept in memory per torrent
+constexpr qint64 kPieceCacheBytes = 64 * 1024 * 1024;  // piece copies kept in memory per torrent
+constexpr qint64 kDiskReserve = 2LL * 1024 * 1024 * 1024; // free disk space the cache always leaves
+constexpr auto kStallAfter = std::chrono::seconds(10);    // no new piece while a reader waits
+constexpr auto kReannounceAfter = std::chrono::seconds(15); // no peers: ask trackers and DHT again
+constexpr auto kCacheCheckEvery = std::chrono::seconds(60);
 constexpr const char* kMetadataFile = "metadata.torrent";
 constexpr const char* kLastUsedFile = ".last-used";
 
@@ -54,7 +59,12 @@ std::string hexOf(const lt::sha1_hash& h)
     return s.str();
 }
 
-std::string idOf(const lt::info_hash_t& hashes) { return hexOf(hashes.get_best()); }
+// The v1 hash when there is one, as magnet links' "btih" carry it; callers
+// such as the torrent transport name torrents by it.
+std::string idOf(const lt::info_hash_t& hashes)
+{
+    return hashes.has_v1() ? hexOf(hashes.v1) : hexOf(hashes.get_best());
+}
 
 // One reader of one file: a handle. Its position drives the deadlines.
 struct Reader
@@ -92,12 +102,15 @@ struct Torrent
     std::vector<bool> have;
     std::map<int, std::pair<boost::shared_array<char>, int>> pieces;  // index -> data, size
     std::list<int> pieceOrder;                                         // least recent first
+    qint64 pieceBytes = 0;                                             // sum of sizes in `pieces`
     std::set<int> readsPending;
     std::map<int, int> readErrors;
     std::map<int, int> scheduled;  // piece -> deadline in ms, as last sent
     std::vector<std::weak_ptr<Reader>> readers;
     int openHandles = 0;
     qint64 downloadRate = 0;
+    Clock::time_point lastPieceAt = Clock::now();   // last piece finished, or a reader opened
+    Clock::time_point peersSeenAt = Clock::now();   // last time it had a peer
 
     qint64 pieceLength() const { return info ? info->piece_length() : 0; }
     int pieceAt(qint64 torrentOffset) const { return int(torrentOffset / info->piece_length()); }
@@ -138,8 +151,9 @@ public:
     std::shared_ptr<Torrent> addOrFind(const OpenRequest& req, BrokerError* error);
     void releaseHandle(Torrent& t);
     void schedule(Torrent& t, bool force);  // t.mutex must be held
-    void enforceCacheCap();
+    void enforceCacheCap(const std::string& keep = {});
     StreamStats stats(Torrent& t, const Reader& r);
+    StreamStats torrentStats(const std::string& id);
     int listenPort() const { return m_session ? m_session->listen_port() : 0; }
 
     BrokerSettings settings;
@@ -147,6 +161,7 @@ public:
 
 private:
     void alertLoop();
+    void refresh(Torrent& t);
     void handleAlert(lt::alert* a);
     void onMetadata(Torrent& t);  // t.mutex must be held
     std::shared_ptr<Torrent> find(const lt::torrent_handle& h);
@@ -197,6 +212,8 @@ Engine::Engine(const BrokerSettings& s)
     pack.set_int(lt::settings_pack::tick_interval, 100);
     pack.set_int(lt::settings_pack::piece_timeout, 5);
     pack.set_bool(lt::settings_pack::strict_end_game_mode, false);
+    // Closing the app waits for trackers to hear goodbye; keep that short.
+    pack.set_int(lt::settings_pack::stop_tracker_timeout, 1);
 
     lt::session_params params(std::move(pack));
     m_session = std::make_unique<lt::session>(std::move(params));
@@ -265,10 +282,26 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
     const std::string id = idOf(atp.info_hashes);
     std::lock_guard lock(m_mutex);
     if (auto it = m_torrents.find(id); it != m_torrents.end()) {
-        // Peers from a newer magnet link still help.
-        for (const auto& peer : atp.peers)
-            it->second->handle.connect_peer(peer);
-        return it->second;
+        auto& t = it->second;
+        try {
+            // Peers and trackers from a newer magnet link still help.
+            for (const auto& peer : atp.peers)
+                t->handle.connect_peer(peer);
+            for (const auto& tracker : atp.trackers)
+                t->handle.add_tracker(lt::announce_entry(tracker));
+            // An earlier error (a full disk, say) may be gone: try again.
+            std::lock_guard tl(t->mutex);
+            if (t->failed) {
+                qCInfo(lcBroker).noquote() << "Retrying" << QString::fromStdString(id) << "after an error";
+                t->failed = false;
+                t->error.clear();
+                t->handle.clear_error();
+                t->handle.resume();
+            }
+        } catch (const std::exception& e) {
+            qCWarning(lcBroker) << "Reopening a torrent failed:" << e.what();
+        }
+        return t;
     }
 
     auto t = std::make_shared<Torrent>();
@@ -342,12 +375,20 @@ void Engine::onMetadata(Torrent& t)
 void Engine::alertLoop()
 {
     auto lastTick = Clock::now();
+    auto lastCacheCheck = Clock::now();
     std::vector<lt::alert*> alerts;
     while (!closing) {
         m_session->wait_for_alert(std::chrono::milliseconds(200));
         m_session->pop_alerts(&alerts);
-        for (lt::alert* a : alerts)
-            handleAlert(a);
+        for (lt::alert* a : alerts) {
+            // A libtorrent call on a torrent removed a moment ago throws; that
+            // must never take the whole app down.
+            try {
+                handleAlert(a);
+            } catch (const std::exception& e) {
+                qCWarning(lcBroker) << "Handling a torrent event failed:" << e.what();
+            }
+        }
 
         if (Clock::now() - lastTick >= std::chrono::seconds(1)) {
             lastTick = Clock::now();
@@ -358,15 +399,46 @@ void Engine::alertLoop()
                     torrents.push_back(t);
             }
             for (auto& t : torrents) {
-                if (!t->handle.is_valid())
-                    continue;
-                const qint64 rate = t->handle.status({}).download_payload_rate;
-                std::lock_guard tl(t->mutex);
-                t->downloadRate = rate;
-                schedule(*t, true);  // deadlines are relative: refresh them
+                try {
+                    refresh(*t);
+                } catch (const std::exception& e) {
+                    qCDebug(lcBroker) << "Refreshing a torrent failed:" << e.what();
+                }
             }
         }
+        // The cap is also checked while playing: one big torrent can grow
+        // past it, and the disk can fill up from other programs.
+        if (Clock::now() - lastCacheCheck >= kCacheCheckEvery) {
+            lastCacheCheck = Clock::now();
+            enforceCacheCap();
+        }
     }
+}
+
+// Once a second: the download rate, deadlines (they are relative to now), and
+// a new search for peers when a torrent someone is reading has none.
+void Engine::refresh(Torrent& t)
+{
+    {
+        std::lock_guard tl(t.mutex);
+        if (t.removed || !t.handle.is_valid())
+            return;
+    }
+    const lt::torrent_status st = t.handle.status({});
+    std::lock_guard tl(t.mutex);
+    if (t.removed)
+        return;
+    t.downloadRate = st.download_payload_rate;
+    const auto now = Clock::now();
+    if (st.num_peers > 0 || t.openHandles == 0) {
+        t.peersSeenAt = now;
+    } else if (now - t.peersSeenAt >= kReannounceAfter) {
+        qCInfo(lcBroker).noquote() << "No peers for" << QString::fromStdString(t.id) << ": asking again";
+        t.handle.force_reannounce();
+        t.handle.force_dht_announce();
+        t.peersSeenAt = now;
+    }
+    schedule(t, true);
 }
 
 void Engine::handleAlert(lt::alert* a)
@@ -380,6 +452,7 @@ void Engine::handleAlert(lt::alert* a)
             if (p >= 0 && p < int(t->have.size()))
                 t->have[p] = true;
             t->scheduled.erase(p);
+            t->lastPieceAt = Clock::now();
             t->cv.notify_all();
         }
     } else if (auto* rp = lt::alert_cast<lt::read_piece_alert>(a)) {
@@ -393,12 +466,22 @@ void Engine::handleAlert(lt::alert* a)
                                               << QString::fromStdString(rp->error.message());
             } else {
                 t->readErrors.erase(p);
+                if (auto old = t->pieces.find(p); old != t->pieces.end())
+                    t->pieceBytes -= old->second.second;
                 t->pieces[p] = {rp->buffer, rp->size};
+                t->pieceBytes += rp->size;
                 t->pieceOrder.remove(p);
                 t->pieceOrder.push_back(p);
-                while (int(t->pieceOrder.size()) > kPieceCacheCount) {
-                    t->pieces.erase(t->pieceOrder.front());
+                // Big pieces (16 MB and more in 4K torrents) would make a count
+                // limit cost hundreds of MB, so the limit is in bytes. The two
+                // newest pieces always stay: the one being read and the next.
+                while (t->pieceBytes > kPieceCacheBytes && t->pieceOrder.size() > 2) {
+                    const int oldest = t->pieceOrder.front();
                     t->pieceOrder.pop_front();
+                    if (auto it = t->pieces.find(oldest); it != t->pieces.end()) {
+                        t->pieceBytes -= it->second.second;
+                        t->pieces.erase(it);
+                    }
                 }
             }
             t->cv.notify_all();
@@ -443,7 +526,7 @@ void Engine::handleAlert(lt::alert* a)
 
 void Engine::schedule(Torrent& t, bool force)
 {
-    if (!t.hasMetadata || !t.handle.is_valid())
+    if (t.removed || !t.hasMetadata || !t.handle.is_valid())
         return;
 
     const qint64 pieceLen = t.pieceLength();
@@ -489,17 +572,23 @@ void Engine::schedule(Torrent& t, bool force)
     if (!anyChange)
         return;
 
-    for (const auto& [p, ms] : desired) {
-        const lt::piece_index_t index(p);
-        if (!t.scheduled.count(p))
-            t.handle.piece_priority(index, lt::top_priority);
-        t.handle.set_piece_deadline(index, ms);
-    }
-    for (const auto& [p, ms] : t.scheduled) {
-        if (!desired.count(p) && !t.have[p]) {
-            t.handle.reset_piece_deadline(lt::piece_index_t(p));
-            t.handle.piece_priority(lt::piece_index_t(p), lt::dont_download);
+    try {
+        for (const auto& [p, ms] : desired) {
+            const lt::piece_index_t index(p);
+            if (!t.scheduled.count(p))
+                t.handle.piece_priority(index, lt::top_priority);
+            t.handle.set_piece_deadline(index, ms);
         }
+        for (const auto& [p, ms] : t.scheduled) {
+            if (!desired.count(p) && !t.have[p]) {
+                t.handle.reset_piece_deadline(lt::piece_index_t(p));
+                t.handle.piece_priority(lt::piece_index_t(p), lt::dont_download);
+            }
+        }
+    } catch (const std::exception& e) {
+        // The torrent went away under us (removed from the cache).
+        qCDebug(lcBroker) << "Scheduling failed:" << e.what();
+        return;
     }
     t.scheduled = std::move(desired);
 }
@@ -516,7 +605,7 @@ void Engine::releaseHandle(Torrent& t)
     enforceCacheCap();
 }
 
-void Engine::enforceCacheCap()
+void Engine::enforceCacheCap(const std::string& keep)
 {
     if (closing)
         return;
@@ -524,7 +613,8 @@ void Engine::enforceCacheCap()
     std::vector<Entry> entries;
     qint64 total = 0;
 
-    std::lock_guard lock(m_mutex);
+    // Measuring walks every file, so do it before taking the lock that the
+    // alert thread and every open need.
     const QFileInfoList dirs = QDir(settings.cacheDir).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot);
     for (const QFileInfo& d : dirs) {
         const qint64 size = StreamBroker::diskUsage(d.absoluteFilePath());
@@ -535,13 +625,22 @@ void Engine::enforceCacheCap()
             used = f.readAll().toLongLong();
         entries.push_back({d.absoluteFilePath(), d.fileName().toStdString(), size, used});
     }
-    if (total <= settings.cacheCapBytes)
+
+    // Never fill the disk: the cap shrinks to what fits while leaving a reserve.
+    qint64 cap = settings.cacheCapBytes;
+    const QStorageInfo disk(settings.cacheDir);
+    if (disk.isValid() && disk.bytesAvailable() >= 0)
+        cap = qMin(cap, qMax<qint64>(0, total + disk.bytesAvailable() - kDiskReserve));
+    if (total <= cap)
         return;
     std::sort(entries.begin(), entries.end(), [](const Entry& a, const Entry& b) { return a.lastUsed < b.lastUsed; });
 
+    std::lock_guard lock(m_mutex);
     for (const Entry& e : entries) {
-        if (total <= settings.cacheCapBytes)
+        if (total <= cap)
             break;
+        if (e.id == keep)
+            continue;  // the torrent being opened right now
         if (auto it = m_torrents.find(e.id); it != m_torrents.end()) {
             auto t = it->second;
             {
@@ -554,11 +653,12 @@ void Engine::enforceCacheCap()
             m_pendingDeletes.insert(QString::fromStdString(e.id), e.dir);
             m_session->remove_torrent(t->handle, lt::session::delete_files);
             m_torrents.erase(it);
+        } else {
+            // Not loaded this run: nothing has its files open.
+            QDir(e.dir).removeRecursively();
         }
-        // libtorrent deletes the data files and then says so (see
-        // torrent_deleted_alert); for a torrent not loaded this run, all of
-        // it goes now.
-        QDir(e.dir).removeRecursively();
+        // A loaded torrent's folder goes once libtorrent has deleted its files
+        // (see torrent_deleted_alert).
         total -= e.size;
         qCInfo(lcBroker).noquote() << "Cache over its cap: removed" << QString::fromStdString(e.id)
                                    << "(" << e.size / (1024 * 1024) << "MiB)";
@@ -569,8 +669,12 @@ StreamStats Engine::stats(Torrent& t, const Reader& r)
 {
     StreamStats s;
     lt::torrent_status st;
-    if (t.handle.is_valid())
-        st = t.handle.status({});
+    try {
+        if (t.handle.is_valid())
+            st = t.handle.status({});
+    } catch (const std::exception&) {
+        // Removed a moment ago: report no peers.
+    }
     s.peers = st.num_peers;
     s.seeds = st.num_seeds;
     s.downloadRate = st.download_payload_rate;
@@ -584,6 +688,49 @@ StreamStats Engine::stats(Torrent& t, const Reader& r)
     s.bufferedBytes = t.bufferedFrom(r, r.position);
     s.bufferedSeconds = double(s.bufferedBytes) / r.bitrate();
     s.state = s.bufferedBytes > 0 || r.position >= r.fileSize ? StreamState::Ready : StreamState::Buffering;
+    if (s.state == StreamState::Buffering) {
+        if (Clock::now() - t.lastPieceAt >= kStallAfter)
+            s.state = StreamState::Stalled;
+        // How far along the piece the reader waits for is.
+        const int piece = t.pieceAt(r.fileOffset + qMin<qint64>(r.position, qMax<qint64>(0, r.fileSize - 1)));
+        try {
+            for (const lt::partial_piece_info& pp : t.handle.get_download_queue()) {
+                if (static_cast<int>(pp.piece_index) == piece && pp.blocks_in_piece > 0) {
+                    s.waitingPercent = qBound(0, (pp.finished + pp.writing) * 100 / pp.blocks_in_piece, 99);
+                    break;
+                }
+            }
+        } catch (const std::exception&) {
+        }
+    }
+    return s;
+}
+
+StreamStats Engine::torrentStats(const std::string& id)
+{
+    std::shared_ptr<Torrent> t;
+    {
+        std::lock_guard lock(m_mutex);
+        auto it = m_torrents.find(id);
+        if (it == m_torrents.end())
+            return {};
+        t = it->second;
+    }
+    StreamStats s;
+    try {
+        if (t->handle.is_valid()) {
+            const lt::torrent_status st = t->handle.status({});
+            s.peers = st.num_peers;
+            s.seeds = st.num_seeds;
+            s.downloadRate = st.download_payload_rate;
+            s.uploadRate = st.upload_payload_rate;
+        }
+    } catch (const std::exception&) {
+    }
+    std::lock_guard tl(t->mutex);
+    s.state = t->hasMetadata ? StreamState::Buffering
+            : s.peers > 0    ? StreamState::FetchingMetadata
+                             : StreamState::FindingPeers;
     return s;
 }
 
@@ -601,6 +748,11 @@ StreamBroker::StreamBroker(const BrokerSettings& settings)
 StreamBroker::~StreamBroker() { m_engine->shutdown(); }
 
 int StreamBroker::listenPort() const { return m_engine->listenPort(); }
+
+StreamStats StreamBroker::torrentStats(const QString& infoHash) const
+{
+    return m_engine->torrentStats(infoHash.toLower().toStdString());
+}
 void StreamBroker::enforceCacheCap() { m_engine->enforceCacheCap(); }
 
 std::shared_ptr<StreamHandle> StreamBroker::open(const OpenRequest& request, BrokerError* error,
@@ -615,10 +767,12 @@ std::shared_ptr<StreamHandle> StreamBroker::open(const OpenRequest& request, Bro
         return nullptr;
     }
 
-    m_engine->enforceCacheCap();
     std::shared_ptr<Torrent> t = m_engine->addOrFind(request, error);
     if (!t)
         return nullptr;
+    // After adding, so the torrent being opened counts as just used and is
+    // never the one deleted to make room.
+    m_engine->enforceCacheCap(t->id);
 
     std::unique_lock lock(t->mutex);
     const auto deadline = Clock::now() + std::chrono::milliseconds(m_engine->settings.metadataTimeoutMs);
@@ -660,6 +814,8 @@ std::shared_ptr<StreamHandle> StreamBroker::open(const OpenRequest& request, Bro
     reader->duration = request.durationSeconds;
     t->readers.push_back(reader);
     ++t->openHandles;
+    t->lastPieceAt = Clock::now();  // a fresh wait, not a stall
+    t->peersSeenAt = Clock::now();
     m_engine->schedule(*t, true);
     lock.unlock();
 
@@ -670,6 +826,17 @@ std::shared_ptr<StreamHandle> StreamBroker::open(const OpenRequest& request, Bro
     handle->m_torrent = t;
     handle->m_reader = reader;
     return handle;
+}
+
+QString StreamBroker::infoHashOfFile(const QString& torrentFile, QString* name)
+{
+    lt::error_code ec;
+    lt::torrent_info ti(QFile::encodeName(torrentFile).toStdString(), ec);
+    if (ec)
+        return {};
+    if (name)
+        *name = QString::fromStdString(ti.name());
+    return QString::fromStdString(idOf(ti.info_hashes()));
 }
 
 qint64 StreamBroker::diskUsage(const QString& path)
@@ -768,8 +935,12 @@ qint64 StreamHandle::read(qint64 offset, char* buffer, qint64 length)
         if (t.readErrors[piece] > 3)
             return -2;
         if (!t.readsPending.count(piece)) {
-            t.readsPending.insert(piece);
-            t.handle.read_piece(lt::piece_index_t(piece));
+            try {
+                t.handle.read_piece(lt::piece_index_t(piece));
+                t.readsPending.insert(piece);
+            } catch (const std::exception&) {
+                return t.removed ? -1 : -2;
+            }
         }
         t.cv.wait_for(lock, std::chrono::milliseconds(250));
     }
@@ -782,8 +953,11 @@ qint64 StreamHandle::read(qint64 offset, char* buffer, qint64 length)
     // Readers usually go on to the next piece: start reading it now.
     const int next = piece + 1;
     if (next < int(t.have.size()) && t.have[next] && !t.pieces.count(next) && !t.readsPending.count(next)) {
-        t.readsPending.insert(next);
-        t.handle.read_piece(lt::piece_index_t(next));
+        try {
+            t.handle.read_piece(lt::piece_index_t(next));
+            t.readsPending.insert(next);
+        } catch (const std::exception&) {
+        }
     }
     r.position = offset + n;
     return n;
