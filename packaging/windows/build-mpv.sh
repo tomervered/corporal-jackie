@@ -4,7 +4,7 @@
 # library FFmpeg can use (x265, AV1 encoders, SVG, JPEG XL, Vulkan shader
 # compilers...), about 70 MB the player never loads. This build keeps every
 # decoder, demuxer and parser, the image encoders screenshots use, Direct3D
-# 11 hardware decoding, HTTPS, and nothing for encoding video.
+# 11 hardware decoding, HTTPS through Windows' own TLS (schannel), and nothing for encoding video.
 #
 # Usage: build-mpv.sh <prefix>   (installs into <prefix>; skips if done)
 set -euo pipefail
@@ -37,7 +37,7 @@ cd "$SRC/ffmpeg"
     --disable-muxers \
     --disable-autodetect \
     --enable-d3d11va --enable-dxva2 --enable-w32threads \
-    --enable-zlib --enable-libdav1d --enable-mbedtls
+    --enable-zlib --enable-libdav1d --enable-schannel
 make -j"$JOBS"
 make install
 echo "::endgroup::"

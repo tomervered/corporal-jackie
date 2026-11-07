@@ -31,7 +31,7 @@ jobs:
             toolchain:p cmake:p ninja:p pkgconf:p meson:p nasm:p
             qt6-base:p qt6-declarative:p qt6-tools:p
             libtorrent-rasterbar:p sqlite3:p mesa:p
-            dav1d:p mbedtls:p libass:p lcms2:p uchardet:p zimg:p libdovi:p libiconv:p
+            dav1d:p libass:p lcms2:p uchardet:p zimg:p libdovi:p libiconv:p
 
       - name: Cache the mpv build
         uses: actions/cache@v4
