@@ -396,7 +396,15 @@ void Browser::play(int streamIndex)
     const StreamOption choice = m_streams[streamIndex];
     qCInfo(lcSources).noquote() << "Playing" << choice.source.title << "from" << choice.providerName
                                 << choice.source.url.toDisplayString(QUrl::RemoveQuery);
-    m_session->playSource(choice.source);
+    // Another source of the video that is playing: go on from the same
+    // place instead of from the start.
+    double start = 0;
+    if (m_playingVideoId == m_streamsVideoId && m_session->source() == m_playingUrl
+        && (m_session->hasMedia() || m_session->loading()))
+        start = m_session->position();
+    m_session->playSource(choice.source, start);
+    m_playingVideoId = m_streamsVideoId;
+    m_playingUrl = m_session->source();
     emit playStarted(choice.source.title);
 
     // Subtitle add-ons answer after the video starts; their files are added

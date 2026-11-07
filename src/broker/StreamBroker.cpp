@@ -48,7 +48,25 @@ constexpr qint64 kHeadBytes = 4 * 1024 * 1024;   // fetched first: headers
 constexpr qint64 kTailBytes = 4 * 1024 * 1024;   // and the index at the end
 constexpr qint64 kPieceCacheBytes = 64 * 1024 * 1024;  // piece copies kept in memory per torrent
 constexpr qint64 kDiskReserve = 2LL * 1024 * 1024 * 1024; // free disk space the cache always leaves
-constexpr auto kStallAfter = std::chrono::seconds(10);    // no new piece while a reader waits
+constexpr auto kStallAfter = std::chrono::seconds(10);    // no new data for the awaited piece
+// Beyond the urgent window, keep downloading at low priority, so spare
+// bandwidth builds a buffer: up to this many seconds of video ahead...
+constexpr double kBackgroundSeconds = 600;
+// ...and at most this many bytes, so one big file does not fill the cache.
+constexpr qint64 kBackgroundMaxBytes = 2LL * 1024 * 1024 * 1024;
+
+// Open trackers added to every torrent (never the only source: DHT and the
+// link's own trackers stay).
+constexpr const char* kPublicTrackers[] = {
+    "udp://tracker.opentrackr.org:1337/announce",
+    "udp://open.demonii.com:1337/announce",
+    "udp://open.stealth.si:80/announce",
+    "udp://tracker.torrent.eu.org:451/announce",
+    "udp://exodus.desync.com:6969/announce",
+    "udp://explodie.org:6969/announce",
+    "udp://tracker.dler.org:6969/announce",
+    "udp://tracker.openbittorrent.com:6969/announce",
+};
 constexpr auto kReannounceAfter = std::chrono::seconds(15); // no peers: ask trackers and DHT again
 constexpr auto kCacheCheckEvery = std::chrono::seconds(60);
 constexpr const char* kMetadataFile = "metadata.torrent";
@@ -84,6 +102,12 @@ struct Reader
     std::atomic<bool> cancelled{false};
     std::atomic<bool> closed{false};
     int scheduledPiece = -1;  // the piece the last schedule was computed for
+    // Progress on the piece this reader waits for, to tell slow from stuck.
+    // Written by stats() only, which runs on one thread at a time per reader.
+    mutable int waitPiece = -1;
+    mutable int waitBlocks = -1;
+    mutable Clock::time_point waitProgressAt = Clock::now();
+    mutable bool stallLogged = false;
 
     double bitrate() const
     {
@@ -112,6 +136,7 @@ struct Torrent
     std::set<int> readsPending;
     std::map<int, int> readErrors;
     std::map<int, int> scheduled;  // piece -> deadline in ms, as last sent
+    std::set<int> background;      // pieces wanted at low priority, as last sent
     std::vector<std::weak_ptr<Reader>> readers;
     int openHandles = 0;
     qint64 downloadRate = 0;
@@ -221,6 +246,12 @@ Engine::Engine(const BrokerSettings& s)
     pack.set_int(lt::settings_pack::tick_interval, 100);
     pack.set_int(lt::settings_pack::piece_timeout, 5);
     pack.set_bool(lt::settings_pack::strict_end_game_mode, false);
+    // More peers, sooner: announce to every tracker (not just the first that
+    // answers in each tier), and open new connections faster at the start.
+    pack.set_bool(lt::settings_pack::announce_to_all_tiers, true);
+    pack.set_bool(lt::settings_pack::announce_to_all_trackers, true);
+    pack.set_int(lt::settings_pack::connection_speed, 100);
+    pack.set_int(lt::settings_pack::torrent_connect_boost, 60);
     // Closing the app waits for trackers to hear goodbye; keep that short.
     pack.set_int(lt::settings_pack::stop_tracker_timeout, 1);
 
@@ -302,6 +333,14 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
         qCWarning(lcBroker).noquote() << "Cannot open" << uri << ":" << QString::fromStdString(ec.message());
         *error = BrokerError::InvalidUri;
         return nullptr;
+    }
+
+    // Magnet links from add-ons often name few trackers; well-known open
+    // trackers find more peers sooner. Not in tests: those stay offline.
+    if (!settings.loopbackOnly) {
+        for (const char* tracker : kPublicTrackers)
+            if (std::find(atp.trackers.begin(), atp.trackers.end(), tracker) == atp.trackers.end())
+                atp.trackers.emplace_back(tracker);
     }
 
     const std::string id = idOf(atp.info_hashes);
@@ -598,6 +637,7 @@ void Engine::schedule(Torrent& t, bool force)
             desired[p] = ms;
     };
 
+    std::set<int> background;  // after the urgent window, at low priority
     bool anyChange = force;
     t.readers.erase(std::remove_if(t.readers.begin(), t.readers.end(),
                                    [](const std::weak_ptr<Reader>& w) {
@@ -620,6 +660,12 @@ void Engine::schedule(Torrent& t, bool force)
         // Each piece is due when the player will reach it at the file's bitrate.
         for (int p = first; p <= last; ++p)
             want(p, int(double(qint64(p - first) * pieceLen) * 1000.0 / bitrate));
+        const qint64 ahead = std::min({qint64(bitrate * kBackgroundSeconds), kBackgroundMaxBytes,
+                                       settings.cacheCapBytes / 2});
+        const int bgLast = t.pieceAt(qMin(pos + qMax(window, ahead), fileEnd));
+        for (int p = last + 1; p <= bgLast; ++p)
+            if (!t.have[p])
+                background.insert(p);
 
         // The start and the end of the file hold the container's headers and
         // index; players read both before the first frame.
@@ -632,23 +678,35 @@ void Engine::schedule(Torrent& t, bool force)
         return;
 
     try {
-        for (const auto& [p, ms] : desired) {
-            const lt::piece_index_t index(p);
+        for (auto it = background.begin(); it != background.end();)
+            it = desired.count(*it) ? background.erase(it) : std::next(it);
+        std::vector<std::pair<lt::piece_index_t, lt::download_priority_t>> priorities;
+        for (const auto& [p, ms] : desired)
             if (!t.scheduled.count(p))
-                t.handle.piece_priority(index, lt::top_priority);
-            t.handle.set_piece_deadline(index, ms);
-        }
+                priorities.emplace_back(lt::piece_index_t(p), lt::top_priority);
+        for (int p : background)
+            if (!t.background.count(p) || t.scheduled.count(p))
+                priorities.emplace_back(lt::piece_index_t(p), lt::low_priority);
         for (const auto& [p, ms] : t.scheduled) {
             if (!desired.count(p) && !t.have[p]) {
                 t.handle.reset_piece_deadline(lt::piece_index_t(p));
-                t.handle.piece_priority(lt::piece_index_t(p), lt::dont_download);
+                if (!background.count(p))
+                    priorities.emplace_back(lt::piece_index_t(p), lt::dont_download);
             }
         }
+        for (int p : t.background)
+            if (!background.count(p) && !desired.count(p) && !t.have[p])
+                priorities.emplace_back(lt::piece_index_t(p), lt::dont_download);
+        if (!priorities.empty())
+            t.handle.prioritize_pieces(priorities);
+        for (const auto& [p, ms] : desired)
+            t.handle.set_piece_deadline(lt::piece_index_t(p), ms);
     } catch (const std::exception& e) {
         // The torrent went away under us (removed from the cache).
         qCDebug(lcBroker) << "Scheduling failed:" << e.what();
         return;
     }
+    t.background = std::move(background);
     t.scheduled = std::move(desired);
 }
 
@@ -767,19 +825,51 @@ StreamStats Engine::stats(Torrent& t, const Reader& r)
     s.bufferedSeconds = double(s.bufferedBytes) / r.bitrate();
     s.state = s.bufferedBytes > 0 || r.position >= r.fileSize ? StreamState::Ready : StreamState::Buffering;
     if (s.state == StreamState::Buffering) {
-        if (Clock::now() - t.lastPieceAt >= kStallAfter)
-            s.state = StreamState::Stalled;
         // How far along the piece the reader waits for is.
         const int piece = t.pieceAt(r.fileOffset + qMin<qint64>(r.position, qMax<qint64>(0, r.fileSize - 1)));
+        int blocks = 0;
+        int blocksInPiece = 0;
         try {
             for (const lt::partial_piece_info& pp : t.handle.get_download_queue()) {
                 if (static_cast<int>(pp.piece_index) == piece && pp.blocks_in_piece > 0) {
-                    s.waitingPercent = qBound(0, (pp.finished + pp.writing) * 100 / pp.blocks_in_piece, 99);
+                    blocks = pp.finished + pp.writing;
+                    blocksInPiece = pp.blocks_in_piece;
+                    s.waitingPercent = qBound(0, blocks * 100 / pp.blocks_in_piece, 99);
                     break;
                 }
             }
         } catch (const std::exception&) {
         }
+        // Stalled means the awaited piece got no new data for a while. Data
+        // arriving for other pieces does not count: that is slow, not stuck.
+        const auto now = Clock::now();
+        if (piece != r.waitPiece || blocks > r.waitBlocks) {
+            r.waitPiece = piece;
+            r.waitBlocks = blocks;
+            r.waitProgressAt = now;
+            r.stallLogged = false;
+        }
+        if (now - r.waitProgressAt >= kStallAfter) {
+            s.state = StreamState::Stalled;
+            if (!r.stallLogged) {
+                r.stallLogged = true;
+                // Why: does anyone have the piece, and is it being fetched?
+                int holders = -1;
+                try {
+                    std::vector<int> avail;
+                    t.handle.piece_availability(avail);
+                    if (piece < int(avail.size()))
+                        holders = avail[std::size_t(piece)];
+                } catch (const std::exception&) {
+                }
+                qCInfo(lcBroker).noquote()
+                    << "Stalled on piece" << piece << "of" << QString::fromStdString(t.id) << ":" << blocks << "/"
+                    << blocksInPiece << "blocks," << holders << "peers have it," << s.peers << "peers connected,"
+                    << s.downloadRate / 1024 << "KiB/s overall";
+            }
+        }
+    } else {
+        r.waitPiece = -1;
     }
     return s;
 }

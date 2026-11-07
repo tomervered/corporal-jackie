@@ -14,7 +14,7 @@ Window {
     minimumHeight: 360
     visible: true
     color: "black"
-    title: session.hasMedia && session.title !== "" ? session.title + " — Corporal Jackie" : "Corporal Jackie"
+    title: (session.hasMedia || session.loading) && session.title !== "" ? session.title + " — Corporal Jackie" : "Corporal Jackie"
 
     readonly property color textColor: "#f2f2f5"
     readonly property color mutedText: "#9a9aa6"
@@ -48,7 +48,9 @@ Window {
         switch (session.streamPhase) {
         case Playback.FindingPeers: return "Looking for peers…"
         case Playback.FetchingMetadata: return "Getting the file list from " + peers + "…"
-        case Playback.Stalled: return "Waiting for peers… still trying (" + peers + ")"
+        case Playback.Stalled:
+            return session.streamPeers === 0 ? "Waiting for peers… still trying"
+                 : "Waiting for the next part… " + peers + " connected, " + formatRate(session.streamRate)
         case Playback.Buffering:
             return "Buffering " + session.streamPercent + "% · " + peers + " · " + formatRate(session.streamRate)
         default:
@@ -135,6 +137,8 @@ Window {
 
     component BarButton: ToolButton {
         id: barButton
+        // Never takes keyboard focus: Space must pause, not press the button again.
+        focusPolicy: Qt.NoFocus
         palette.buttonText: root.textColor
         font.pixelSize: 13
         implicitWidth: Math.max(36, implicitContentWidth + 16)
@@ -367,10 +371,33 @@ Window {
 
     // --- Empty state -------------------------------------------------------
 
+    // While a new item loads, the last frame of the old one may still be on
+    // screen: dim it, and show only what the loading is doing.
+    Rectangle {
+        anchors.fill: parent
+        visible: session.loading && !session.hasMedia
+        color: "#c0000000"
+    }
+    Rectangle {
+        anchors.centerIn: parent
+        visible: session.loading && !session.hasMedia
+        width: loadingLabel.implicitWidth + 32
+        height: loadingLabel.implicitHeight + 18
+        radius: 10
+        color: "#a0000000"
+        Text {
+            id: loadingLabel
+            anchors.centerIn: parent
+            text: root.streaming ? root.streamText : "Opening…"
+            color: root.textColor
+            font.pixelSize: 18
+        }
+    }
+
     Column {
         anchors.centerIn: parent
         spacing: 12
-        visible: !session.hasMedia
+        visible: !session.hasMedia && !session.loading
 
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
@@ -381,8 +408,7 @@ Window {
         }
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: session.loading ? (root.streaming ? root.streamText : "Opening…")
-                                  : "Drop a video or a magnet link here, or open one"
+            text: "Drop a video or a magnet link here, or open one"
             color: root.mutedText
             font.pixelSize: 16
         }

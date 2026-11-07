@@ -137,6 +137,11 @@ private:
     bool m_streamsLoading = false;
     QStringList m_streamProblems;
     quint64 m_streamsGen = 0;
+
+    // What play() last started, to keep the place when the user switches to
+    // another source of the same video.
+    QString m_playingVideoId;
+    QUrl m_playingUrl;
 };
 
 } // namespace cj

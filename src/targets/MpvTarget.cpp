@@ -122,6 +122,10 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
 
     if (mode == Mode::Video) {
         setOption(m_mpv, "vo", "libmpv");
+        // mpv's better scalers and debanding: a 720p source on a big screen
+        // looks much sharper. The profile is "gpu-hq" before mpv 0.37.
+        if (mpv_set_option_string(m_mpv, "profile", "high-quality") < 0)
+            mpv_set_option_string(m_mpv, "profile", "gpu-hq");
     } else {
         setOption(m_mpv, "vo", "null");
         setOption(m_mpv, "ao", "null");
@@ -134,6 +138,12 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
     setOption(m_mpv, "osc", "no");
     setOption(m_mpv, "config", "no");          // ignore any mpv.conf on the user's machine
     setOption(m_mpv, "screenshot-format", "png");
+    // Read ahead for every source, not only for what mpv sees as network
+    // streams (torrent:// is not one): a torrent that slows down for a few
+    // seconds then plays on from memory instead of freezing.
+    setOption(m_mpv, "cache", "yes");
+    setOption(m_mpv, "demuxer-max-bytes", "256MiB");
+    setOption(m_mpv, "demuxer-max-back-bytes", "64MiB");
     // CJ_MPV_OPTS="name=value,name=value" sets extra mpv options, for troubleshooting.
     for (const QByteArray& pair : qgetenv("CJ_MPV_OPTS").split(',')) {
         if (const qsizetype eq = pair.indexOf('='); eq > 0)
