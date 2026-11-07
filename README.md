@@ -13,7 +13,7 @@ Open a file with the **Open** button, by dropping it on the window, or by passin
 | Key | Action |
 | --- | --- |
 | Space or K | Play / pause |
-| ← / → | Seek 5 seconds (hold Shift for 60) |
+| ← / → | Tap to jump 10 seconds; hold to keep jumping, faster the longer you hold |
 | ↑ / ↓ | Volume |
 | M | Mute |
 | F or double-click | Full screen |

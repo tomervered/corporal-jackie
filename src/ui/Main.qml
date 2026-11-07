@@ -21,6 +21,28 @@ Window {
     property bool statsVisible: false
     property string errorText: ""
 
+    // Arrow-key seeking: a tap jumps 10 s. Holding keeps jumping every 250 ms,
+    // further the longer it is held: 10 s steps, then 30 s, then 60 s.
+    property int seekSteps: 0
+    property real seekTotal: 0
+    property real lastSeekAt: 0
+
+    function arrowSeek(direction, isAutoRepeat) {
+        if (!player.fileLoaded) return
+        if (!isAutoRepeat) {
+            seekSteps = 0
+            seekTotal = 0
+        } else if (Date.now() - lastSeekAt < 250) {
+            return
+        }
+        const step = seekSteps < 5 ? 10 : seekSteps < 12 ? 30 : 60
+        seekSteps++
+        lastSeekAt = Date.now()
+        seekTotal += direction * step
+        player.seekRelative(direction * step)
+        seekToastTimer.restart()
+    }
+
     function formatTime(seconds) {
         if (!isFinite(seconds) || seconds < 0) seconds = 0
         const s = Math.floor(seconds % 60), m = Math.floor(seconds / 60) % 60, h = Math.floor(seconds / 3600)
@@ -63,6 +85,7 @@ Window {
     }
 
     Timer { id: errorTimer; interval: 8000; onTriggered: root.errorText = "" }
+    Timer { id: seekToastTimer; interval: 900; onTriggered: root.seekTotal = 0 }
 
     Timer {
         id: hideTimer
@@ -96,8 +119,8 @@ Window {
         Keys.onPressed: event => {
             switch (event.key) {
             case Qt.Key_Space: case Qt.Key_K: player.togglePause(); break
-            case Qt.Key_Left:  player.seekRelative(event.modifiers & Qt.ShiftModifier ? -60 : -5); break
-            case Qt.Key_Right: player.seekRelative(event.modifiers & Qt.ShiftModifier ? 60 : 5); break
+            case Qt.Key_Left:  root.arrowSeek(-1, event.isAutoRepeat); break
+            case Qt.Key_Right: root.arrowSeek(1, event.isAutoRepeat); break
             case Qt.Key_Up:    player.volume = Math.min(100, player.volume + 5); break
             case Qt.Key_Down:  player.volume = Math.max(0, player.volume - 5); break
             case Qt.Key_M:     player.muted = !player.muted; break
@@ -156,6 +179,24 @@ Window {
             text: "Build " + appVersion
             color: "#5c5c66"
             font.pixelSize: 12
+        }
+    }
+
+    // Seek indicator, e.g. "+40 s", while tapping or holding an arrow key
+    Rectangle {
+        anchors.centerIn: parent
+        visible: root.seekTotal !== 0
+        width: seekLabel.implicitWidth + 40
+        height: seekLabel.implicitHeight + 20
+        radius: 10
+        color: "#a0000000"
+        Text {
+            id: seekLabel
+            anchors.centerIn: parent
+            text: (root.seekTotal > 0 ? "» +" : "« −") + root.formatTime(Math.abs(root.seekTotal))
+            color: root.textColor
+            font.pixelSize: 28
+            font.weight: Font.DemiBold
         }
     }
 

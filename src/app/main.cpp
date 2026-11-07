@@ -12,8 +12,12 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQuickWindow>
 #include <QSettings>
 #include <QTimer>
+#ifdef Q_OS_WIN
+#  include <QtGui/qpa/qplatformwindow_p.h>
+#endif
 #include <clocale>
 #include <exception>
 #include <memory>
@@ -96,6 +100,16 @@ int main(int argc, char* argv[])
         qCCritical(lcUi) << "Main window failed to load";
         return 1;
     }
+
+#ifdef Q_OS_WIN
+    // A borderless full-screen OpenGL window makes Windows switch it to
+    // exclusive full screen, which makes the video flash and stall. Keeping a
+    // 1-pixel border in full screen is Qt's documented workaround.
+    if (auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first())) {
+        if (auto* native = window->nativeInterface<QNativeInterface::Private::QWindowsWindow>())
+            native->setHasBorderInFullScreen(true);
+    }
+#endif
 
     if (const QStringList files = args.positionalArguments(); !files.isEmpty())
         player->openPath(files.first());
