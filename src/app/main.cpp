@@ -91,6 +91,7 @@ int main(int argc, char* argv[])
             torrents.setDuration(session.duration());
         });
         QObject::connect(&torrents, &cj::TorrentTransport::statusChanged, &session, &cj::Session::setStreamStatus);
+        QObject::connect(&torrents, &cj::TorrentTransport::openFailed, &session, &cj::Session::reportSourceError);
     }
 
     QSettings settings;

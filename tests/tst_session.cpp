@@ -69,11 +69,14 @@ private slots:
         Session s(&t);
         startItem(s, t);
         QSignalSpy spy(&s, &Session::streamStatusChanged);
-        s.setStreamStatus({StreamPhase::Buffering, 40, 7, 2048});
+        const QUrl src(QStringLiteral("file:///videos/movie.mkv"));
+        s.setStreamStatus({StreamPhase::Buffering, 40, 7, 2048, 3.5, QUrl(QStringLiteral("torrent://old"))});
+        QCOMPARE(s.streamPhase(), StreamPhase::Inactive);  // about another item: ignored
+        s.setStreamStatus({StreamPhase::Buffering, 40, 7, 2048, 3.5, src});
         QCOMPARE(s.streamPhase(), StreamPhase::Buffering);
         QCOMPARE(s.streamPercent(), 40);
         QCOMPARE(s.streamPeers(), 7);
-        s.setStreamStatus({StreamPhase::Buffering, 40, 7, 2048});  // unchanged: no signal
+        s.setStreamStatus({StreamPhase::Buffering, 40, 7, 2048, 3.5, src});  // unchanged: no signal
         QCOMPARE(spy.count(), 1);
         startItem(s, t);
         QCOMPARE(s.streamPhase(), StreamPhase::Inactive);

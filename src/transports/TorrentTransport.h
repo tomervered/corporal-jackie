@@ -12,13 +12,14 @@
 
 #include <QHash>
 #include <QObject>
-#include <QTimer>
 #include <QUrl>
 
 #include <atomic>
+#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <thread>
 #include <vector>
 
 struct mpv_handle;
@@ -64,23 +65,32 @@ public:
     static QString infoHashOf(const QUrl& torrentUrl);
 
 signals:
-    // Twice a second while a torrent is the current item.
+    // Twice a second while a torrent is the current item. Emitted from a
+    // worker thread (libtorrent calls can block), so connections are queued.
     void statusChanged(const cj::StreamStatus& status);
+
+    // Opening the current torrent failed for a reason the user should see
+    // (no peers, a torrent error). Emitted from mpv's thread, before mpv
+    // reports its own, vaguer error.
+    void openFailed(cj::PlaybackError error, const QString& message, const QUrl& source);
 
 private:
     struct Stream;
     static int openCallback(void* self, char* uri, mpv_stream_cb_info* info);
     int open(const char* uri, mpv_stream_cb_info* info);
+    void statusLoop();
     void pollStatus();
 
     BrokerSettings m_settings;
     std::mutex m_brokerMutex;
     std::shared_ptr<StreamBroker> m_broker;
-    QTimer m_statusTimer;
+    std::thread m_statusThread;
+    std::condition_variable m_statusWake;
 
     mutable std::mutex m_mutex;  // guards everything below
     QHash<QString, QString> m_requests;               // info hash -> what the user gave (magnet...)
     QString m_currentHash;
+    QUrl m_currentUrl;
     double m_duration = 0;
     std::vector<std::weak_ptr<StreamHandle>> m_handles;
     QHash<QString, int> m_opening;                     // info hash -> opens in progress

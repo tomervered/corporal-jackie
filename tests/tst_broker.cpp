@@ -332,6 +332,30 @@ private slots:
         QCOMPARE(h->size(), 8 * MiB);
         QVERIFY(readRange(*h, 0, 2 * MiB) == t.data[0].left(int(2 * MiB)));
     }
+
+    // Resume data saved on close means a reopened torrent knows its verified
+    // pieces at once, with no re-check of the files and no peers.
+    void reopensFromResumeDataAtOnce()
+    {
+        QTemporaryDir dir;
+        const TestTorrent t = harness::makeTorrent(dir.filePath("seed"), "movie.mkv", {16 * MiB}, kPiece, 12);
+        const QString cache = dir.filePath("cache");
+        {
+            Seeder seeder(t, t.root);
+            StreamBroker broker(testSettings(cache));
+            auto h = broker.open({harness::magnet(t, {seeder.port()})});
+            QVERIFY(h);
+            QVERIFY(readRange(*h, 0, 4 * MiB) == t.data[0].left(int(4 * MiB)));
+        }
+        QVERIFY(QFileInfo::exists(QDir(cache).filePath(harness::infoHash(t) + "/resume.dat")));
+
+        StreamBroker broker(testSettings(cache));
+        auto h = broker.open({harness::infoHash(t)});
+        QVERIFY(h);
+        // Right away, not after a check: the first 4 MiB are known to be here.
+        QVERIFY2(h->stats().bufferedBytes >= 4 * MiB, qPrintable(QString::number(h->stats().bufferedBytes)));
+        QVERIFY(readRange(*h, 0, 4 * MiB) == t.data[0].left(int(4 * MiB)));
+    }
 };
 
 QTEST_GUILESS_MAIN(TestBroker)

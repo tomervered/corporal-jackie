@@ -68,6 +68,8 @@ When the item reaches its end the target sends `stateChanged(Ended)` and keeps t
 | --- | --- |
 | `UnsupportedFile` | The source opened but contains nothing this target can play. |
 | `LoadFailed` | The source could not be opened: missing, no access, broken stream. |
+| `NoPeers` | A torrent: nobody sharing it was found in time. Reported by the torrent transport, not by targets. |
+| `StreamFailed` | A torrent stopped with an error, such as a full disk. Reported by the torrent transport. |
 | `TargetUnavailable` | The device is gone or not responding (e.g. a TV switched off). |
 | `Internal` | A bug or an unexpected failure inside the target. |
 
