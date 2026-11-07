@@ -194,6 +194,7 @@ Engine::Engine(const BrokerSettings& s)
     // Keep about one second of requests queued at each peer (default three):
     // after a seek, new requests wait behind fewer old ones.
     pack.set_int(lt::settings_pack::request_queue_time, 1);
+    pack.set_int(lt::settings_pack::tick_interval, 100);
     pack.set_int(lt::settings_pack::piece_timeout, 5);
     pack.set_bool(lt::settings_pack::strict_end_game_mode, false);
 
