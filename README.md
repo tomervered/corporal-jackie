@@ -4,7 +4,7 @@ A native desktop media player that browses Stremio add-on catalogs and local fil
 
 Built with C++20, Qt 6/QML, libmpv, libtorrent-rasterbar and SQLite. Windows and macOS first, Linux after.
 
-**Status:** Step 2 (Playback Session). Plays local video files. The interface talks only to the Session, which sends commands to the mpv target; the contract between them is in [docs/TARGET_CONTRACT.md](docs/TARGET_CONTRACT.md).
+**Status:** Step 3 (torrent stream broker). Plays local video files. The interface talks only to the Session, which sends commands to the mpv target; the contract between them is in [docs/TARGET_CONTRACT.md](docs/TARGET_CONTRACT.md). The torrent stream broker (Step 3) is built and tested on its own; it plays in the app from Step 4. Its contract is in [docs/BROKER_CONTRACT.md](docs/BROKER_CONTRACT.md).
 
 ## Using it
 
