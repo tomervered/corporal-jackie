@@ -20,8 +20,9 @@ Rectangle {
     border.color: "#30ffffff"
     radius: 12
 
+    // Called after the window makes the panel visible. Setting `visible`
+    // here would break the window's binding, and the panel could not close.
     function show() {
-        visible = true
         if (browser.catalogIndex < 0 && browser.catalogs.length > 0) browser.openCatalog(0, "")
         searchField.forceActiveFocus()
     }
