@@ -266,7 +266,8 @@ Window {
             case Qt.Key_F:     root.toggleFullscreen(); break
             case Qt.Key_B:     root.toggleBrowse(); break
             case Qt.Key_Escape:
-                if (root.helpVisible) root.helpVisible = false
+                if (root.browseVisible) root.toggleBrowse()
+                else if (root.helpVisible) root.helpVisible = false
                 else if (root.visibility === Window.FullScreen) root.visibility = Window.Windowed
                 break
             case Qt.Key_I:     root.statsVisible = !root.statsVisible; break
