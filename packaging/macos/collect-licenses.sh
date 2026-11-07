@@ -34,7 +34,14 @@ for f in $formulae; do
         found="$found $(find -L "$keg/share/licenses" -type f)"
     fi
     if [ -z "$(echo $found)" ]; then
-        missing="$missing $f"
+        # A few packages ship no license file; packaging/licenses has them.
+        fallback="$ROOT/packaging/licenses/$f"
+        case $f in qt*) fallback="$ROOT/packaging/licenses/qt" ;; esac
+        if [ -d "$fallback" ]; then
+            mkdir -p "$LIC/$f" && cp "$fallback"/* "$LIC/$f/"
+        else
+            missing="$missing $f"
+        fi
         continue
     fi
     mkdir -p "$LIC/$f"
@@ -60,5 +67,6 @@ done
 echo "License folders: $(ls "$LIC" | wc -l)"
 ls "$LIC" | tr '\n' ' '; echo
 if [ -n "$missing" ]; then
-    echo "::warning::No license files found for these formulae:$missing"
+    echo "::error::No license files found for these formulae:$missing"
+    exit 1
 fi
