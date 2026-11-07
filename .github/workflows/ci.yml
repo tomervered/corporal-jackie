@@ -54,8 +54,9 @@ jobs:
           for f in dist/CorporalJackie.exe $(find dist -name '*.dll'); do
             ldd "$f" | awk '/\/ucrt64\// {print $3}'
           done | sort -u | xargs -r -I{} cp -n {} dist/
+          # Point Qt at the bundled plugins and QML modules instead of /ucrt64.
+          printf '[Paths]\nPrefix = .\nPlugins = .\nQmlImports = qml\n' > dist/qt.conf
           cp LICENSE dist/LICENSE.txt
-          ./dist/CorporalJackie.exe --version
 
       - uses: actions/upload-artifact@v4
         with:
