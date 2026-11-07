@@ -1,12 +1,15 @@
 #include "AppInfo.h"
 #include "AppPaths.h"
+#include "Browser.h"
 #include "CrashHandler.h"
 #include "DependencyInfo.h"
+#include "LocalLibrary.h"
 #include "Logging.h"
 #include "MpvTarget.h"
 #include "MpvVideoItem.h"
 #include "Session.h"
 #include "SleepBlocker.h"
+#include "StremioAdapter.h"
 #include "TorrentTransport.h"
 
 #include <QCommandLineParser>
@@ -16,6 +19,7 @@
 #include <QQmlContext>
 #include <QQuickWindow>
 #include <QSettings>
+#include <QSslSocket>
 #include <QTimer>
 #ifdef Q_OS_WIN
 #  include <QtGui/qpa/qplatformwindow_p.h>
@@ -111,6 +115,17 @@ int main(int argc, char* argv[])
         sleepBlocker.setActive(session.state() == cj::PlaybackState::Playing);
     });
 
+    // Step 5: where things to watch come from. Each source adapter only
+    // produces PlayableSources; the browse panel hands them to the Session.
+    cj::StremioAdapter addons(QDir(paths.data).filePath(QStringLiteral("addons.json")));
+    cj::LocalLibrary localFiles(QDir(paths.data).filePath(QStringLiteral("local-folders.json")));
+    cj::Browser browser(&session);
+    browser.setStremio(&addons);
+    browser.setLocal(&localFiles);
+    // A YouTube adapter would be added here with browser.addAdapter().
+    if (!args.isSet(smokeTest))
+        QTimer::singleShot(3000, &addons, [&] { addons.refreshManifests(); });
+
     cj::MpvVideoItem::useOpenGL();
     qmlRegisterType<cj::MpvVideoItem>("CorporalJackie", 1, 0, "VideoSurface");
     qmlRegisterUncreatableType<cj::Session>("CorporalJackie", 1, 0, "Session",
@@ -127,6 +142,7 @@ int main(int argc, char* argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("appVersion"),
                                              QString::fromLatin1(cj::app::kVersion));
     engine.rootContext()->setContextProperty(QStringLiteral("session"), &session);
+    engine.rootContext()->setContextProperty(QStringLiteral("browser"), &browser);
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
     engine.load(QUrl(QStringLiteral("qrc:/CorporalJackie/Main.qml")));
@@ -153,13 +169,22 @@ int main(int argc, char* argv[])
         // withFile by value: this block ends long before the timer fires.
         const bool withFile = !args.positionalArguments().isEmpty();
         QTimer::singleShot(withFile ? 4000 : 1000, &app, [&, withFile] {
+            // Add-ons are reached over HTTPS: a package without Qt's TLS
+            // plugin would install nothing.
+            if (!QSslSocket::supportsSsl()) {
+                qCCritical(lcApp) << "Smoke test failed: no TLS backend (available:"
+                                  << QSslSocket::availableBackends() << ")";
+                QCoreApplication::exit(3);
+                return;
+            }
             if (withFile && !(session.hasMedia() && session.position() > 0.5)) {
                 qCCritical(lcApp) << "Smoke test failed: file did not play (state:"
                                   << session.state() << "position:" << session.position() << ")";
                 QCoreApplication::exit(2);
                 return;
             }
-            qCInfo(lcApp) << "Smoke test passed: window opened" << (withFile ? "and the file played" : "");
+            qCInfo(lcApp) << "Smoke test passed: window opened" << (withFile ? "and the file played" : "")
+                          << "TLS:" << QSslSocket::activeBackend();
             QCoreApplication::quit();
         });
     }

@@ -47,6 +47,7 @@ public:
     void setAudioTrack(int id) override;
     void setSubtitleTrack(int id) override;
     void addExternalSubtitle(const QUrl& url) override;
+    void addSubtitleTrack(const SubtitleSource& subtitle) override;
     void setSpeed(double factor) override;
     void setVolume(double volume) override;
     void setMuted(bool muted) override;
@@ -69,6 +70,8 @@ private:
     void command(std::initializer_list<const char*> args, uint64_t replyId = 0);
     void setProperty(const char* name, const QByteArray& value);
     void startLoad(const QByteArray& target, double startSeconds);
+    void applyHeaders();
+    void addSubtitleNow(const SubtitleSource& subtitle);
     void setState(PlaybackState s);
     void updateState();
     void applyCrop();
@@ -82,6 +85,8 @@ private:
     QByteArray m_pendingTarget;
     int m_loadsInFlight = 0;      // loadfile sent, START_FILE not yet seen
     double m_pendingStart = 0;
+    QMap<QString, QString> m_headers;          // for the item being loaded
+    QList<SubtitleSource> m_pendingSubtitles;  // added once the file is loaded
 
     PlaybackState m_state = PlaybackState::Idle;
     bool m_fileLoaded = false;

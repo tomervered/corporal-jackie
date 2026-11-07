@@ -33,3 +33,17 @@ if(WIN32)
     target_compile_definitions(tst_torrentstream PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 endif()
 set_tests_properties(tst_torrentstream PROPERTIES TIMEOUT 300)
+
+# Source adapters and the browse model, against a fake add-on server.
+cj_add_test(tst_sources FakeHttpServer.h FakeTarget.h)
+target_link_libraries(tst_sources PRIVATE cj_sources)
+
+# Things picked in the browse model play in mpv: add-on web and torrent
+# streams, and a local file with its subtitle.
+cj_add_test(tst_browseplay FakeHttpServer.h TorrentHarness.h)
+target_link_libraries(tst_browseplay PRIVATE cj_sources cj_targets cj_transports cj_broker cj::libtorrent)
+target_compile_definitions(tst_browseplay PRIVATE CJ_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
+if(WIN32)
+    target_compile_definitions(tst_browseplay PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+endif()
+set_tests_properties(tst_browseplay PROPERTIES TIMEOUT 300)

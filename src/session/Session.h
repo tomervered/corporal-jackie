@@ -133,6 +133,12 @@ public:
     Q_INVOKABLE void open(const QUrl& url, double startSeconds = 0);
     Q_INVOKABLE void openPath(const QString& pathOrUrl, double startSeconds = 0);
     void load(const PlayableSource& source, double startSeconds = 0);
+    // Plays what a source adapter produced. Unlike load(), a magnet link in
+    // it is resolved first (to the torrent transport's own URL).
+    void playSource(const PlayableSource& source, double startSeconds = 0);
+    // Subtitles that arrived after the item started loading (from subtitle
+    // add-ons). Ignored if `forSource` is no longer the current item.
+    void addSubtitleTracks(const QList<SubtitleSource>& subtitles, const QUrl& forSource);
     Q_INVOKABLE void play();
     Q_INVOKABLE void pause();
     Q_INVOKABLE void togglePause();

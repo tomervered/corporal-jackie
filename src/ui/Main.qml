@@ -23,6 +23,7 @@ Window {
     property bool controlsVisible: true
     property bool statsVisible: false
     property bool helpVisible: false
+    property bool browseVisible: false
     property string errorText: ""
     property string osdText: ""
 
@@ -72,6 +73,12 @@ Window {
     function osd(text) {
         root.osdText = text
         osdTimer.restart()
+    }
+
+    function toggleBrowse() {
+        root.browseVisible = !root.browseVisible
+        if (root.browseVisible) browsePanel.show()
+        else inputLayer.forceActiveFocus()
     }
 
     function toggleFullscreen() {
@@ -257,6 +264,7 @@ Window {
             case Qt.Key_Down:  session.volume = Math.max(0, session.volume - 5); root.osd("Volume " + Math.round(session.volume)); break
             case Qt.Key_M:     session.muted = !session.muted; root.osd(session.muted ? "Muted" : "Sound on"); break
             case Qt.Key_F:     root.toggleFullscreen(); break
+            case Qt.Key_B:     root.toggleBrowse(); break
             case Qt.Key_Escape:
                 if (root.helpVisible) root.helpVisible = false
                 else if (root.visibility === Window.FullScreen) root.visibility = Window.Windowed
@@ -382,6 +390,7 @@ Window {
             spacing: 8
             Button { text: "Open a video…"; onClicked: openDialog.open() }
             Button { text: "Open a link…"; onClicked: linkPopup.open() }
+            Button { text: "Browse…"; onClicked: root.toggleBrowse() }
         }
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
@@ -389,6 +398,20 @@ Window {
             color: "#5c5c66"
             font.pixelSize: 12
         }
+    }
+
+    // --- Browse panel (press B) ---------------------------------------------------
+
+    BrowsePanel {
+        id: browsePanel
+        visible: root.browseVisible
+        anchors { top: parent.top; bottom: parent.bottom; left: parent.left; margins: 16 }
+        width: Math.min(760, parent.width - 32)
+        textColor: root.textColor
+        mutedText: root.mutedText
+        accent: root.accent
+        onCloseRequested: { root.browseVisible = false; inputLayer.forceActiveFocus() }
+        onMessage: (text, isError) => { if (isError) { root.errorText = text; errorTimer.restart() } else root.osd(text) }
     }
 
     // --- Overlays ------------------------------------------------------------
@@ -526,6 +549,7 @@ Window {
                     "C", "Crop",                            "1–0", "Contrast, brightness, gamma, saturation, hue",
                     "R", "Reset picture",                   "I", "Debug overlay",
                     "H", "Hardware decoding on/off",        "Esc", "Close / leave full screen",
+                    "B", "Browse add-ons and your folders", "", "",
                 ]
                 Text {
                     text: modelData
@@ -704,6 +728,10 @@ Window {
                 }
             }
             BarButton {
+                text: "Browse"
+                onClicked: root.toggleBrowse()
+            }
+            BarButton {
                 text: "Open"
                 onClicked: openDialog.open()
             }
@@ -713,4 +741,5 @@ Window {
             }
         }
     }
+
 }

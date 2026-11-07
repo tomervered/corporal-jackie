@@ -154,7 +154,8 @@ void Session::open(const QUrl& url, double startSeconds)
         load(*source, startSeconds);
         return;
     }
-    load({url, url.isLocalFile() ? QFileInfo(url.toLocalFile()).completeBaseName() : url.fileName()},
+    load(PlayableSource::fromUrl(url, url.isLocalFile() ? QFileInfo(url.toLocalFile()).completeBaseName()
+                                                        : url.fileName()),
          startSeconds);
 }
 
@@ -171,6 +172,28 @@ void Session::openPath(const QString& pathOrUrl, double startSeconds)
         open(QUrl(pathOrUrl), startSeconds);
     else
         open(QUrl::fromLocalFile(QFileInfo(pathOrUrl).absoluteFilePath()), startSeconds);
+}
+
+void Session::playSource(const PlayableSource& source, double startSeconds)
+{
+    // A magnet link from an add-on still goes through the torrent resolver;
+    // everything else the adapter said (title, subtitles, headers) is kept.
+    PlayableSource s = source;
+    if (auto resolved = resolve(source.url.toString())) {
+        s.url = resolved->url;
+        s.kind = resolved->kind;
+        if (s.title.isEmpty())
+            s.title = resolved->title;
+    }
+    load(s, startSeconds);
+}
+
+void Session::addSubtitleTracks(const QList<SubtitleSource>& subtitles, const QUrl& forSource)
+{
+    if (forSource != m_source.url || !(hasMedia() || m_state == PlaybackState::Loading))
+        return;  // the user has moved on
+    for (const SubtitleSource& sub : subtitles)
+        m_target->addSubtitleTrack(sub);
 }
 
 void Session::load(const PlayableSource& source, double startSeconds)
