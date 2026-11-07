@@ -28,7 +28,8 @@ Nothing downloads unless a reader needs it. When a torrent's file list arrives, 
 
 1. The first 4 MB and the last 4 MB of its file get a deadline of now. Players read the container's header and index (MP4 moov, MKV cues) before the first frame.
 2. The pieces from the reader's position to the end of its read-ahead window get deadlines spaced by the file's bitrate: the piece the player needs in 10 seconds is due in 10 seconds.
-3. Pieces that leave every window (after a seek, or when a handle closes) lose their deadline and go back to "don't download".
+3. After the window, the rest of the next ten minutes of video (at most 2 GB, and at most half the cache cap) downloads at low priority with no deadline, so spare bandwidth builds a buffer that rides out a slow patch.
+4. Pieces that leave every window (after a seek, or when a handle closes) lose their deadline and go back to "don't download".
 
 The read-ahead window is `readAheadBytes()` in `src/broker/BrokerTypes.h`: 30 seconds of video at the file's bitrate (size divided by duration, about 12 Mbit/s until the duration is known). It grows to 60 seconds when the swarm is more than 3 times faster than the video, and shrinks to 20 seconds when the swarm is slower than the video. It is never less than 4 pieces or more than 512 MB.
 
@@ -42,13 +43,13 @@ The cap is 10 GB by default, and smaller when the disk is short of space: the ca
 
 When the last handle on a torrent closes, and when the broker shuts down (waiting at most 3 s), libtorrent's resume data is saved as `resume.dat` in the torrent's folder. It records the file list and which pieces are verified, so a torrent watched before reopens at once: no wait for peers and no re-check of the files on disk.
 
-The plan asked for least recently used pieces. libtorrent cannot forget single pieces it has verified, so the unit of eviction is the torrent. Because only watched parts of a file download, a torrent's folder holds roughly what was watched plus the read-ahead.
+The plan asked for least recently used pieces. libtorrent cannot forget single pieces it has verified, so the unit of eviction is the torrent. Because only watched parts of a file download, a torrent's folder holds roughly what was watched plus up to ten minutes ahead.
 
 ## Stats
 
 `stats()` on a handle gives the state (finding peers, fetching the file list, buffering, stalled, ready), peers, seeds, download and upload speed, how many bytes and seconds are verified in a row from the reader's position, and while buffering, how much of the piece the reader waits for has arrived.
 
-Stalled means buffering with no new piece for 10 seconds. The broker keeps trying: when a torrent someone is reading has had no peers for 15 seconds, it asks the trackers and the DHT again.
+Stalled means the piece the reader waits for got no new data for 10 seconds; data arriving for other pieces does not count. The first time a reader stalls, the log says which piece, how many blocks of it arrived, and how many connected peers have it. Every torrent also announces to a short list of open trackers (`kPublicTrackers`), to every tracker in every tier. The broker keeps trying: when a torrent someone is reading has had no peers for 15 seconds, it asks the trackers and the DHT again.
 
 `torrentStats(infoHash)` gives the same for a torrent that is still opening, before there is a handle.
 

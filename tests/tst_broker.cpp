@@ -138,6 +138,22 @@ private slots:
         QVERIFY(worst <= kSeekWorstTargetMs);
     }
 
+    // Past the urgent window, spare bandwidth keeps filling the buffer at low
+    // priority, up to ten minutes of video ahead.
+    void buffersAheadInTheBackground()
+    {
+        QTemporaryDir dir;
+        const TestTorrent t = harness::makeTorrent(dir.filePath("seed"), "movie.mkv", {32 * MiB}, kPiece, 4);
+        Seeder seeder(t, t.root, 16 * MiB);
+        StreamBroker broker(testSettings(dir.filePath("cache")));
+        OpenRequest req{harness::magnet(t, {seeder.port()})};
+        req.durationSeconds = 320;  // 100 KiB/s: the urgent window is 3 to 6 MiB
+        auto h = broker.open(req);
+        QVERIFY(h);
+        QVERIFY(readRange(*h, 0, 64 * 1024) == t.data[0].left(64 * 1024));
+        QTRY_VERIFY_WITH_TIMEOUT(h->stats().bufferedBytes >= 30 * MiB, 30000);
+    }
+
     void twoReadersAtOnce()
     {
         QTemporaryDir dir;

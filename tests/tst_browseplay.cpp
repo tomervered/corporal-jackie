@@ -172,6 +172,37 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(app.session.source().scheme() == QLatin1String("torrent"), 5000);
         QTRY_VERIFY_WITH_TIMEOUT(app.session.hasMedia() && app.session.position() > 1.0, 40000);
         QVERIFY(server.paths().filter("/announce").size() > 0);
+
+        // Switching to the other source of the same video keeps the place.
+        QTRY_VERIFY_WITH_TIMEOUT(app.session.position() > 3.0, 20000);
+        const double before = app.session.position();
+        app.browser.play(app.streamOf(PlayableSource::Kind::Http));
+        QTRY_VERIFY_WITH_TIMEOUT(app.session.source().scheme() == QLatin1String("http"), 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(app.session.hasMedia() && app.session.position() > 0, 20000);
+        QVERIFY2(app.session.position() >= before - 0.5, qPrintable(QString::number(app.session.position())));
+    }
+
+    // Two torrents of the same movie: picking the second one while the first
+    // plays must play the second, not restart the first.
+    void switchesToAnotherTorrentOfTheSameMovie()
+    {
+        QTemporaryDir dir;
+        const TestTorrent a = harness::makeTorrentOfFile(dir.filePath("seedA"), "Movie.A.mkv", kClip, 16 * 1024);
+        const TestTorrent b = harness::makeTorrentOfFile(dir.filePath("seedB"), "Movie.B.mkv", kClip, 16 * 1024);
+        Seeder seederA(a, a.root);
+        Seeder seederB(b, b.root);
+        QVERIFY(harness::infoHash(a) != harness::infoHash(b));
+
+        App app(dir.filePath("data"));
+        app.session.playSource(PlayableSource::fromUrl(QUrl(harness::magnet(a, {seederA.port()})), "Movie"));
+        QTRY_VERIFY_WITH_TIMEOUT(app.session.hasMedia() && app.session.position() > 2.0, 30000);
+        QCOMPARE(TorrentTransport::infoHashOf(app.session.source()), harness::infoHash(a));
+
+        app.session.playSource(PlayableSource::fromUrl(QUrl(harness::magnet(b, {seederB.port()})), "Movie"));
+        QTRY_COMPARE_WITH_TIMEOUT(TorrentTransport::infoHashOf(app.session.source()), harness::infoHash(b), 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(app.session.hasMedia() && app.session.position() > 1.0, 30000);
+        // The second torrent is the one being read.
+        QTRY_VERIFY_WITH_TIMEOUT(app.session.streamPhase() == StreamPhase::Ready, 10000);
     }
 
     void localFilePlaysWithItsSubtitle()
