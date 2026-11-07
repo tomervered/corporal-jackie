@@ -5,6 +5,7 @@
 #include "Logging.h"
 
 #include <QCommandLineParser>
+#include <QDir>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -44,6 +45,11 @@ int main(int argc, char* argv[])
         qCWarning(lcApp).noquote() << "Previous run crashed:" << crash;
 
     QQmlApplicationEngine engine;
+    // Packaged builds keep Qt's QML modules in a "qml" folder next to the app.
+    // Without this, Qt looks in its build machine's install path and fails.
+    if (const QString bundled = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("qml"));
+        QDir(bundled).exists())
+        engine.addImportPath(bundled);
     engine.rootContext()->setContextProperty(QStringLiteral("appVersion"),
                                              QString::fromLatin1(cj::app::kVersion));
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
