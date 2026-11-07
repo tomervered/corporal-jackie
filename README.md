@@ -39,6 +39,7 @@ One folder per layer under `src/`. Each folder's README says what the layer owns
 
 ```
 src/app         entry point
+src/launcher    Windows launcher at the top of the shipped folder
 src/ui          Qt/QML interface
 src/session     Playback Session
 src/targets     playback targets (mpv)
@@ -88,6 +89,8 @@ ctest --test-dir build --output-on-failure
 ## Downloading a CI build
 
 Every push builds Windows and macOS packages. Open the latest run under **Actions**, and download `CorporalJackie-windows-x64` or `CorporalJackie-macos-arm64` from its Artifacts section.
+
+The Windows folder holds `CorporalJackie.exe` (start this one), `LICENSE.txt` and an `app` folder with the real program and everything it needs. Keep `app` next to the exe. The top `CorporalJackie.exe` is a small launcher, because Windows only finds a program's DLLs when they sit next to it.
 
 The builds are not signed yet. On macOS, right-click the app and choose **Open** the first time. On Windows, choose **More info → Run anyway** if SmartScreen asks.
 

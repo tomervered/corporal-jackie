@@ -45,19 +45,26 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: ./build/src/app/CorporalJackie.exe --smoke-test
 
+      # The shipped folder: the small launcher and the license at the top, and
+      # the real app with all its DLLs, plugins and QML in app\.
       - name: Package
         run: |
-          mkdir -p dist
-          cp build/src/app/CorporalJackie.exe dist/
+          rm -rf dist && mkdir -p dist/app
+          cp build/src/app/CorporalJackie.exe dist/app/
           WDQ=$(command -v windeployqt6 || command -v windeployqt-qt6 || command -v windeployqt)
-          "$WDQ" --release --qmldir src/ui --no-translations dist/CorporalJackie.exe
+          "$WDQ" --release --qmldir src/ui --no-translations dist/app/CorporalJackie.exe
           # Copy every MSYS2 DLL the app and its Qt plugins need (mpv, FFmpeg, libtorrent...).
-          for f in dist/CorporalJackie.exe $(find dist -name '*.dll'); do
+          for f in dist/app/CorporalJackie.exe $(find dist/app -name '*.dll'); do
             ldd "$f" | awk '/\/ucrt64\// {print $3}'
-          done | sort -u | xargs -r -I{} cp -n {} dist/
+          done | sort -u | xargs -r -I{} cp -n {} dist/app/
           # Point Qt at the bundled plugins and QML modules instead of /ucrt64.
-          printf '[Paths]\nPrefix = .\nPlugins = .\nQmlImports = qml\n' > dist/qt.conf
+          printf '[Paths]\nPrefix = .\nPlugins = .\nQmlImports = qml\n' > dist/app/qt.conf
+          cp build/launcher/CorporalJackie.exe dist/
+          # The launcher must not need any DLL that is not part of Windows.
+          if ldd dist/CorporalJackie.exe | grep -i ucrt64; then echo "launcher depends on MSYS2 DLLs"; exit 1; fi
           cp LICENSE dist/LICENSE.txt
+          echo "Top level:"; ls dist
+          echo "Files in app: $(find dist/app -type f | wc -l)"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -74,11 +81,11 @@ jobs:
           rm -rf dist-test && cp -r dist dist-test
           for f in opengl32.dll libgallium_wgl.dll; do
             p=$(find /ucrt64/bin -iname "$f" | head -1)
-            [ -n "$p" ] && cp "$p" dist-test/ && echo "added $p"
+            [ -n "$p" ] && cp "$p" dist-test/app/ && echo "added $p"
           done
-          for f in dist-test/opengl32.dll dist-test/libgallium_wgl.dll; do
+          for f in dist-test/app/opengl32.dll dist-test/app/libgallium_wgl.dll; do
             [ -f "$f" ] && ldd "$f" | awk '/\/ucrt64\// {print $3}'
-          done | sort -u | xargs -r -I{} cp -n {} dist-test/
+          done | sort -u | xargs -r -I{} cp -n {} dist-test/app/
 
       - name: Run packaged app with the test clip
         timeout-minutes: 3
