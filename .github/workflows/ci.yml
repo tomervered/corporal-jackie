@@ -52,7 +52,15 @@ jobs:
           rm -rf dist && mkdir -p dist/app
           cp build/src/app/CorporalJackie.exe dist/app/
           WDQ=$(command -v windeployqt6 || command -v windeployqt-qt6 || command -v windeployqt)
-          "$WDQ" --release --qmldir src/ui --no-translations dist/app/CorporalJackie.exe
+          "$WDQ" --release --qmldir src/ui --no-translations \
+            --skip-plugin-types qmltooling,generic,networkinformation dist/app/CorporalJackie.exe
+          # The app uses the Basic control style only. windeployqt copies every
+          # style Qt ships (Material, Fluent, Imagine...), about 30 MB never loaded.
+          for style in Material Universal Imagine Fusion FluentWinUI3 Windows; do
+            rm -rf "dist/app/qml/QtQuick/Controls/$style"
+            rm -f dist/app/Qt6QuickControls2${style}.dll dist/app/Qt6QuickControls2${style}StyleImpl.dll
+          done
+          rm -rf dist/app/qml/QtQuick/NativeStyle dist/app/Qt6QuickNativeStyle.dll
           # Copy every MSYS2 DLL the app and its Qt plugins need (mpv, FFmpeg, libtorrent...).
           for f in dist/app/CorporalJackie.exe $(find dist/app -name '*.dll'); do
             ldd "$f" | awk '/\/ucrt64\// {print $3}'
@@ -66,8 +74,7 @@ jobs:
           echo "Top level:"; ls dist
           echo "Files in app: $(find dist/app -type f | wc -l)"
           echo "Total size:"; du -sh dist
-          echo "Biggest files:"; find dist -type f -printf '%s %p\n' | sort -rn | head -60 | awk '{printf "%7.1f MB  %s\n", $1/1048576, $2}'
-          echo "By folder:"; du -sh dist/app/* | sort -rh | head -30
+          echo "Biggest files:"; find dist -type f -printf '%s %p\n' | sort -rn | awk 'NR <= 60 {printf "%7.1f MB  %s\n", $1/1048576, $2}'
 
       - uses: actions/upload-artifact@v4
         with:
