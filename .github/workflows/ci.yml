@@ -124,8 +124,10 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build pkg-config \
+          sudo apt-get install -y ninja-build pkg-config xvfb libgl1-mesa-dri \
             qt6-base-dev qt6-declarative-dev qml6-module-qtquick qml6-module-qtquick-window qml6-module-qtqml-workerscript \
+            qml6-module-qtquick-controls qml6-module-qtquick-templates qml6-module-qtquick-dialogs \
+            qml6-module-qtquick-layouts qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-shapes \
             libmpv-dev libtorrent-rasterbar-dev libsqlite3-dev
 
       - name: Configure
@@ -139,7 +141,10 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: ctest --test-dir build --output-on-failure
 
-      - name: Smoke test
+      # Real rendering on Mesa's software OpenGL: opens the window and plays the
+      # test clip. gpu-dumb-mode works around a Mesa llvmpipe issue with mpv's
+      # 16-bit float buffers that would otherwise give a black picture.
+      - name: Smoke test with video
         env:
-          QT_QPA_PLATFORM: offscreen
-        run: ./build/src/app/CorporalJackie --smoke-test
+          CJ_MPV_OPTS: gpu-dumb-mode=yes
+        run: xvfb-run -a -s "-screen 0 1280x720x24" ./build/src/app/CorporalJackie --smoke-test tests/data/testsrc-10s.mkv

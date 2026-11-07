@@ -18,7 +18,7 @@ set_target_properties(corporal-jackie PROPERTIES
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
 )
 
-target_link_libraries(corporal-jackie PRIVATE cj_common Qt6::Gui Qt6::Qml Qt6::Quick)
+target_link_libraries(corporal-jackie PRIVATE cj_common cj_targets Qt6::Gui Qt6::Qml Qt6::Quick)
 
 install(TARGETS corporal-jackie
     BUNDLE  DESTINATION .
