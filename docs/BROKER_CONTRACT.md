@@ -40,6 +40,8 @@ Each torrent lives in its own folder under the cache folder, named by its info h
 
 The cap is 10 GB by default, and smaller when the disk is short of space: the cache always leaves 2 GB free.
 
+When the last handle on a torrent closes, and when the broker shuts down (waiting at most 3 s), libtorrent's resume data is saved as `resume.dat` in the torrent's folder. It records the file list and which pieces are verified, so a torrent watched before reopens at once: no wait for peers and no re-check of the files on disk.
+
 The plan asked for least recently used pieces. libtorrent cannot forget single pieces it has verified, so the unit of eviction is the torrent. Because only watched parts of a file download, a torrent's folder holds roughly what was watched plus the read-ahead.
 
 ## Stats

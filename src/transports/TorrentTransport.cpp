@@ -75,6 +75,9 @@ struct TorrentTransport::Stream
 {
     std::shared_ptr<StreamHandle> handle;
     qint64 position = 0;
+    TorrentTransport* transport = nullptr;
+    QUrl url;
+    bool errorReported = false;
 };
 
 TorrentTransport::TorrentTransport(const BrokerSettings& settings, QObject* parent)
@@ -82,13 +85,15 @@ TorrentTransport::TorrentTransport(const BrokerSettings& settings, QObject* pare
     , m_settings(settings)
 {
     qRegisterMetaType<cj::StreamStatus>();
-    m_statusTimer.setInterval(500);
-    connect(&m_statusTimer, &QTimer::timeout, this, &TorrentTransport::pollStatus);
+    qRegisterMetaType<cj::PlaybackError>();
+    m_statusThread = std::thread([this] { statusLoop(); });
 }
 
 TorrentTransport::~TorrentTransport()
 {
-    m_closing = true;
+    abort();
+    if (m_statusThread.joinable())
+        m_statusThread.join();
     // Unblocks any read still waiting; the handles then fail cleanly.
     std::lock_guard lock(m_brokerMutex);
     m_broker.reset();
@@ -164,6 +169,7 @@ void TorrentTransport::setCurrent(const QUrl& url)
         if (hash == m_currentHash)
             return;
         m_currentHash = hash;
+        m_currentUrl = hash.isEmpty() ? QUrl() : url;
         m_duration = 0;
         ++m_generation;
         for (const auto& weak : m_handles)
@@ -174,15 +180,16 @@ void TorrentTransport::setCurrent(const QUrl& url)
     // let it go now rather than when mpv gets round to closing it.
     for (auto& h : others)
         h->cancel();
-    if (hash.isEmpty())
-        m_statusTimer.stop();
-    else
-        m_statusTimer.start();
+    m_statusWake.notify_all();
 }
 
 void TorrentTransport::abort()
 {
-    m_closing = true;
+    {
+        std::lock_guard lock(m_mutex);
+        m_closing = true;
+    }
+    m_statusWake.notify_all();
     std::vector<std::shared_ptr<StreamHandle>> handles;
     {
         std::lock_guard lock(m_mutex);
@@ -192,7 +199,6 @@ void TorrentTransport::abort()
     }
     for (auto& h : handles)
         h->cancel();
-    m_statusTimer.stop();
 }
 
 void TorrentTransport::setDuration(double seconds)
@@ -262,15 +268,33 @@ int TorrentTransport::open(const char* uri, mpv_stream_cb_info* info)
     }
     if (!handle) {
         qCWarning(lcTransports) << "Opening the torrent failed:" << int(error);
+        QUrl current;
+        {
+            std::lock_guard lock(m_mutex);
+            if (hash == m_currentHash)
+                current = m_currentUrl;
+        }
+        // Cancelled or closed means the user moved on: nothing to show.
+        if (!current.isEmpty() && error == BrokerError::MetadataTimeout)
+            emit openFailed(PlaybackError::NoPeers, tr("Nobody sharing this torrent was found in time."), current);
+        else if (!current.isEmpty() && error == BrokerError::TorrentError)
+            emit openFailed(PlaybackError::StreamFailed, tr("The torrent stopped with an error."), current);
         return error == BrokerError::NoSuchFile || error == BrokerError::InvalidUri ? MPV_ERROR_UNKNOWN_FORMAT
                                                                                     : MPV_ERROR_LOADING_FAILED;
     }
 
-    auto* stream = new Stream{handle, 0};
+    auto* stream = new Stream{handle, 0, this, url};
     info->cookie = stream;
     info->read_fn = [](void* cookie, char* buf, uint64_t nbytes) -> int64_t {
         auto* s = static_cast<Stream*>(cookie);
         const qint64 n = s->handle->read(s->position, buf, qint64(nbytes));
+        if (n == -2 && !s->errorReported) {
+            // A torrent error mid-play (a full disk): mpv would just see the
+            // stream end, so say why.
+            s->errorReported = true;
+            emit s->transport->openFailed(PlaybackError::StreamFailed,
+                                          TorrentTransport::tr("The torrent stopped with an error."), s->url);
+        }
         if (n < 0)
             return -1;  // cancelled, closed or a torrent error
         s->position += n;
@@ -292,14 +316,31 @@ int TorrentTransport::open(const char* uri, mpv_stream_cb_info* info)
 
 // --- Status for the UI -----------------------------------------------------------
 
+void TorrentTransport::statusLoop()
+{
+    std::unique_lock lock(m_mutex);
+    while (!m_closing) {
+        m_statusWake.wait_for(lock, std::chrono::milliseconds(500));
+        if (m_closing)
+            break;
+        lock.unlock();
+        pollStatus();
+        lock.lock();
+    }
+}
+
+// On the status thread: libtorrent's status calls wait on its network thread,
+// which must never stall the UI.
 void TorrentTransport::pollStatus()
 {
     QString hash;
+    QUrl url;
     std::shared_ptr<StreamHandle> handle;
     bool opening = false;
     {
         std::lock_guard lock(m_mutex);
         hash = m_currentHash;
+        url = m_currentUrl;
         opening = m_opening.contains(hash);
         // The newest open handle on the current torrent is the one playing.
         for (auto it = m_handles.rbegin(); it != m_handles.rend() && !handle; ++it)
@@ -321,6 +362,8 @@ void TorrentTransport::pollStatus()
     case StreamState::Ready:            status.phase = StreamPhase::Ready; break;
     }
     status.percent = st.waitingPercent;
+    status.bufferedSeconds = st.bufferedSeconds;
+    status.source = url;
     emit statusChanged(status);
 }
 

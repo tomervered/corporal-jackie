@@ -149,6 +149,10 @@ Window {
                     ? "The file couldn't be opened. It may have moved, or it may be damaged."
                     : error === Playback.TargetUnavailable
                         ? "The playback device stopped responding."
+                    : error === Playback.NoPeers
+                        ? "Nobody sharing this torrent was found. Try again later, or pick another source."
+                    : error === Playback.StreamFailed
+                        ? "The torrent stopped with an error (a full disk, maybe). The log has details."
                         : "Something went wrong inside the player (" + message + "). The log has details."
             errorTimer.restart()
         }
@@ -483,7 +487,8 @@ Window {
                 for (const key in session.stats)
                     lines.push(key + ": " + session.stats[key])
                 lines.push("Speed: " + session.speed + "×")
-                if (root.streaming) lines.push("Torrent: " + session.streamPeers + " peers, " + root.formatRate(session.streamRate))
+                if (root.streaming) lines.push("Torrent: " + session.streamPeers + " peers, " + root.formatRate(session.streamRate)
+                                               + ", " + session.streamBufferedSeconds.toFixed(1) + " s buffered ahead")
                 if (session.subtitleDelay !== 0) lines.push("Subtitle delay: " + root.signedMs(session.subtitleDelay))
                 if (session.audioDelay !== 0) lines.push("Audio delay: " + root.signedMs(session.audioDelay))
                 return lines.join("\n")

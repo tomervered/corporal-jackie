@@ -9,6 +9,7 @@
 #include "TorrentTransport.h"
 
 #include <QElapsedTimer>
+#include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
 #include <clocale>
@@ -25,8 +26,8 @@ constexpr int kPiece = 16 * 1024;
 // The app's wiring from main.cpp: Session, mpv and the torrent transport.
 struct Player
 {
-    explicit Player(const QString& cacheDir)
-        : transport(settings(cacheDir))
+    explicit Player(const QString& cacheDir, int metadataTimeoutMs = 30000)
+        : transport(settings(cacheDir, metadataTimeoutMs))
         , target(MpvTarget::Mode::Headless)
         , session(&target)
     {
@@ -39,15 +40,16 @@ struct Player
         });
         QObject::connect(&session, &Session::durationChanged, &transport, [this] { transport.setDuration(session.duration()); });
         QObject::connect(&transport, &TorrentTransport::statusChanged, &session, &Session::setStreamStatus);
+        QObject::connect(&transport, &TorrentTransport::openFailed, &session, &Session::reportSourceError);
         QObject::connect(&session, &Session::streamStatusChanged, &session, [this] { phases.insert(session.streamPhase()); });
     }
 
-    static BrokerSettings settings(const QString& cacheDir)
+    static BrokerSettings settings(const QString& cacheDir, int metadataTimeoutMs = 30000)
     {
         BrokerSettings s;
         s.cacheDir = cacheDir;
         s.loopbackOnly = true;
-        s.metadataTimeoutMs = 30000;
+        s.metadataTimeoutMs = metadataTimeoutMs;
         return s;
     }
 
@@ -148,6 +150,21 @@ private slots:
         QVERIFY2(clock.elapsed() < 5000, qPrintable(QString::number(clock.elapsed())));
         QCOMPARE(p.session.streamPhase(), StreamPhase::Inactive);
         QCOMPARE(p.session.title(), QStringLiteral("testsrc-10s"));
+    }
+
+    // Nobody has it: the user is told exactly that, not "could not open".
+    void noPeersIsItsOwnError()
+    {
+        QTemporaryDir dir;
+        const TestTorrent t = harness::makeTorrentOfFile(dir.filePath("seed"), "lonely.mkv", kClip, kPiece);
+        Player p(dir.filePath("cache"), 3000);
+        QSignalSpy errors(&p.session, &Session::errorOccurred);
+        p.session.openPath(harness::magnet(t, {}));
+        QTRY_COMPARE_WITH_TIMEOUT(errors.count(), 1, 15000);
+        QCOMPARE(errors.at(0).at(0).value<PlaybackError>(), PlaybackError::NoPeers);
+        QTest::qWait(1000);  // mpv's own "loading failed" must not follow it
+        QCOMPARE(errors.count(), 1);
+        QTRY_COMPARE_WITH_TIMEOUT(p.session.state(), PlaybackState::Idle, 5000);
     }
 
     // A torrent whose bytes trickle in: stopping while mpv waits for them

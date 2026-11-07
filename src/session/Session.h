@@ -58,6 +58,7 @@ class Session : public QObject
     Q_PROPERTY(int streamPercent READ streamPercent NOTIFY streamStatusChanged)
     Q_PROPERTY(int streamPeers READ streamPeers NOTIFY streamStatusChanged)
     Q_PROPERTY(double streamRate READ streamRate NOTIFY streamStatusChanged)
+    Q_PROPERTY(double streamBufferedSeconds READ streamBufferedSeconds NOTIFY streamStatusChanged)
 
 public:
     // The Session does not own the target; it must outlive the Session.
@@ -103,6 +104,7 @@ public:
     int streamPercent() const { return m_stream.percent; }
     int streamPeers() const { return m_stream.peers; }
     double streamRate() const { return double(m_stream.downloadRate); }
+    double streamBufferedSeconds() const { return m_stream.bufferedSeconds; }
 
     // Turns what the user typed, pasted or dropped (a magnet link, say) into
     // something playable, or returns nothing if it is not theirs. Tried in
@@ -114,6 +116,11 @@ public:
     // Set by whoever delivers the current item's bytes (the torrent transport).
     // Cleared to None whenever a new item loads.
     void setStreamStatus(const StreamStatus& status);
+
+    // An error from whoever delivers the current item's bytes, which knows
+    // more than the target ("no peers" rather than "could not open"). The
+    // target's own error for the same item is then not passed on.
+    void reportSourceError(PlaybackError error, const QString& message, const QUrl& source);
     QVariantMap stats() const { return m_stats; }
 
     // How often a resume point is emitted while playing. Default 5 s.
@@ -215,6 +222,7 @@ private:
     bool m_hardwareDecoding = true;
     QVariantMap m_stats;
     StreamStatus m_stream;
+    bool m_sourceErrorReported = false;
     std::vector<SourceResolver> m_resolvers;
     // Where the last seek is going. Until the target gets there, relative
     // seeks (a held arrow key) add to this, not to the old position.

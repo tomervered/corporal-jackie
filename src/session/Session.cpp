@@ -72,6 +72,10 @@ Session::Session(PlaybackTarget* target, QObject* parent)
         emit volumeChanged();
     });
     connect(target, &PlaybackTarget::errorOccurred, this, [this](PlaybackError e, const QString& msg) {
+        if (m_sourceErrorReported) {
+            qCInfo(lcSession).noquote() << "Target error after a source error, not shown:" << e << msg;
+            return;
+        }
         qCWarning(lcSession).noquote() << "Playback error" << e << msg;
         emit errorOccurred(e, msg);
     });
@@ -187,6 +191,7 @@ void Session::load(const PlayableSource& source, double startSeconds)
     m_aspect.clear();
     m_crop.clear();
     m_seekTarget = -1;
+    m_sourceErrorReported = false;
     const bool streamWasSet = m_stream.phase != StreamPhase::Inactive;
     m_stream = {};
 
@@ -213,12 +218,22 @@ void Session::load(const PlayableSource& source, double startSeconds)
 
 void Session::setStreamStatus(const StreamStatus& status)
 {
-    if (status == m_stream)
+    // A report for the previous item can arrive after the next one loaded.
+    if (status.source != m_source.url || status == m_stream)
         return;
     if (status.phase != m_stream.phase)
         qCInfo(lcSession) << "Stream" << status.phase << status.percent << "%" << status.peers << "peers";
     m_stream = status;
     emit streamStatusChanged();
+}
+
+void Session::reportSourceError(PlaybackError error, const QString& message, const QUrl& source)
+{
+    if (source != m_source.url || m_sourceErrorReported)
+        return;
+    m_sourceErrorReported = true;
+    qCWarning(lcSession).noquote() << "Source error" << error << message;
+    emit errorOccurred(error, message);
 }
 
 void Session::applyItemSettings()

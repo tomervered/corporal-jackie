@@ -9,6 +9,7 @@
 #include <QFileInfo>
 #include <QHash>
 #include <QRegularExpression>
+#include <QSaveFile>
 #include <QStorageInfo>
 
 #include <libtorrent/alert_types.hpp>
@@ -16,6 +17,7 @@
 #include <libtorrent/create_torrent.hpp>
 #include <libtorrent/magnet_uri.hpp>
 #include <libtorrent/read_resume_data.hpp>
+#include <libtorrent/write_resume_data.hpp>
 #include <libtorrent/session.hpp>
 #include <libtorrent/session_params.hpp>
 #include <libtorrent/torrent_info.hpp>
@@ -51,6 +53,10 @@ constexpr auto kReannounceAfter = std::chrono::seconds(15); // no peers: ask tra
 constexpr auto kCacheCheckEvery = std::chrono::seconds(60);
 constexpr const char* kMetadataFile = "metadata.torrent";
 constexpr const char* kLastUsedFile = ".last-used";
+// libtorrent's record of which pieces are verified. With it, a torrent
+// reopens at once instead of hashing everything on disk again first.
+constexpr const char* kResumeFile = "resume.dat";
+constexpr auto kResumeSaveWait = std::chrono::seconds(3);  // at shutdown, at most
 
 std::string hexOf(const lt::sha1_hash& h)
 {
@@ -164,6 +170,7 @@ private:
     void refresh(Torrent& t);
     void handleAlert(lt::alert* a);
     void onMetadata(Torrent& t);  // t.mutex must be held
+    void saveResume(Torrent& t);
     std::shared_ptr<Torrent> find(const lt::torrent_handle& h);
 
     std::unique_ptr<lt::session> m_session;
@@ -171,6 +178,8 @@ private:
     std::unordered_map<std::string, std::shared_ptr<Torrent>> m_torrents;
     QHash<QString, QString> m_pendingDeletes;  // info hash -> folder, until libtorrent is done
     std::thread m_thread;
+    std::atomic<int> m_pendingSaves{0};
+    std::atomic<bool> m_shutdownStarted{false};
     bool m_debugAlerts = qEnvironmentVariableIsSet("CJ_TORRENT_LOG");
 };
 
@@ -225,8 +234,24 @@ Engine::~Engine() { shutdown(); }
 
 void Engine::shutdown()
 {
-    if (closing.exchange(true))
+    if (m_shutdownStarted.exchange(true))
         return;
+    // Save every torrent's resume data while the alert thread still runs to
+    // write it, so the next start skips re-checking the files.
+    {
+        std::vector<std::shared_ptr<Torrent>> torrents;
+        {
+            std::lock_guard lock(m_mutex);
+            for (auto& [id, t] : m_torrents)
+                torrents.push_back(t);
+        }
+        for (auto& t : torrents)
+            saveResume(*t);
+        const auto until = Clock::now() + kResumeSaveWait;
+        while (m_pendingSaves > 0 && Clock::now() < until)
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    closing = true;
     if (m_thread.joinable())
         m_thread.join();
     {
@@ -309,6 +334,28 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
     t->dir = QDir(settings.cacheDir).filePath(QString::fromStdString(id));
     QDir().mkpath(t->dir);
     t->touch();
+
+    // Resume data from an earlier run: the file list and which pieces are
+    // verified, so nothing waits for peers or a full re-check. The new magnet
+    // link's trackers and peers are kept.
+    {
+        QFile resume(QDir(t->dir).filePath(QString::fromLatin1(kResumeFile)));
+        if (resume.open(QIODevice::ReadOnly)) {
+            const QByteArray data = resume.readAll();
+            lt::error_code resumeError;
+            lt::add_torrent_params rp = lt::read_resume_data({data.constData(), int(data.size())}, resumeError);
+            if (!resumeError && idOf(rp.info_hashes) == id) {
+                for (auto& tracker : atp.trackers)
+                    rp.trackers.push_back(tracker);
+                for (auto& peer : atp.peers)
+                    rp.peers.push_back(peer);
+                if (!rp.ti && atp.ti)
+                    rp.ti = atp.ti;
+                atp = std::move(rp);
+                qCInfo(lcBroker).noquote() << "Resuming" << QString::fromStdString(id) << "from saved data";
+            }
+        }
+    }
 
     // A file list saved on an earlier run means no wait for metadata.
     const QString saved = QDir(t->dir).filePath(QString::fromLatin1(kMetadataFile));
@@ -504,6 +551,18 @@ void Engine::handleAlert(lt::alert* a)
                 onMetadata(*t);
             }
         }
+    } else if (auto* rd = lt::alert_cast<lt::save_resume_data_alert>(a)) {
+        if (auto t = find(rd->handle); t && QFileInfo(t->dir).isDir()) {
+            const std::vector<char> buffer = lt::write_resume_data_buf(rd->params);
+            QSaveFile f(QDir(t->dir).filePath(QString::fromLatin1(kResumeFile)));
+            if (f.open(QIODevice::WriteOnly)) {
+                f.write(buffer.data(), qint64(buffer.size()));
+                f.commit();
+            }
+        }
+        --m_pendingSaves;
+    } else if (lt::alert_cast<lt::save_resume_data_failed_alert>(a)) {
+        --m_pendingSaves;
     } else if (auto* td = lt::alert_cast<lt::torrent_deleted_alert>(a)) {
         // libtorrent has deleted the data files: remove what is left.
         QString dir;
@@ -593,15 +652,34 @@ void Engine::schedule(Torrent& t, bool force)
     t.scheduled = std::move(desired);
 }
 
+void Engine::saveResume(Torrent& t)
+{
+    {
+        std::lock_guard tl(t.mutex);
+        if (t.removed || !t.hasMetadata)
+            return;
+    }
+    try {
+        ++m_pendingSaves;
+        t.handle.save_resume_data(lt::torrent_handle::save_info_dict);
+    } catch (const std::exception&) {
+        --m_pendingSaves;  // removed a moment ago: no alert will come
+    }
+}
+
 void Engine::releaseHandle(Torrent& t)
 {
+    bool last = false;
     {
         std::lock_guard tl(t.mutex);
         if (t.openHandles > 0)
             --t.openHandles;
+        last = t.openHandles == 0;
         schedule(t, true);
     }
     t.touch();
+    if (last)
+        saveResume(t);
     enforceCacheCap();
 }
 

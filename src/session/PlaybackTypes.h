@@ -17,7 +17,14 @@ enum class PlaybackState { Idle, Loading, Playing, Paused, Ended };
 Q_ENUM_NS(PlaybackState)
 
 // Rule 6: typed errors, so the UI can explain each case differently.
-enum class PlaybackError { UnsupportedFile, LoadFailed, TargetUnavailable, Internal };
+enum class PlaybackError {
+    UnsupportedFile,    // not a format the player understands
+    LoadFailed,         // could not be opened: missing, no access, broken stream
+    TargetUnavailable,  // the playback device stopped responding
+    Internal,           // a bug or an unexpected failure inside the player
+    NoPeers,            // a torrent: nobody sharing it was found in time
+    StreamFailed,       // a torrent stopped with an error (a full disk, say)
+};
 Q_ENUM_NS(PlaybackError)
 
 // Optional features. A target lists the ones it has; the Session never sends
@@ -57,6 +64,8 @@ struct StreamStatus {
     int percent = 0;          // of the part being waited for, while buffering
     int peers = 0;
     qint64 downloadRate = 0;  // bytes per second
+    double bufferedSeconds = 0;  // verified video ahead of the read position
+    QUrl source;              // the item this is about; stale reports are ignored
     bool operator==(const StreamStatus&) const = default;
 };
 

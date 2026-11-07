@@ -97,6 +97,8 @@ jobs:
           echo "Top level:"; ls dist
           echo "Files in app: $(find dist/app -type f | wc -l)"
           echo "Total size:"; du -sh dist
+          # The full list, to check against docs/DEPENDENCIES.md.
+          echo "DLLs shipped:"; (cd dist/app && ls *.dll | tr '\n' ' '); echo
           echo "Biggest files:"; find dist -type f -printf '%s %p\n' | sort -rn | awk 'NR <= 60 {printf "%7.1f MB  %s\n", $1/1048576, $2}'
 
       - uses: actions/upload-artifact@v4
