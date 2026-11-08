@@ -1,0 +1,49 @@
+Corporal Jackie
+Third-party software notices
+
+Corporal Jackie is licensed under the GNU General Public License, version 3
+or (at your option) any later version. The full text is in LICENSE.txt.
+
+This package also contains the libraries below, each under its own license.
+The license texts and copyright notices that came with each library are in
+the licenses folder, one subfolder per library. SOURCE.txt says where to get
+the source code of this program and of every library in this package.
+
+Library                      License
+---------------------------  ------------------------------------------------
+Qt 6                         LGPL-3.0
+mpv (libmpv)                 GPL-2.0-or-later
+FFmpeg                       GPL-3.0-or-later (built with --enable-gpl
+                             --enable-version3)
+libplacebo                   LGPL-2.1-or-later
+libtorrent-rasterbar         BSD-3-Clause
+OpenSSL 3                    Apache-2.0
+Boost                        BSL-1.0
+SQLite                       Public domain
+dav1d                        BSD-2-Clause
+libass                       ISC
+FriBidi                      LGPL-2.1-or-later
+HarfBuzz                     MIT
+graphite2                    LGPL-2.1-or-later or MPL-2.0
+FreeType                     FreeType License
+Fontconfig                   MIT-style
+expat                        MIT
+Little CMS 2                 MIT
+libdovi                      MIT
+zimg                         WTFPL
+uchardet                     MPL-1.1, GPL-2.0-or-later or LGPL-2.1-or-later
+GLib, libintl, libiconv      LGPL-2.1-or-later
+PCRE2                        BSD-3-Clause
+ICU                          Unicode License v3
+libpng                       libpng License
+libjpeg-turbo                IJG and BSD-3-Clause
+zlib                         zlib License
+zstd                         BSD-3-Clause
+GCC runtime (Windows)        GPL-3.0 with the GCC Runtime Library Exception
+
+The exact list differs a little between the Windows and macOS packages; the
+licenses folder always matches what this package holds.
+
+The LGPL libraries are loaded as separate files (DLLs on Windows, dylibs and
+frameworks on macOS). You may replace them with your own builds of the same
+libraries.
