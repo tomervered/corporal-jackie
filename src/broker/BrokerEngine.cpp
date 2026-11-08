@@ -221,6 +221,10 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
                     t->handle.connect_peer(peer);
                 t->handle.force_reannounce();
                 t->handle.force_dht_announce();
+                // A peer still disconnecting from the pause stays in the list
+                // and waits out the reconnect delay: with no peers 3 s from
+                // now, refresh() clears the list and calls again.
+                t->peersSeenAt = Clock::now() - kReannounceAfter + std::chrono::seconds(3);
             }
             // An earlier error (a full disk, say) may be gone: try again.
             if (t->failed) {
@@ -476,6 +480,10 @@ void Engine::refresh(Torrent& t)
         qCInfo(lcBroker).noquote() << "No peers for" << QString::fromStdString(t.id) << ": asking again";
         t.handle.force_reannounce();
         t.handle.force_dht_announce();
+        // With none connected, every known peer waits out libtorrent's
+        // reconnect delay (a minute and more after a failure). Forget them,
+        // so the link's peers and the next answers are called at once.
+        t.handle.clear_peers();
         for (const auto& peer : t.linkPeers)
             t.handle.connect_peer(peer);
         t.peersSeenAt = now;
@@ -507,9 +515,25 @@ void Engine::handleAlert(lt::alert* a)
     } else if (auto* rp = lt::alert_cast<lt::read_piece_alert>(a)) {
         if (auto t = find(rp->handle)) {
             std::lock_guard tl(t->mutex);
+            // From a torrent replaced by a reload (RAM only): its reads may
+            // fail on pieces dropped since, and count against the new one.
+            if (rp->handle != t->handle)
+                return;
             const int p = static_cast<int>(rp->piece);
             t->readsPending.erase(p);
-            if (rp->error) {
+            const auto store = m_memory ? m_memory->find(t->id) : nullptr;
+            if (rp->error && store && !store->has(p)) {
+                // RAM only: the piece is gone from memory although libtorrent
+                // still counts it (dropped between the check and the read).
+                // Treat it as evicted: the reader's wait fetches it again.
+                qCInfo(lcBroker).noquote() << "Piece" << p << "of" << QString::fromStdString(t->id)
+                                           << "is no longer in memory: fetching it again";
+                if (p >= 0 && p < int(t->have.size()) && t->have[std::size_t(p)]) {
+                    t->have[std::size_t(p)] = false;
+                    t->evicted.insert(p);
+                }
+                t->readErrors.erase(p);
+            } else if (rp->error) {
                 ++t->readErrors[p];
                 qCWarning(lcBroker).noquote() << "Reading piece" << p << "failed:"
                                               << QString::fromStdString(rp->error.message());

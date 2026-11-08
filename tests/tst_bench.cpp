@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <map>
+#include <memory>
 
 using harness::Seeder;
 using harness::TestTorrent;
@@ -52,6 +53,11 @@ private:
         QStringList args{magnet, cacheDir};
         if (ramCap > 0)
             args << QString::number(ramCap);
+        // Its log goes to stderr even when that is not a terminal (Qt may
+        // pick the system log otherwise), to be shown if the run fails.
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("QT_FORCE_STDERR_LOGGING"), QStringLiteral("1"));
+        p.setProcessEnvironment(env);
         p.start(QStringLiteral(CJ_BENCH_PLAYER), args);
         const bool finished = p.waitForFinished(240000);
         if (!finished) {
@@ -106,35 +112,51 @@ private:
     }
 
 private slots:
-    void diskAndRam()
+    // One seeder for every run.
+    void initTestCase()
     {
-        QTemporaryDir dir;
-        QVERIFY(dir.isValid());
-        const TestTorrent t = harness::makeTorrent(dir.filePath(QStringLiteral("seed")), QStringLiteral("movie.mkv"),
-                                                   {kFileSize}, kPiece, 77);
-        Seeder seeder(t, t.root, kSeederRate);
-        const QString magnet = harness::magnet(t, {seeder.port()});
+        QVERIFY(m_dir.isValid());
+        m_torrent = harness::makeTorrent(m_dir.filePath(QStringLiteral("seed")), QStringLiteral("movie.mkv"),
+                                         {kFileSize}, kPiece, 77);
+        m_seeder = std::make_unique<Seeder>(m_torrent, m_torrent.root, kSeederRate);
+        m_magnet = harness::magnet(m_torrent, {m_seeder->port()});
+    }
 
+    void cleanupTestCase() { m_seeder.reset(); }
+
+    // A row per run, so each gets Qt's per-function time limit.
+    void run_data()
+    {
+        QTest::addColumn<bool>("ram");
         const int runs = qMax(1, qEnvironmentVariableIntValue("CJ_BENCH_RUNS"));
-        QFile save(qEnvironmentVariable("CJ_BENCH_OUT"));
-        if (!save.fileName().isEmpty())
-            QVERIFY(save.open(QIODevice::WriteOnly | QIODevice::Append));
-
-        for (int run = 0; run < runs; ++run) {
-            for (const bool ram : {false, true}) {
-                // A fresh cache each time: every run starts from nothing.
-                const QString cache = dir.filePath(QStringLiteral("cache-%1-%2").arg(run).arg(ram));
-                const QJsonObject r = runPlayer(magnet, cache, ram ? kRamCap : 0);
-                QVERIFY2(!r.isEmpty(), ram ? "RAM run failed" : "disk run failed");
-                QCOMPARE(r[QStringLiteral("seeks")].toArray().size(), 20);
-                report(ram ? "ram " : "disk", r);
-                if (save.isOpen()) {
-                    save.write(QJsonDocument(r).toJson(QJsonDocument::Compact));
-                    save.write("\n");
-                }
-            }
+        for (int i = 1; i <= runs; ++i) {
+            QTest::addRow("disk %d", i) << false;
+            QTest::addRow("ram %d", i) << true;
         }
     }
+
+    void run()
+    {
+        QFETCH(bool, ram);
+        // A fresh cache each time: every run starts from nothing.
+        const QString cache = m_dir.filePath(QStringLiteral("cache-%1").arg(++m_runs));
+        const QJsonObject r = runPlayer(m_magnet, cache, ram ? kRamCap : 0);
+        QVERIFY2(!r.isEmpty(), ram ? "RAM run failed" : "disk run failed");
+        QCOMPARE(r[QStringLiteral("seeks")].toArray().size(), 20);
+        report(ram ? "ram " : "disk", r);
+        QFile save(qEnvironmentVariable("CJ_BENCH_OUT"));
+        if (!save.fileName().isEmpty() && save.open(QIODevice::WriteOnly | QIODevice::Append)) {
+            save.write(QJsonDocument(r).toJson(QJsonDocument::Compact));
+            save.write("\n");
+        }
+    }
+
+private:
+    QTemporaryDir m_dir;
+    TestTorrent m_torrent;
+    std::unique_ptr<Seeder> m_seeder;
+    QString m_magnet;
+    int m_runs = 0;
 };
 
 QTEST_GUILESS_MAIN(TestBench)

@@ -227,6 +227,7 @@ qint64 StreamHandle::read(qint64 offset, char* buffer, qint64 length)
         // 2. Get its bytes from libtorrent (or the in-memory copy).
         waits = 0;
         bool dropped = false;
+        bool rested = false;
         while (!t.pieces.count(piece)) {
             if (stopped())
                 return -1;
@@ -236,11 +237,21 @@ qint64 StreamHandle::read(qint64 offset, char* buffer, qint64 length)
                 dropped = true;
                 break;
             }
-            if (t.readErrors[piece] > 3)
+            // A failed read is asked again after a pause, so a passing
+            // state (a torrent just reloaded, say) does not use up the tries.
+            if (t.readErrors[piece] > 10)
                 return -2;
             if (++waits % 20 == 0)
                 t.readsPending.erase(piece);  // 5 s without an answer: ask again
+            if (!t.readsPending.count(piece) && t.readErrors[piece] > 0 && !rested) {
+                lock.unlock();
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                lock.lock();
+                rested = true;
+                continue;  // the piece may have been dropped meanwhile
+            }
             if (!t.readsPending.count(piece)) {
+                rested = false;
                 try {
                     t.handle.read_piece(lt::piece_index_t(piece));
                     t.readsPending.insert(piece);
