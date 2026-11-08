@@ -24,6 +24,7 @@ Window {
     property bool statsVisible: false
     property bool helpVisible: false
     property bool browseVisible: false
+    property bool settingsVisible: false
     property string errorText: ""
     property string osdText: ""
 
@@ -80,6 +81,12 @@ Window {
     function toggleBrowse() {
         root.browseVisible = !root.browseVisible
         if (root.browseVisible) browsePanel.show()
+        else inputLayer.forceActiveFocus()
+    }
+
+    function toggleSettings() {
+        root.settingsVisible = !root.settingsVisible
+        if (root.settingsVisible) settingsPanel.forceActiveFocus()
         else inputLayer.forceActiveFocus()
     }
 
@@ -269,8 +276,10 @@ Window {
             case Qt.Key_M:     session.muted = !session.muted; root.osd(session.muted ? "Muted" : "Sound on"); break
             case Qt.Key_F:     root.toggleFullscreen(); break
             case Qt.Key_B:     root.toggleBrowse(); break
+            case Qt.Key_P:     root.toggleSettings(); break
             case Qt.Key_Escape:
-                if (root.browseVisible) root.toggleBrowse()
+                if (root.settingsVisible) root.toggleSettings()
+                else if (root.browseVisible) root.toggleBrowse()
                 else if (root.helpVisible) root.helpVisible = false
                 else if (root.visibility === Window.FullScreen) root.visibility = Window.Windowed
                 break
@@ -418,6 +427,7 @@ Window {
             Button { text: "Open a video…"; onClicked: openDialog.open() }
             Button { text: "Open a link…"; onClicked: linkPopup.open() }
             Button { text: "Browse…"; onClicked: root.toggleBrowse() }
+            Button { text: "Settings…"; onClicked: root.toggleSettings() }
         }
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
@@ -439,6 +449,21 @@ Window {
         accent: root.accent
         onCloseRequested: { root.browseVisible = false; inputLayer.forceActiveFocus() }
         onMessage: (text, isError) => { if (isError) { root.errorText = text; errorTimer.restart() } else root.osd(text) }
+    }
+
+    // --- Settings (press P) ----------------------------------------------------
+
+    SettingsPanel {
+        id: settingsPanel
+        visible: root.settingsVisible
+        anchors { top: parent.top; bottom: parent.bottom; right: parent.right; margins: 16 }
+        // Above the control bar, which stays usable while it is open.
+        anchors.bottomMargin: session.hasMedia ? 72 : 16
+        width: Math.min(520, parent.width - 32)
+        textColor: root.textColor
+        mutedText: root.mutedText
+        accent: root.accent
+        onCloseRequested: { root.settingsVisible = false; inputLayer.forceActiveFocus() }
     }
 
     // --- Overlays ------------------------------------------------------------
@@ -576,7 +601,7 @@ Window {
                     "C", "Crop",                            "1–0", "Contrast, brightness, gamma, saturation, hue",
                     "R", "Reset picture",                   "I", "Debug overlay",
                     "H", "Hardware decoding on/off",        "Esc", "Close / leave full screen",
-                    "B", "Browse add-ons and your folders", "", "",
+                    "B", "Browse add-ons and your folders", "P", "Settings",
                 ]
                 Text {
                     text: modelData
@@ -751,6 +776,7 @@ Window {
                         onTriggered: session.screenshot()
                     }
                     MenuSeparator {}
+                    MenuItem { text: "Settings…"; onTriggered: root.toggleSettings() }
                     MenuItem { text: "Keyboard shortcuts"; onTriggered: root.helpVisible = true }
                 }
             }

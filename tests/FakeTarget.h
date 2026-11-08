@@ -24,7 +24,7 @@ public:
         for (Capability x : {Capability::SubtitleDelay, Capability::SubtitleStyle, Capability::AudioDelay,
                              Capability::Chapters, Capability::FrameStep, Capability::Screenshot,
                              Capability::AbLoop, Capability::AspectRatio, Capability::Crop,
-                             Capability::VideoEqualizer, Capability::HardwareDecoding})
+                             Capability::VideoEqualizer, Capability::HardwareDecoding, Capability::VideoOutput})
             c |= x;
         return c;
     }
@@ -68,6 +68,9 @@ public:
         log("equalizer", e.brightness, e.contrast, e.saturation, e.gamma, e.hue);
     }
     void setHardwareDecoding(bool on) override { log("hwdec", on); }
+    void setHighQualityScaling(bool on) override { log("hqscale", on); }
+    void setDisplaySync(bool on) override { log("displaysync", on); }
+    void setSmoothMotion(bool on) override { log("smoothmotion", on); }
 
     // --- Events, as a real target would send them ---------------------------
     void startPlaying(double duration = 100)

@@ -42,6 +42,7 @@ Every target implements `cj::PlaybackTarget` (`src/session/PlaybackTarget.h`). T
 | `Crop` | `setCrop(text)` | Crop to an aspect, e.g. `"2.39:1"`; `""` = none. **Local only.** |
 | `VideoEqualizer` | `setVideoEqualizer(eq)` | Brightness, contrast, saturation, gamma, hue, each −100…100. **Local only.** |
 | `HardwareDecoding` | `setHardwareDecoding(bool)` | Allow GPU decoding. **Local only.** |
+| `VideoOutput` | `setHighQualityScaling(bool)`, `setDisplaySync(bool)`, `setSmoothMotion(bool)` | A sharper but much heavier upscaler (off by default); frames timed to the display's refresh (on); frames blended where the video's frame rate does not fit the refresh, such as 24 fps on 60 Hz (on, only while display sync is on). A new target starts with these defaults. **Local only.** |
 
 "Local only" marks features that need the video to be decoded and drawn on this computer. A Cast target will not have them, because the TV does the decoding.
 

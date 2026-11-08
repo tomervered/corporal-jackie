@@ -12,6 +12,11 @@ struct BrokerSettings
 {
     QString cacheDir;                        // one subfolder per torrent
     qint64 cacheCapBytes = 10LL * 1024 * 1024 * 1024;
+    // RAM only: pieces are kept in memory, never written to disk (only each
+    // torrent's small file list is). Seeking back to a part already dropped
+    // downloads it again.
+    bool memoryOnly = false;
+    qint64 memoryCapBytes = 1024LL * 1024 * 1024;
     int listenPort = 0;                      // 0 = let the system pick
     bool dht = true;                         // distributed hash table
     bool localDiscovery = true;              // find peers on the LAN

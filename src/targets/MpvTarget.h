@@ -63,6 +63,13 @@ public:
     void setCrop(const QString& ratio) override;
     void setVideoEqualizer(const VideoEqualizer& eq) override;
     void setHardwareDecoding(bool enabled) override;
+    void setHighQualityScaling(bool enabled) override;
+    void setDisplaySync(bool enabled) override;
+    void setSmoothMotion(bool enabled) override;
+
+    // The refresh rate of the screen the video is on, from the video surface.
+    // Display sync needs it: libmpv cannot see the screen itself.
+    void setDisplayFps(double fps);
 
 private:
     Q_INVOKABLE void processEvents();
@@ -75,6 +82,7 @@ private:
     void setState(PlaybackState s);
     void updateState();
     void applyCrop();
+    void applyVideoSync();
     void emitStats();
     static QList<Track> parseTracks(const ::mpv_node* node);
     static QList<Chapter> parseChapters(const ::mpv_node* node);
@@ -104,6 +112,15 @@ private:
     QString m_videoCodec;
     double m_fps = 0;
     int64_t m_dropped = 0;
+    int64_t m_decoderDropped = 0;
+    int64_t m_delayed = 0;
+    int64_t m_mistimed = 0;
+    double m_displayFps = 0;
+    double m_displayFpsSet = 0;
+    bool m_initialized = false;
+    bool m_highQualityScaling = false;
+    bool m_displaySync = true;
+    bool m_smoothMotion = true;
     uint64_t m_nextReplyId = 1000;
     QHash<uint64_t, QString> m_pendingScreenshots;
 };

@@ -154,6 +154,66 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(h->stats().bufferedBytes >= 30 * MiB, 30000);
     }
 
+    // RAM only: the video is never written to disk, only the file list.
+    void memoryOnlyWritesNoVideoToDisk()
+    {
+        QTemporaryDir dir;
+        const TestTorrent t = harness::makeTorrent(dir.filePath("seed"), "movie.mkv", {24 * MiB}, kPiece, 21);
+        Seeder seeder(t, t.root);
+        const QString cache = dir.filePath("cache");
+        BrokerSettings settings = testSettings(cache);
+        settings.memoryOnly = true;
+        settings.memoryCapBytes = 256 * MiB;
+        StreamBroker broker(settings);
+        QVERIFY(broker.memoryOnly());
+
+        auto h = broker.open({harness::magnet(t, {seeder.port()})});
+        QVERIFY(h);
+        QVERIFY(readRange(*h, 0, h->size()) == t.data[0]);
+        QVERIFY(broker.memoryUsed() >= 24 * MiB);
+        h->close();
+        qInfo("Cache folder after a RAM-only stream: %lld bytes", StreamBroker::diskUsage(cache));
+        QVERIFY(StreamBroker::diskUsage(cache) < MiB);
+        QVERIFY(!QFileInfo::exists(QDir(cache).filePath(harness::infoHash(t) + "/movie.mkv")));
+    }
+
+    // RAM only, with a cap smaller than the file: memory stays near the cap
+    // while playing through, and seeking back to a dropped part downloads it
+    // again (the torrent reloads) with the right bytes.
+    void memoryOnlyStaysUnderItsCapAndRefetches()
+    {
+        QTemporaryDir dir;
+        const TestTorrent t = harness::makeTorrent(dir.filePath("seed"), "movie.mkv", {64 * MiB}, kPiece, 22);
+        Seeder seeder(t, t.root, 16 * MiB);
+        BrokerSettings settings = testSettings(dir.filePath("cache"));
+        settings.memoryOnly = true;
+        settings.memoryCapBytes = 32 * MiB;
+        StreamBroker broker(settings);
+
+        OpenRequest req{harness::magnet(t, {seeder.port()})};
+        req.durationSeconds = 64;  // 1 MiB/s: 16 MiB ahead at most
+        auto h = broker.open(req);
+        QVERIFY(h);
+        qint64 peak = 0;
+        for (qint64 offset = 0; offset < h->size(); offset += 2 * MiB) {
+            QVERIFY(readRange(*h, offset, 2 * MiB) == t.data[0].mid(int(offset), int(2 * MiB)));
+            peak = qMax(peak, broker.memoryUsed());
+        }
+        qInfo("Peak memory %lld MiB, cap %lld MiB", peak / MiB, settings.memoryCapBytes / MiB);
+        // Over by at most a few pieces between two trims.
+        QVERIFY(peak <= settings.memoryCapBytes + 8 * MiB);
+        QTRY_VERIFY_WITH_TIMEOUT(broker.memoryUsed() <= settings.memoryCapBytes, 5000);
+
+        // The middle was dropped long ago: it comes back from the swarm.
+        QElapsedTimer timer;
+        timer.start();
+        QVERIFY(readRange(*h, 20 * MiB, MiB) == t.data[0].mid(int(20 * MiB), int(MiB)));
+        qInfo("Seek back to a dropped part: %lld ms", timer.elapsed());
+        QVERIFY(timer.elapsed() < 10000);
+        // And reading on from there still works.
+        QVERIFY(readRange(*h, 21 * MiB, 4 * MiB) == t.data[0].mid(int(21 * MiB), int(4 * MiB)));
+    }
+
     void twoReadersAtOnce()
     {
         QTemporaryDir dir;

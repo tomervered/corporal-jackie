@@ -8,6 +8,7 @@
 #include <QOpenGLFramebufferObject>
 #include <QQuickOpenGLUtils>
 #include <QQuickWindow>
+#include <QScreen>
 #include <QSurfaceFormat>
 #include <mpv/render_gl.h>
 
@@ -26,6 +27,7 @@ class MpvRenderer : public QQuickFramebufferObject::Renderer
 public:
     ~MpvRenderer() override
     {
+        QObject::disconnect(m_swapConnection);
         if (m_ctx)
             mpv_render_context_free(m_ctx);
     }
@@ -62,6 +64,7 @@ public:
         QQuickOpenGLUtils::resetOpenGLState();
         mpv_render_context_render(m_ctx, params);
         QQuickOpenGLUtils::resetOpenGLState();
+        m_renderedSinceSwap = true;
     }
 
 private:
@@ -83,11 +86,25 @@ private:
             QMetaObject::invokeMethod(static_cast<MpvVideoItem*>(ctx), &QQuickItem::update,
                                       Qt::QueuedConnection);
         }, item);
+        // Tell mpv when a frame it drew reached the screen, so display sync
+        // can time frames to real refreshes. Only frames mpv drew: Qt also
+        // redraws for the controls, and reporting those would mislead it.
+        // frameSwapped comes on this render thread, right after the swap.
+        if (QQuickWindow* window = item->window()) {
+            m_swapConnection = QObject::connect(window, &QQuickWindow::frameSwapped, window, [this] {
+                if (m_ctx && m_renderedSinceSwap) {
+                    m_renderedSinceSwap = false;
+                    mpv_render_context_report_swap(m_ctx);
+                }
+            }, Qt::DirectConnection);
+        }
         qCInfo(lcTargets) << "mpv render context ready";
         QMetaObject::invokeMethod(player, "markRenderReady", Qt::QueuedConnection);
     }
 
     mpv_render_context* m_ctx = nullptr;
+    bool m_renderedSinceSwap = false;
+    QMetaObject::Connection m_swapConnection;
 };
 
 } // namespace
@@ -95,6 +112,25 @@ private:
 MpvVideoItem::MpvVideoItem(QQuickItem* parent)
     : QQuickFramebufferObject(parent)
 {
+    // Display sync needs the refresh rate of the screen the video is on.
+    connect(this, &QQuickItem::windowChanged, this, [this](QQuickWindow* window) {
+        QObject::disconnect(m_screenConnection);
+        if (window)
+            m_screenConnection = connect(window, &QWindow::screenChanged, this, &MpvVideoItem::reportDisplayFps);
+        reportDisplayFps();
+    });
+}
+
+void MpvVideoItem::reportDisplayFps()
+{
+    QObject::disconnect(m_rateConnection);
+    MpvTarget* player = target();
+    QScreen* screen = window() ? window()->screen() : nullptr;
+    if (!screen)
+        return;
+    m_rateConnection = connect(screen, &QScreen::refreshRateChanged, this, &MpvVideoItem::reportDisplayFps);
+    if (player)
+        player->setDisplayFps(screen->refreshRate());
 }
 
 void MpvVideoItem::setSession(Session* session)
@@ -103,6 +139,7 @@ void MpvVideoItem::setSession(Session* session)
         return;
     m_session = session;
     emit sessionChanged();
+    reportDisplayFps();
     update();
 }
 

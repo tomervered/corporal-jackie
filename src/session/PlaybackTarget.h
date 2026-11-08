@@ -52,6 +52,11 @@ public:
     virtual void setCrop(const QString&) {}
     virtual void setVideoEqualizer(const VideoEqualizer&) {}
     virtual void setHardwareDecoding(bool) {}
+    // VideoOutput: a sharper (slower) upscaler; timing frames to the display's
+    // refresh; blending frames so a 24 fps film moves evenly on a 60 Hz screen.
+    virtual void setHighQualityScaling(bool) {}
+    virtual void setDisplaySync(bool) {}
+    virtual void setSmoothMotion(bool) {}
 
 signals:
     void stateChanged(cj::PlaybackState state);

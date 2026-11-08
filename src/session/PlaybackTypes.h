@@ -43,6 +43,7 @@ enum class Capability : unsigned {
     Crop             = 1u << 8,   // local only
     VideoEqualizer   = 1u << 9,   // local only
     HardwareDecoding = 1u << 10,  // local only
+    VideoOutput      = 1u << 11,  // local only: scaling quality, display sync, smooth motion
 };
 Q_ENUM_NS(Capability)
 Q_DECLARE_FLAGS(Capabilities, Capability)

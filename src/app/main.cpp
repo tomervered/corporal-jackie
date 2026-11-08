@@ -7,6 +7,7 @@
 #include "Logging.h"
 #include "MpvTarget.h"
 #include "MpvVideoItem.h"
+#include "Preferences.h"
 #include "Session.h"
 #include "SleepBlocker.h"
 #include "StremioAdapter.h"
@@ -66,8 +67,14 @@ int main(int argc, char* argv[])
         qCWarning(lcApp).noquote() << "Previous run crashed:" << crash;
 
     // Torrents reach mpv through this; it must outlive mpv, so it comes first.
+    // Torrent storage comes from the preferences as they were at start;
+    // changes in Settings apply the next time the app opens.
+    cj::Preferences preferences(QDir(paths.cache).filePath(QStringLiteral("torrents")));
     cj::BrokerSettings brokerSettings;
-    brokerSettings.cacheDir = QDir(paths.cache).filePath(QStringLiteral("torrents"));
+    brokerSettings.cacheDir = preferences.startCacheFolder();
+    brokerSettings.cacheCapBytes = preferences.startDiskCacheBytes();
+    brokerSettings.memoryOnly = preferences.startInMemory();
+    brokerSettings.memoryCapBytes = preferences.startMemoryCapBytes();
     cj::TorrentTransport torrents(brokerSettings);
 
     // Rule 3: one mpv instance for the whole app, reused for every item.
@@ -102,6 +109,15 @@ int main(int argc, char* argv[])
     session.setHardwareDecoding(settings.value(QStringLiteral("playback/hwdec"), true).toBool());
     QObject::connect(&session, &cj::Session::hardwareDecodingChanged, &app, [&] {
         QSettings().setValue(QStringLiteral("playback/hwdec"), session.hardwareDecoding());
+    });
+    session.setHighQualityScaling(settings.value(QStringLiteral("playback/highQualityScaling"), false).toBool());
+    session.setDisplaySync(settings.value(QStringLiteral("playback/displaySync"), true).toBool());
+    session.setSmoothMotion(settings.value(QStringLiteral("playback/smoothMotion"), true).toBool());
+    QObject::connect(&session, &cj::Session::videoOutputChanged, &app, [&] {
+        QSettings s;
+        s.setValue(QStringLiteral("playback/highQualityScaling"), session.highQualityScaling());
+        s.setValue(QStringLiteral("playback/displaySync"), session.displaySync());
+        s.setValue(QStringLiteral("playback/smoothMotion"), session.smoothMotion());
     });
 
     // Resume points are saved to the library in Step 6; for now they are logged.
@@ -143,6 +159,7 @@ int main(int argc, char* argv[])
                                              QString::fromLatin1(cj::app::kVersion));
     engine.rootContext()->setContextProperty(QStringLiteral("session"), &session);
     engine.rootContext()->setContextProperty(QStringLiteral("browser"), &browser);
+    engine.rootContext()->setContextProperty(QStringLiteral("preferences"), &preferences);
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
     engine.load(QUrl(QStringLiteral("qrc:/CorporalJackie/Main.qml")));

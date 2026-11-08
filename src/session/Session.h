@@ -53,6 +53,9 @@ class Session : public QObject
     Q_PROPERTY(int gamma READ gamma NOTIFY equalizerChanged)
     Q_PROPERTY(int hue READ hue NOTIFY equalizerChanged)
     Q_PROPERTY(bool hardwareDecoding READ hardwareDecoding WRITE setHardwareDecoding NOTIFY hardwareDecodingChanged)
+    Q_PROPERTY(bool highQualityScaling READ highQualityScaling WRITE setHighQualityScaling NOTIFY videoOutputChanged)
+    Q_PROPERTY(bool displaySync READ displaySync WRITE setDisplaySync NOTIFY videoOutputChanged)
+    Q_PROPERTY(bool smoothMotion READ smoothMotion WRITE setSmoothMotion NOTIFY videoOutputChanged)
     Q_PROPERTY(QVariantMap stats READ stats NOTIFY statsChanged)
     Q_PROPERTY(cj::StreamPhase streamPhase READ streamPhase NOTIFY streamStatusChanged)
     Q_PROPERTY(int streamPercent READ streamPercent NOTIFY streamStatusChanged)
@@ -100,6 +103,9 @@ public:
     int gamma() const { return m_eq.gamma; }
     int hue() const { return m_eq.hue; }
     bool hardwareDecoding() const { return m_hardwareDecoding; }
+    bool highQualityScaling() const { return m_highQualityScaling; }
+    bool displaySync() const { return m_displaySync; }
+    bool smoothMotion() const { return m_smoothMotion; }
     StreamPhase streamPhase() const { return m_stream.phase; }
     int streamPercent() const { return m_stream.percent; }
     int streamPeers() const { return m_stream.peers; }
@@ -166,6 +172,11 @@ public:
     Q_INVOKABLE void setEqualizer(const QString& name, int value);
     Q_INVOKABLE void resetEqualizer();
     void setHardwareDecoding(bool enabled);
+    // Video output options (VideoOutput capability). The defaults match a
+    // new target: standard scaling, display sync on, smooth motion on.
+    void setHighQualityScaling(bool enabled);
+    void setDisplaySync(bool enabled);
+    void setSmoothMotion(bool enabled);
 
 signals:
     void stateChanged();
@@ -186,6 +197,7 @@ signals:
     void cropChanged();
     void equalizerChanged();
     void hardwareDecodingChanged();
+    void videoOutputChanged();
     void statsChanged();
     void streamStatusChanged();
     void ended();
@@ -226,6 +238,9 @@ private:
     QString m_crop;
     VideoEqualizer m_eq;
     bool m_hardwareDecoding = true;
+    bool m_highQualityScaling = false;
+    bool m_displaySync = true;
+    bool m_smoothMotion = true;
     QVariantMap m_stats;
     StreamStatus m_stream;
     bool m_sourceErrorReported = false;

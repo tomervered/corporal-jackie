@@ -27,6 +27,7 @@ Open a file with the **Open** button, by dropping it on the window, or by passin
 | H | Hardware decoding on/off (remembered) |
 | O | Open a file |
 | B | Browse add-ons and your folders |
+| P | Settings: picture and motion, torrent storage |
 | U | Open a link (magnet link, info hash, web address) |
 | Ctrl+V | Open the copied link |
 | [ / ] , Backspace | Slower / faster, normal speed |

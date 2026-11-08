@@ -45,6 +45,14 @@ When the last handle on a torrent closes, and when the broker shuts down (waitin
 
 The plan asked for least recently used pieces. libtorrent cannot forget single pieces it has verified, so the unit of eviction is the torrent. Because only watched parts of a file download, a torrent's folder holds roughly what was watched plus up to ten minutes ahead.
 
+### RAM only
+
+With `BrokerSettings::memoryOnly`, pieces are kept in memory and nothing from the video is written to disk (only each torrent's file list, a few KB, and its last-used time). The app turns it on by default to spare SSDs. It works through a libtorrent disk interface of our own (`MemoryStorage.h`).
+
+Memory has its own cap (`memoryCapBytes`, 1 GB by default). Once a second, and whenever it is over, the broker drops verified pieces until memory is at 85% of the cap: first every piece of torrents nobody reads, then the pieces furthest from each reader, behind a reader before ahead of it. It never drops the pieces just behind a reader (an eighth of the cap, at most 64 MB), its read-ahead, or the first and last 4 MB of the file. The read-ahead and the background fill are limited to half the cap.
+
+libtorrent cannot forget a piece it has verified. So when a reader needs a dropped piece again (a seek back), the broker removes the torrent and adds it again at once, telling libtorrent only the pieces still held, at most once every 2 s. Peers we connected to and the link's own peers carry over. In the harness, seeking back to a dropped part takes under 2 s; with a real swarm, add the time peers take to accept the new connection. Nothing is kept for the next run: no resume data is written.
+
 ## Stats
 
 `stats()` on a handle gives the state (finding peers, fetching the file list, buffering, stalled, ready), peers, seeds, download and upload speed, how many bytes and seconds are verified in a row from the reader's position, and while buffering, how much of the piece the reader waits for has arrived.
@@ -57,7 +65,7 @@ Piece data handed to readers is kept in memory up to 64 MB per torrent, so piece
 
 ## Settings
 
-`BrokerSettings`: cache folder and cap, listen port, DHT, local peer discovery, UPnP/NAT-PMP, uTP, connection limit, download and upload limits, metadata timeout. Peer exchange is always on. The settings screen arrives in Step 7.
+`BrokerSettings`: cache folder and cap, RAM only and its cap, listen port, DHT, local peer discovery, UPnP/NAT-PMP, uTP, connection limit, download and upload limits, metadata timeout. Peer exchange is always on. The app's Settings panel (P) sets the storage options: RAM only and its cap, or the disk cap and cache folder. They apply the next time the app opens, since the engine reads them once.
 
 ## Testing
 

@@ -95,6 +95,11 @@ public:
     // open and close; public for tests.
     void enforceCacheCap();
 
+    // RAM only (BrokerSettings::memoryOnly): bytes of pieces held in memory,
+    // over all torrents. Kept near the memory cap; 0 when pieces go to disk.
+    bool memoryOnly() const;
+    qint64 memoryUsed() const;
+
     // The info hash (lower-case hex) of a .torrent file, and its name. Empty
     // if the file cannot be read as a torrent.
     static QString infoHashOfFile(const QString& torrentFile, QString* name = nullptr);
