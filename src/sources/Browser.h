@@ -31,6 +31,11 @@ class Browser : public QObject
     Q_PROPERTY(QVariantList catalogs READ catalogs NOTIFY catalogsChanged)
     Q_PROPERTY(int catalogIndex READ catalogIndex NOTIFY itemsChanged)
     Q_PROPERTY(QString search READ search NOTIFY itemsChanged)
+    Q_PROPERTY(QStringList genres READ genres NOTIFY itemsChanged)
+    Q_PROPERTY(QString genre READ genre NOTIFY itemsChanged)
+    Q_PROPERTY(QVariantList homeRows READ homeRows NOTIFY homeChanged)
+    Q_PROPERTY(QVariantList searchRows READ searchRows NOTIFY searchRowsChanged)
+    Q_PROPERTY(QString searchAllText READ searchAllText NOTIFY searchRowsChanged)
     Q_PROPERTY(QVariantList items READ items NOTIFY itemsChanged)
     Q_PROPERTY(bool itemsLoading READ itemsLoading NOTIFY itemsChanged)
     Q_PROPERTY(QString itemsError READ itemsError NOTIFY itemsChanged)
@@ -45,6 +50,9 @@ class Browser : public QObject
     Q_PROPERTY(QStringList streamProblems READ streamProblems NOTIFY streamsChanged)
 
 public:
+    static constexpr int kHomeRows = 20;
+    static constexpr int kRowItems = 30;
+
     explicit Browser(Session* session, QObject* parent = nullptr);
 
     // The adapters, in the order their catalogs and streams are listed.
@@ -62,6 +70,11 @@ public:
     QVariantList catalogs() const;
     int catalogIndex() const { return m_catalogIndex; }
     QString search() const { return m_search; }
+    QStringList genres() const { return m_catalogs.value(m_catalogIndex).genres; }
+    QString genre() const { return m_genre; }
+    QVariantList homeRows() const { return rowsMap(m_homeRows); }
+    QVariantList searchRows() const { return rowsMap(m_searchRows); }
+    QString searchAllText() const { return m_searchAllText; }
     QVariantList items() const;
     bool itemsLoading() const { return m_itemsLoading; }
     QString itemsError() const { return m_itemsError; }
@@ -77,11 +90,21 @@ public:
 
     Q_INVOKABLE void installAddon(const QString& link);
     Q_INVOKABLE void removeAddon(const QString& addonId);
+    // Moves an add-on up (-1) or down (+1): its lists and streams come first.
+    Q_INVOKABLE void moveAddon(const QString& addonId, int delta);
     Q_INVOKABLE bool addFolder(const QUrl& folder);
     Q_INVOKABLE void removeFolder(const QString& path);
     Q_INVOKABLE void rescanFolders();
 
-    Q_INVOKABLE void openCatalog(int index, const QString& search = {});
+    // genre: one of the catalog's genres, or empty for none.
+    Q_INVOKABLE void openCatalog(int index, const QString& search = {}, const QString& genre = {});
+    // The home page: the first page of every list that can be browsed.
+    Q_INVOKABLE void loadHome();
+    // Searches every list that can be searched (of one type, or all types
+    // when empty); each answers into its own row.
+    Q_INVOKABLE void searchAll(const QString& text, const QString& type = {});
+    // An item of a home or search row: its details.
+    Q_INVOKABLE void openRowItem(bool searchRow, int row, int index);
     Q_INVOKABLE void loadMore();
     Q_INVOKABLE void openItem(int index);
     // Shows an item that is not in the list: one from the library or history.
@@ -102,6 +125,8 @@ signals:
     void itemsChanged();
     void detailChanged();
     void streamsChanged();
+    void homeChanged();
+    void searchRowsChanged();
     // Short messages for the panel: "Example installed", "Not an add-on link".
     void notice(const QString& text, bool isError);
     // A choice is about to be handed to the Session, then was.
@@ -109,6 +134,18 @@ signals:
     void playStarted(const QString& title);
 
 private:
+    // One list on the home page or in search results.
+    struct Row
+    {
+        int catalog = -1;   // index in m_catalogs
+        QString name;
+        QString type;
+        QList<MetaPreview> items;
+        bool loading = true;
+        QString error;
+    };
+    static QVariantList rowsMap(const QList<Row>& rows);
+    void fetchRows(QList<Row>* rows, quint64* gen, const QString& search, void (Browser::*changed)());
     void rebuildCatalogs();
     void fetchItems(bool append);
     SourceAdapter* adapterFor(const QString& id) const;
@@ -122,6 +159,13 @@ private:
     QList<CatalogRef> m_catalogs;
     int m_catalogIndex = -1;
     QString m_search;
+    QString m_genre;
+    QStringList m_homeKeys;   // the catalogs the home rows were loaded for
+    QList<Row> m_homeRows;
+    quint64 m_homeGen = 0;
+    QList<Row> m_searchRows;
+    QString m_searchAllText;
+    quint64 m_searchGen = 0;
     QList<MetaPreview> m_items;
     bool m_itemsLoading = false;
     QString m_itemsError;

@@ -51,6 +51,9 @@ public:
     // error on success.
     void install(const QString& link, std::function<void(const QString& error)> done);
     bool uninstall(const QString& addonId);
+    // Moves an add-on up (-1) or down (+1) in the list; earlier ones are
+    // asked first and their lists come first.
+    bool move(const QString& addonId, int delta);
     // Fetches every manifest again (add-ons change their catalogs).
     void refreshManifests();
 

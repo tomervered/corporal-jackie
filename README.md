@@ -6,7 +6,7 @@ Built with C++20, Qt 6/QML, libmpv, libtorrent-rasterbar and SQLite. Windows and
 
 **Status:** Step 5 (source adapters). Browses Stremio add-on catalogs and your own folders, and plays local video files, web links, magnet links, torrent info hashes and .torrent files. The interface talks only to the Session, which sends commands to the mpv target; the contract between them is in [docs/TARGET_CONTRACT.md](docs/TARGET_CONTRACT.md). Torrents reach mpv through a `torrent://` stream protocol backed by the stream broker, with no local HTTP server; the broker's contract is in [docs/BROKER_CONTRACT.md](docs/BROKER_CONTRACT.md) and the protocol is described in [src/transports/README.md](src/transports/README.md).
 
-Press B (or "Browse…") to browse. Discover lists the catalogs of your add-ons and your folders; pick an item, then an episode, then one of the ways to play it, best first. Add-ons installs an add-on from its link (ending in `manifest.json`); Cinemeta comes installed and gives catalogs and details, but streams need a stream add-on. Your folders adds folders with videos; new files show up on their own, and subtitle files next to a video load with it. How it works: [src/sources/README.md](src/sources/README.md).
+When nothing plays, the window shows Home: Continue Watching, then a row for each list of your add-ons and folders. The side bar has Discover (one list at a time, by type and genre), Library, Add-ons (install, order, remove) and Your folders; the search box on Home searches every add-on at once. Pick an item, then an episode, then one of the ways to play it, best first. Press B while watching to open the same pages over the video. Everything works by keyboard: Tab moves between controls and rows, arrow keys move inside them, Enter opens and Escape goes back. Cinemeta comes installed and gives lists and details, but streams need a stream add-on. Subtitle files next to a video load with it. How it works: [src/sources/README.md](src/sources/README.md).
 
 Corporal Jackie comes with no streams of its own. Use it only for videos you have the right to watch and share. While a torrent plays, the app also uploads it to other peers, and they can see your IP address.
 
@@ -26,7 +26,7 @@ Open a file with the **Open** button, by dropping it on the window, or by passin
 | I | Debug overlay: decoder, codec, resolution, FPS, dropped frames |
 | H | Hardware decoding on/off (remembered) |
 | O | Open a file |
-| B | Browse: add-ons, your library and Continue Watching, your folders |
+| B | While watching: Home, Discover, Library, Add-ons and Your folders over the video |
 | P | Settings: hardware decoding, subtitle look, torrent storage, caches, history, export and import |
 | U | Open a link (magnet link, info hash, web address) |
 | Ctrl+V | Open the copied link |

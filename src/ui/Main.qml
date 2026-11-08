@@ -24,6 +24,8 @@ Window {
     property bool statsVisible: false
     property bool helpVisible: false
     property bool browseVisible: false
+    // The pages fill the window when nothing plays, and cover the video on B.
+    readonly property bool pagesVisible: browseVisible || (!session.hasMedia && !session.loading)
     property bool settingsVisible: false
     property string errorText: ""
     property string osdText: ""
@@ -79,14 +81,15 @@ Window {
     }
 
     function toggleBrowse() {
+        if (!session.hasMedia && !session.loading) { pagesView.goTop("home"); pagesView.show(); return }
         root.browseVisible = !root.browseVisible
-        if (root.browseVisible) browsePanel.show()
-        else inputLayer.forceActiveFocus()
+        if (!root.browseVisible) inputLayer.forceActiveFocus()
     }
 
     function toggleSettings() {
         root.settingsVisible = !root.settingsVisible
         if (root.settingsVisible) settingsPanel.forceActiveFocus()
+        else if (root.pagesVisible) pagesView.show()
         else inputLayer.forceActiveFocus()
     }
 
@@ -403,73 +406,21 @@ Window {
         }
     }
 
-    Column {
-        anchors.centerIn: parent
-        spacing: 12
-        visible: !session.hasMedia && !session.loading
+    // --- Pages: home, discover, details, library... (press B while playing) -----
 
-        Text {
-            anchors.horizontalCenter: parent.horizontalCenter
-            text: "Corporal Jackie"
-            color: root.textColor
-            font.pixelSize: 40
-            font.weight: Font.DemiBold
-        }
-        Text {
-            anchors.horizontalCenter: parent.horizontalCenter
-            text: "Drop a video or a magnet link here, or open one"
-            color: root.mutedText
-            font.pixelSize: 16
-        }
-        Row {
-            anchors.horizontalCenter: parent.horizontalCenter
-            spacing: 8
-            Button { text: "Open a video…"; onClicked: openDialog.open() }
-            Button { text: "Open a link…"; onClicked: linkPopup.open() }
-            Button { text: "Browse…"; onClicked: root.toggleBrowse() }
-            Button { text: "Settings…"; onClicked: root.toggleSettings() }
-        }
-        Text {
-            anchors.horizontalCenter: parent.horizontalCenter
-            text: "Press ? for keyboard shortcuts · Build " + appVersion
-            color: "#5c5c66"
-            font.pixelSize: 12
-        }
-
-        // Where the user left off
-        Column {
-            anchors.horizontalCenter: parent.horizontalCenter
-            visible: homeContinue.count > 0
-            topPadding: 24
-            spacing: 10
-            Text {
-                text: "Continue watching"
-                color: root.textColor
-                font.pixelSize: 16
-                font.weight: Font.DemiBold
-            }
-            ContinueWatching {
-                id: homeContinue
-                width: Math.min(implicitWidth, root.width - 64)
-                height: implicitHeight
-                textColor: root.textColor
-                mutedText: root.mutedText
-                accent: root.accent
-            }
-        }
-    }
-
-    // --- Browse panel (press B) ---------------------------------------------------
-
-    BrowsePanel {
-        id: browsePanel
-        visible: root.browseVisible
-        anchors { top: parent.top; bottom: parent.bottom; left: parent.left; margins: 16 }
-        width: Math.min(760, parent.width - 32)
+    Pages {
+        id: pagesView
+        visible: root.pagesVisible
+        anchors.fill: parent
+        // Above the control bar, which stays usable while they are open.
+        anchors.bottomMargin: session.hasMedia ? 64 : 0
         textColor: root.textColor
         mutedText: root.mutedText
         accent: root.accent
         onCloseRequested: { root.browseVisible = false; inputLayer.forceActiveFocus() }
+        onSettingsRequested: root.toggleSettings()
+        onOpenFileRequested: openDialog.open()
+        onOpenLinkRequested: linkPopup.open()
         onMessage: (text, isError) => { if (isError) { root.errorText = text; errorTimer.restart() } else root.osd(text) }
     }
 

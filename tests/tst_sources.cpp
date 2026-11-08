@@ -550,6 +550,68 @@ private slots:
         QCOMPARE(browser.itemList()[0].name, QStringLiteral("On time"));
     }
 
+    void homeRowsSearchGenresAndOrder()
+    {
+        FakeHttpServer server;
+        server.setJson("/a/manifest.json", manifest("org.a", "A", R"(["catalog"])",
+            R"([{"type":"movie","id":"top","name":"Top","extra":[{"name":"search"},{"name":"genre","options":["Drama","Comedy"]}]},
+                {"type":"series","id":"find","name":"Find","extra":[{"name":"search","isRequired":true}]}])"));
+        server.setJson("/b/manifest.json", manifest("org.b", "B", R"(["catalog"])",
+            R"([{"type":"series","id":"new","name":"New","extra":[{"name":"search"}]}])"));
+        server.setJson("/a/catalog/movie/top.json", R"({"metas":[{"id":"tt1","type":"movie","name":"One"}]})");
+        server.setJson("/a/catalog/movie/top/genre=Comedy.json", R"({"metas":[{"id":"tt5","type":"movie","name":"Funny"}]})");
+        server.setJson("/a/catalog/movie/top/search=fox.json", R"({"metas":[{"id":"tt2","type":"movie","name":"Fox movie"}]})");
+        server.setJson("/a/catalog/series/find/search=fox.json", R"({"metas":[{"id":"tt3","type":"series","name":"Fox show"}]})");
+        server.setJson("/b/catalog/series/new.json", R"({"metas":[{"id":"tt4","type":"series","name":"Four"}]})");
+        server.setJson("/b/catalog/series/new/search=fox.json", R"({"metas":[]})");
+        QTemporaryDir data;
+        StremioAdapter addons(data.filePath("addons.json"), false);
+        for (const char* name : {"a", "b"}) {
+            Waiter<QString> w;
+            addons.install(server.base() + "/" + name + "/manifest.json", [&](const QString& e) { w.value = e; });
+            QVERIFY(w.wait());
+        }
+        Browser browser(nullptr);
+        browser.setStremio(&addons);
+
+        // Home: every list that can be browsed, not the search-only one.
+        browser.loadHome();
+        QCOMPARE(browser.homeRows().size(), 2);
+        QTRY_VERIFY(!browser.homeRows()[1].toMap().value("loading").toBool());
+        QTRY_VERIFY(!browser.homeRows()[0].toMap().value("loading").toBool());
+        QCOMPARE(browser.homeRows()[0].toMap().value("items").toList().size(), 1);
+        QCOMPARE(browser.homeRows()[1].toMap().value("name").toString(), QStringLiteral("B · New series"));
+        browser.openRowItem(false, 1, 0);
+        QCOMPARE(browser.detail().value("id").toString(), QStringLiteral("tt4"));
+
+        // Search across every add-on, all types or one.
+        browser.searchAll("fox");
+        QCOMPARE(browser.searchRows().size(), 3);
+        const auto searching = [&] {
+            const QVariantList rows = browser.searchRows();
+            return std::any_of(rows.begin(), rows.end(), [](const QVariant& r) { return r.toMap().value("loading").toBool(); });
+        };
+        QTRY_VERIFY(!searching());
+        QCOMPARE(browser.searchRows()[0].toMap().value("error").toString(), QString());
+        QCOMPARE(browser.searchRows()[0].toMap().value("items").toList().size(), 1);
+        QCOMPARE(browser.searchRows()[1].toMap().value("items").toList()[0].toMap().value("name").toString(),
+                 QStringLiteral("Fox show"));
+        browser.searchAll("fox", "movie");
+        QCOMPARE(browser.searchRows().size(), 1);
+
+        // A genre filter.
+        QCOMPARE(browser.catalogs()[0].toMap().value("genres").toStringList(), (QStringList{"Drama", "Comedy"}));
+        browser.openCatalog(0, {}, "Comedy");
+        QCOMPARE(browser.genre(), QStringLiteral("Comedy"));
+        QTRY_COMPARE(browser.itemList().size(), 1);
+        QCOMPARE(browser.itemList()[0].name, QStringLiteral("Funny"));
+
+        // Moving B up puts its lists first, and the home rows follow.
+        browser.moveAddon("org.b", -1);
+        QCOMPARE(addons.addons()[0].manifest.id, QStringLiteral("org.b"));
+        QTRY_COMPARE(browser.homeRows().value(0).toMap().value("name").toString(), QStringLiteral("B · New series"));
+    }
+
     void boundsResponseSize()
     {
         FakeHttpServer server;

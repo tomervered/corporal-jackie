@@ -101,6 +101,9 @@ std::optional<Manifest> parseManifest(const QJsonObject& json, QString* error)
             if (eo.value("name").toString() == QLatin1String("search")) {
                 cat.searchable = true;
                 cat.searchRequired = eo.value("isRequired").toBool();
+            } else if (eo.value("name").toString() == QLatin1String("genre")) {
+                cat.genres = stringList(eo.value("options"));
+                cat.genreRequired = eo.value("isRequired").toBool() && !cat.genres.isEmpty();
             }
         }
         // Older form: "extraSupported" / "extraRequired" lists of names.
@@ -108,6 +111,8 @@ std::optional<Manifest> parseManifest(const QJsonObject& json, QString* error)
             cat.searchable = true;
         if (stringList(o.value("extraRequired")).contains(QStringLiteral("search")))
             cat.searchRequired = true;
+        if (cat.genres.isEmpty())
+            cat.genres = stringList(o.value("genres"));
         if (!cat.type.isEmpty() && !cat.id.isEmpty())
             m.catalogs << cat;
     }

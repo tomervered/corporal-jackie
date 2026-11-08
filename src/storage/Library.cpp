@@ -173,6 +173,16 @@ void Library::clearHistory() { m_storage.clearHistory(); }
 
 bool Library::contains(const QString& key) const { return m_storage.inLibrary(key); }
 
+double Library::progress(const QString& key) const
+{
+    const auto e = m_storage.find(key);
+    if (!e)
+        return -1;
+    if (e->finished)
+        return 1;
+    return e->duration > 0 ? std::clamp(e->position / e->duration, 0.0, 1.0) : 0;
+}
+
 void Library::add(const QVariantMap& item)
 {
     LibraryItem i;

@@ -178,6 +178,8 @@ QList<CatalogRef> StremioAdapter::catalogs() const
                      + typeWord(c.type).toLower();
             ref.searchable = c.searchable;
             ref.searchOnly = c.searchRequired;
+            ref.genres = c.genres;
+            ref.genreRequired = c.genreRequired;
             out << ref;
         }
     }
@@ -194,6 +196,12 @@ void StremioAdapter::fetchCatalog(const CatalogRef& catalog, const QString& sear
     QList<QPair<QString, QString>> extras;
     if (!search.trimmed().isEmpty())
         extras << qMakePair(QStringLiteral("search"), search.trimmed());
+    // A catalog that needs a genre gets its first one when none was picked.
+    const QString genre = !catalog.genre.isEmpty() ? catalog.genre
+                        : catalog.genreRequired    ? catalog.genres.value(0)
+                                                   : QString();
+    if (!genre.isEmpty() && search.trimmed().isEmpty())
+        extras << qMakePair(QStringLiteral("genre"), genre);
     if (skip > 0)
         extras << qMakePair(QStringLiteral("skip"), QString::number(skip));
     const QString addonId = addon->manifest.id;
@@ -367,6 +375,23 @@ bool StremioAdapter::uninstall(const QString& addonId)
     m_addons.erase(it);
     save();
     qCInfo(lcSources).noquote() << "Removed add-on" << addonId;
+    emit addonsChanged();
+    emit catalogsChanged();
+    return true;
+}
+
+bool StremioAdapter::move(const QString& addonId, int delta)
+{
+    const auto it = std::find_if(m_addons.begin(), m_addons.end(),
+                                 [&](const InstalledAddon& a) { return a.manifest.id == addonId; });
+    if (it == m_addons.end())
+        return false;
+    const int from = int(it - m_addons.begin());
+    const int to = qBound(0, from + delta, int(m_addons.size()) - 1);
+    if (to == from)
+        return false;
+    m_addons.move(from, to);
+    save();
     emit addonsChanged();
     emit catalogsChanged();
     return true;

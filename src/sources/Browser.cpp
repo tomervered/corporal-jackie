@@ -9,6 +9,8 @@
 #include <QLocale>
 #include <QPointer>
 #include <QSet>
+#include <QTimer>
+
 #include <memory>
 
 namespace cj {
@@ -107,6 +109,12 @@ void Browser::installAddon(const QString& link)
     });
 }
 
+void Browser::moveAddon(const QString& addonId, int delta)
+{
+    if (m_stremio)
+        m_stremio->move(addonId, delta);
+}
+
 void Browser::removeAddon(const QString& addonId)
 {
     if (m_stremio && m_stremio->uninstall(addonId))
@@ -168,6 +176,12 @@ void Browser::rebuildCatalogs()
     const bool lost = m_catalogIndex >= 0 && index < 0;
     m_catalogIndex = index;
     emit catalogsChanged();
+    // The home rows follow the lists: an add-on installed, removed or moved.
+    QStringList keys;
+    for (const CatalogRef& c : std::as_const(m_catalogs))
+        keys << c.adapter + c.provider + c.type + c.id;
+    if (keys != m_homeKeys && !m_homeKeys.isEmpty())
+        QTimer::singleShot(0, this, &Browser::loadHome);
     if (lost) {
         ++m_itemsGen;
         m_items.clear();
@@ -182,7 +196,8 @@ QVariantList Browser::catalogs() const
     QVariantList out;
     for (const CatalogRef& c : m_catalogs)
         out << QVariantMap{{"name", c.name}, {"type", c.type}, {"adapter", c.adapter},
-                           {"searchable", c.searchable}, {"searchOnly", c.searchOnly}};
+                           {"searchable", c.searchable}, {"searchOnly", c.searchOnly},
+                           {"genres", c.genres}, {"genreRequired", c.genreRequired}};
     return out;
 }
 
@@ -194,13 +209,98 @@ QVariantList Browser::items() const
     return out;
 }
 
-void Browser::openCatalog(int index, const QString& search)
+void Browser::openCatalog(int index, const QString& search, const QString& genre)
 {
     if (index < 0 || index >= m_catalogs.size())
         return;
     m_catalogIndex = index;
     m_search = m_catalogs[index].searchable ? search.trimmed() : QString();
+    m_genre = m_catalogs[index].genres.contains(genre) ? genre : QString();
     fetchItems(false);
+}
+
+// --- Home and search rows -----------------------------------------------------------
+
+QVariantList Browser::rowsMap(const QList<Row>& rows)
+{
+    QVariantList out;
+    for (const Row& r : rows) {
+        QVariantList items;
+        for (const MetaPreview& m : r.items)
+            items << previewMap(m);
+        out << QVariantMap{{"catalog", r.catalog}, {"name", r.name}, {"type", r.type}, {"items", items},
+                           {"loading", r.loading}, {"error", r.error}};
+    }
+    return out;
+}
+
+void Browser::fetchRows(QList<Row>* rows, quint64* gen, const QString& search, void (Browser::*changed)())
+{
+    const quint64 mine = ++*gen;
+    for (int i = 0; i < rows->size(); ++i) {
+        CatalogRef catalog = m_catalogs.value((*rows)[i].catalog);
+        SourceAdapter* adapter = adapterFor(catalog.adapter);
+        if (!adapter) {
+            (*rows)[i].loading = false;
+            continue;
+        }
+        adapter->fetchCatalog(catalog, search, 0,
+                              [this, rows, gen, mine, i, changed](const QList<MetaPreview>& items, const QString& error) {
+            if (*gen != mine || i >= rows->size())
+                return;  // a newer load replaced these rows
+            Row& row = (*rows)[i];
+            row.loading = false;
+            row.error = error;
+            row.items = items.mid(0, kRowItems);
+            emit (this->*changed)();
+        });
+    }
+    emit (this->*changed)();
+}
+
+void Browser::loadHome()
+{
+    m_homeRows.clear();
+    m_homeKeys.clear();
+    for (int i = 0; i < m_catalogs.size() && m_homeRows.size() < kHomeRows; ++i) {
+        const CatalogRef& c = m_catalogs[i];
+        m_homeKeys << c.adapter + c.provider + c.type + c.id;
+        if (c.searchOnly)
+            continue;
+        Row row;
+        row.catalog = i;
+        row.name = c.name;
+        row.type = c.type;
+        m_homeRows << row;
+    }
+    fetchRows(&m_homeRows, &m_homeGen, {}, &Browser::homeChanged);
+}
+
+void Browser::searchAll(const QString& text, const QString& type)
+{
+    m_searchRows.clear();
+    m_searchAllText = text.trimmed();
+    if (!m_searchAllText.isEmpty()) {
+        for (int i = 0; i < m_catalogs.size(); ++i) {
+            const CatalogRef& c = m_catalogs[i];
+            if (!c.searchable || (!type.isEmpty() && c.type != type))
+                continue;
+            Row row;
+            row.catalog = i;
+            row.name = c.name;
+            row.type = c.type;
+            m_searchRows << row;
+        }
+    }
+    fetchRows(&m_searchRows, &m_searchGen, m_searchAllText, &Browser::searchRowsChanged);
+}
+
+void Browser::openRowItem(bool searchRow, int row, int index)
+{
+    const QList<Row>& rows = searchRow ? m_searchRows : m_homeRows;
+    if (row < 0 || row >= rows.size() || index < 0 || index >= rows[row].items.size())
+        return;
+    openPreview(rows[row].items[index]);
 }
 
 void Browser::loadMore()
@@ -211,7 +311,8 @@ void Browser::loadMore()
 
 void Browser::fetchItems(bool append)
 {
-    const CatalogRef catalog = m_catalogs.value(m_catalogIndex);
+    CatalogRef catalog = m_catalogs.value(m_catalogIndex);
+    catalog.genre = m_genre;
     SourceAdapter* adapter = adapterFor(catalog.adapter);
     const quint64 gen = ++m_itemsGen;
     if (!append)

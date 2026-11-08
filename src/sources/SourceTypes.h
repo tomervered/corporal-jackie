@@ -21,6 +21,9 @@ struct CatalogRef
     QString name;
     bool searchable = false;
     bool searchOnly = false;  // only answers with a search term (no browse list)
+    QStringList genres;       // what it can be filtered by; empty = no filter
+    bool genreRequired = false;
+    QString genre;            // the filter to fetch with: one of genres, or empty
 };
 
 struct MetaPreview

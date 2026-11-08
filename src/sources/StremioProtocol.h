@@ -27,6 +27,8 @@ struct Catalog
     QString name;
     bool searchable = false;
     bool searchRequired = false;
+    QStringList genres;          // the "genre" filter's options; empty = no filter
+    bool genreRequired = false;  // answers only with a genre picked
 };
 
 struct Manifest

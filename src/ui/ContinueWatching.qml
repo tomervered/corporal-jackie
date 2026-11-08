@@ -2,8 +2,8 @@ import QtQuick
 import QtQuick.Controls.Basic
 
 // A row of what the user started and did not finish, newest first: a click
-// goes on from where they left off, ✕ takes it off the row. Binds to
-// `library`.
+// (or Enter) goes on from where they left off, ✕ (or Delete) takes it off
+// the row. Binds to `library`.
 ListView {
     id: row
 
@@ -12,6 +12,17 @@ ListView {
     property color accent: "#e8b04b"
     readonly property int tileWidth: 128
     signal resumed()
+
+    function resumeAt(index) {
+        const item = library.continueWatching[index]
+        if (!item) return
+        library.resume(item.key)
+        row.resumed()
+    }
+    Keys.onReturnPressed: resumeAt(currentIndex)
+    Keys.onEnterPressed: resumeAt(currentIndex)
+    Keys.onDeletePressed: { const item = library.continueWatching[currentIndex]; if (item) library.forget(item.itemKey) }
+    keyNavigationEnabled: true
 
     function remaining(item) {
         const left = Math.max(0, item.duration - item.position)
@@ -31,6 +42,7 @@ ListView {
     delegate: Item {
         id: tile
         required property var modelData
+        required property int index
         width: row.tileWidth
         height: row.height
 
@@ -40,7 +52,8 @@ ListView {
             height: row.tileWidth * 1.5
             radius: 6
             color: "#1fffffff"
-            border.color: hover.hovered ? row.accent : "transparent"
+            border.width: 2
+            border.color: hover.hovered || (tile.ListView.isCurrentItem && row.activeFocus) ? row.accent : "transparent"
             clip: true
 
             Text {
@@ -77,7 +90,7 @@ ListView {
                 Text { anchors.centerIn: parent; anchors.horizontalCenterOffset: 2; text: "▶"; color: row.textColor; font.pixelSize: 18 }
             }
             HoverHandler { id: hover }
-            TapHandler { onTapped: { library.resume(tile.modelData.key); row.resumed() } }
+            TapHandler { onTapped: row.resumeAt(tile.index) }
             ToolButton {
                 anchors { top: parent.top; right: parent.right; margins: 2 }
                 visible: hover.hovered

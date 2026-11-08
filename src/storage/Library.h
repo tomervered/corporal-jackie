@@ -44,6 +44,8 @@ public:
     void saveNow();
 
     Q_INVOKABLE bool contains(const QString& key) const;
+    // How far into one video (a history key): 0-1, 1 when finished, -1 never played.
+    Q_INVOKABLE double progress(const QString& key) const;
     // An item as the browse panel shows it (Browser::detail()).
     Q_INVOKABLE void add(const QVariantMap& item);
     Q_INVOKABLE void remove(const QString& key);
