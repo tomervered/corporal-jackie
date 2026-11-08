@@ -65,8 +65,9 @@ private:
             p.waitForFinished();
         }
         const QByteArray out = p.readAllStandardOutput().trimmed();
+        m_lastLog = p.readAllStandardError();
         if (!finished || p.exitStatus() != QProcess::NormalExit || p.exitCode() != 0) {
-            const QList<QByteArray> log = p.readAllStandardError().split('\n');
+            const QList<QByteArray> log = m_lastLog.split('\n');
             QByteArray tail;
             for (qsizetype i = qMax<qsizetype>(0, log.size() - 60); i < log.size(); ++i)
                 tail += log[i] + '\n';
@@ -144,6 +145,10 @@ private slots:
         QVERIFY2(!r.isEmpty(), ram ? "RAM run failed" : "disk run failed");
         QCOMPARE(r[QStringLiteral("seeks")].toArray().size(), 20);
         report(ram ? "ram " : "disk", r);
+        // A stall of seconds in a swarm faster than playback is a fault to
+        // look into: show what the broker logged.
+        if (r[QStringLiteral("longestStallMs")].toInteger() > 3000)
+            print(QStringLiteral("A stall over 3 s. The player's log:\n%1").arg(QString::fromLocal8Bit(m_lastLog)));
         QFile save(qEnvironmentVariable("CJ_BENCH_OUT"));
         if (!save.fileName().isEmpty() && save.open(QIODevice::WriteOnly | QIODevice::Append)) {
             save.write(QJsonDocument(r).toJson(QJsonDocument::Compact));
@@ -157,6 +162,7 @@ private:
     std::unique_ptr<Seeder> m_seeder;
     QString m_magnet;
     int m_runs = 0;
+    QByteArray m_lastLog;  // the last run's stderr
 };
 
 QTEST_GUILESS_MAIN(TestBench)

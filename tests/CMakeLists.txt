@@ -2,7 +2,9 @@ function(cj_add_test name)
     qt_add_executable(${name} ${name}.cpp ${ARGN})
     target_link_libraries(${name} PRIVATE cj_common Qt6::Test)
     target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    add_test(NAME ${name} COMMAND ${name})
+    # A log file as well as the console: on Windows CI a test that hangs
+    # and is aborted loses its console output; the file keeps it.
+    add_test(NAME ${name} COMMAND ${name} -o ${CMAKE_CURRENT_BINARY_DIR}/${name}.log,txt -o -,txt)
 endfunction()
 
 cj_add_test(tst_common)
