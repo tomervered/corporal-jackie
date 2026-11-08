@@ -79,6 +79,9 @@ std::shared_ptr<StreamHandle> StreamBroker::open(const OpenRequest& request, Bro
             break;
         }
         if (st.state != lt::torrent_status::checking_resume_data) {
+            if (i > 0 || st.num_pieces > 0)
+                qCDebug(lcBroker).noquote() << "Resume data of" << QString::fromStdString(t->id) << "read:"
+                                            << st.num_pieces << "pieces, state" << int(st.state);
             for (int p = 0; p < int(st.pieces.size()) && p < int(t->have.size()); ++p)
                 if (st.pieces.get_bit(lt::piece_index_t(p)) && !t->evicted.count(p))
                     t->have[std::size_t(p)] = true;

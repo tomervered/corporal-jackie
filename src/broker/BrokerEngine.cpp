@@ -271,7 +271,8 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
                 if (!rp.ti || rp.ti->priv())
                     dropExtraTrackers(rp);
                 atp = std::move(rp);
-                qCInfo(lcBroker).noquote() << "Resuming" << QString::fromStdString(id) << "from saved data";
+                qCInfo(lcBroker).noquote() << "Resuming" << QString::fromStdString(id) << "from saved data with"
+                                           << atp.have_pieces.count() << "pieces";
             }
         }
     }
@@ -581,6 +582,8 @@ void Engine::handleAlert(lt::alert* a)
         }
     } else if (auto* rd = lt::alert_cast<lt::save_resume_data_alert>(a)) {
         if (auto t = find(rd->handle); t && QFileInfo(t->dir).isDir()) {
+            qCDebug(lcBroker).noquote() << "Saving resume data of" << QString::fromStdString(t->id) << ":"
+                                        << rd->params.have_pieces.count() << "pieces";
             const std::vector<char> buffer = lt::write_resume_data_buf(rd->params);
             QSaveFile f(QDir(t->dir).filePath(QString::fromLatin1(kResumeFile)));
             if (f.open(QIODevice::WriteOnly)) {
