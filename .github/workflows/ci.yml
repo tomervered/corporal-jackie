@@ -66,7 +66,15 @@ jobs:
           QTEST_FUNCTION_TIMEOUT: "150000"
         run: |
           export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
-          ctest --test-dir build --output-on-failure
+          ctest --test-dir build -LE bench --output-on-failure
+
+      - name: Benchmark
+        env:
+          QT_QPA_PLATFORM: offscreen
+          CJ_BENCH_RUNS: "3"
+        run: |
+          export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
+          ctest --test-dir build -L bench -V
 
       - name: Smoke test
         env:
@@ -216,7 +224,13 @@ jobs:
           # Qt's per-function watchdog fires before ctest's 300 s limit and
           # names the hung test function (ctest shows nothing on a timeout).
           QTEST_FUNCTION_TIMEOUT: "150000"
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build -LE bench --output-on-failure
+
+      - name: Benchmark
+        env:
+          QT_QPA_PLATFORM: offscreen
+          CJ_BENCH_RUNS: "3"
+        run: ctest --test-dir build -L bench -V
 
       - name: Smoke test
         env:
@@ -266,7 +280,13 @@ jobs:
           # Qt's per-function watchdog fires before ctest's 300 s limit and
           # names the hung test function (ctest shows nothing on a timeout).
           QTEST_FUNCTION_TIMEOUT: "150000"
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build -LE bench --output-on-failure
+
+      - name: Benchmark
+        env:
+          QT_QPA_PLATFORM: offscreen
+          CJ_BENCH_RUNS: "3"
+        run: ctest --test-dir build -L bench -V
 
       # Real rendering on Mesa's software OpenGL: opens the window and plays the
       # test clip. gpu-dumb-mode works around a Mesa llvmpipe issue with mpv's
@@ -305,4 +325,4 @@ jobs:
           QTEST_FUNCTION_TIMEOUT: "250000"
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1:strict_string_checks=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build -LE bench --output-on-failure

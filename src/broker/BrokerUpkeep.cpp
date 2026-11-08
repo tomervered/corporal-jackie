@@ -251,6 +251,22 @@ StreamStats Engine::stats(Torrent& t, const Reader& r)
     return s;
 }
 
+qint64 Engine::readCacheBytes()
+{
+    std::vector<std::shared_ptr<Torrent>> torrents;
+    {
+        std::lock_guard lock(m_mutex);
+        for (auto& [id, t] : m_torrents)
+            torrents.push_back(t);
+    }
+    qint64 total = 0;
+    for (auto& t : torrents) {
+        std::lock_guard tl(t->mutex);
+        total += t->pieceBytes;
+    }
+    return total;
+}
+
 StreamStats Engine::torrentStats(const std::string& id)
 {
     std::shared_ptr<Torrent> t;

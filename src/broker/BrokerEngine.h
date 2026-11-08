@@ -247,6 +247,7 @@ public:
     bool memoryOnly() const { return bool(m_memory); }
     qint64 memoryCap() const { return settings.memoryCapBytes; }
     qint64 memoryUsed() const { return m_memory ? m_memory->totalBytes() : 0; }
+    qint64 readCacheBytes();
     // Most bytes ahead of a reader worth asking for: on disk, half the cache;
     // in RAM, half the memory cap, so the rest holds what was just watched.
     qint64 aheadCap() const { return memoryOnly() ? memoryCap() / 2 : settings.cacheCapBytes / 2; }

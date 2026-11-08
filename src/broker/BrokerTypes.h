@@ -56,6 +56,14 @@ enum class StreamState {
     Stalled,           // buffering, and no new data for 10 s (peers lost?); it keeps trying
 };
 
+// What the broker holds at a byte of a file, for benchmarks and the
+// debug overlay.
+enum class PieceState {
+    Missing,  // never downloaded (or not verified yet)
+    Held,     // verified and readable now
+    Evicted,  // RAM only: verified once, dropped from memory since
+};
+
 struct StreamStats
 {
     StreamState state = StreamState::FindingPeers;

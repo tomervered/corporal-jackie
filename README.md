@@ -93,7 +93,8 @@ Then, on any platform:
 ```sh
 cmake -S . -B build -G Ninja
 cmake --build build
-ctest --test-dir build --output-on-failure
+ctest --test-dir build -LE bench --output-on-failure
+ctest --test-dir build -L bench -V    # the torrent benchmark (docs/BROKER_CONTRACT.md)
 ```
 
 CI builds with `-DCJ_WARNINGS_AS_ERRORS=ON`, so any compiler warning fails the build, and runs the tests a second time on Linux built with `-DCJ_SANITIZE=ON` (AddressSanitizer and UndefinedBehaviorSanitizer). `tst_ui` loads the real window against a fake player and fails on any QML warning; set `CJ_UI_SHOTS` to a folder to get a picture of each page.

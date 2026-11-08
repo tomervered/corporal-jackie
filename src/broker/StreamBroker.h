@@ -57,6 +57,7 @@ public:
     void setDuration(double seconds);
 
     StreamStats stats() const;
+    PieceState stateAt(qint64 offset) const;
 
 private:
     friend class StreamBroker;
@@ -101,6 +102,9 @@ public:
     // over all torrents. Kept near the memory cap; 0 when pieces go to disk.
     bool memoryOnly() const;
     qint64 memoryUsed() const;
+    // Bytes of verified pieces copied out for readers, over all torrents
+    // (each torrent aims for at most 64 MiB, and keeps its two newest).
+    qint64 readCacheBytes() const;
 
     // The info hash (lower-case hex) of a .torrent file, and its name. Empty
     // if the file cannot be read as a torrent.

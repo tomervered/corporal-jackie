@@ -24,6 +24,7 @@ void StreamBroker::enforceCacheCap() { m_engine->enforceCacheCap(); }
 void StreamBroker::clearCache() { m_engine->enforceCacheCap({}, 0); }
 bool StreamBroker::memoryOnly() const { return m_engine->memoryOnly(); }
 qint64 StreamBroker::memoryUsed() const { return m_engine->memoryUsed(); }
+qint64 StreamBroker::readCacheBytes() const { return m_engine->readCacheBytes(); }
 
 std::shared_ptr<StreamHandle> StreamBroker::open(const OpenRequest& request, BrokerError* error,
                                                  const std::function<bool()>& cancelled)
@@ -273,5 +274,17 @@ qint64 StreamHandle::read(qint64 offset, char* buffer, qint64 length)
 }
 
 StreamStats StreamHandle::stats() const { return m_engine->stats(*m_torrent, *m_reader); }
+
+PieceState StreamHandle::stateAt(qint64 offset) const
+{
+    Torrent& t = *m_torrent;
+    std::lock_guard lock(t.mutex);
+    if (!t.hasMetadata || offset < 0 || offset >= m_reader->fileSize)
+        return PieceState::Missing;
+    const int piece = t.pieceAt(m_reader->fileOffset + offset);
+    if (t.evicted.count(piece))
+        return PieceState::Evicted;
+    return piece < int(t.have.size()) && t.have[std::size_t(piece)] ? PieceState::Held : PieceState::Missing;
+}
 
 } // namespace cj

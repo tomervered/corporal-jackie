@@ -65,3 +65,24 @@ find_package(Qt6 REQUIRED COMPONENTS Quick)
 cj_add_test(tst_ui FakeHttpServer.h FakeTarget.h)
 target_link_libraries(tst_ui PRIVATE cj_app Qt6::Gui Qt6::Quick)
 cj_add_ui_module(tst_ui)
+
+# Benchmark: the player (bench_player) in its own process against a local
+# seeder, on disk and in RAM. Labelled "bench": CI runs it in a step of its
+# own and prints the numbers (ctest -L bench -V); plain ctest -LE bench skips it.
+qt_add_executable(bench_player bench/bench_player.cpp)
+target_link_libraries(bench_player PRIVATE cj_broker)
+if(WIN32)
+    target_link_libraries(bench_player PRIVATE psapi)
+endif()
+cj_add_test(tst_bench TorrentHarness.h)
+target_link_libraries(tst_bench PRIVATE cj::libtorrent)
+target_compile_definitions(tst_bench PRIVATE CJ_BENCH_PLAYER="$<TARGET_FILE:bench_player>")
+if(WIN32)
+    target_compile_definitions(tst_bench PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+endif()
+add_dependencies(tst_bench bench_player)
+set_tests_properties(tst_bench PROPERTIES TIMEOUT 600 LABELS bench)
+# The mpv side of the benchmark: time to the first frame and seconds stalled
+# while a magnet plays (also run, unlabelled, inside tst_torrentstream).
+add_test(NAME bench_mpv COMMAND tst_torrentstream magnetPlaysToTheEnd)
+set_tests_properties(bench_mpv PROPERTIES TIMEOUT 300 LABELS bench)

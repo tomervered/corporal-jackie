@@ -102,13 +102,32 @@ private slots:
         Player p(dir.filePath("cache"));
         QElapsedTimer clock;
         clock.start();
+        // Benchmark numbers: time to the first frame, and, kept apart from
+        // it, the total seconds playback then spent stalled (buffering).
+        QElapsedTimer stalled;
+        qint64 stalledMs = 0;
+        connect(&p.session, &Session::bufferingChanged, this, [&] {
+            if (!p.session.hasMedia())
+                return;
+            if (p.session.buffering() && !stalled.isValid())
+                stalled.start();
+            else if (!p.session.buffering() && stalled.isValid()) {
+                stalledMs += stalled.elapsed();
+                stalled.invalidate();
+            }
+        });
         p.session.openPath(harness::magnet(t, {seeder.port()}));
         QTRY_VERIFY_WITH_TIMEOUT(p.session.hasMedia(), 30000);
-        qInfo() << "Magnet to first frame:" << clock.elapsed() << "ms";
+        const qint64 firstFrameMs = clock.elapsed();
         QCOMPARE(p.session.title(), QStringLiteral("Test Pattern.mkv"));
         QTRY_COMPARE_WITH_TIMEOUT(qRound(p.session.duration()), 10, 5000);
         QTRY_VERIFY_WITH_TIMEOUT(p.phases.contains(StreamPhase::Ready), 5000);
         QTRY_COMPARE_WITH_TIMEOUT(p.session.state(), PlaybackState::Ended, 30000);
+        if (stalled.isValid())
+            stalledMs += stalled.elapsed();
+        qInfo().noquote() << QStringLiteral("BENCH mpv: first frame %1 ms, stalled %2 ms while playing")
+                                 .arg(firstFrameMs)
+                                 .arg(stalledMs);
     }
 
     void seeksAndSurvivesALongPause()
