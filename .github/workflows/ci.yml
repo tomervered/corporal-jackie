@@ -16,6 +16,9 @@ jobs:
   windows:
     name: Windows (MSYS2 UCRT64)
     runs-on: windows-2022
+    permissions:
+      contents: read
+      actions: read   # the previous build's manifest, for the update package
     timeout-minutes: 90
     defaults:
       run:
@@ -108,10 +111,56 @@ jobs:
           echo "DLLs shipped:"; (cd dist/app && ls *.dll | tr '\n' ' '); echo
           echo "Biggest files:"; find dist -type f -printf '%s %p\n' | sort -rn | awk 'NR <= 60 {printf "%7.1f MB  %s\n", $1/1048576, $2}'
 
+      # build.txt names the build; manifest.txt lists every file with its
+      # SHA-256. The next build compares against it to make an update package.
+      - name: Stamp the build
+        run: |
+          cd dist
+          echo "build ${{ github.run_number }} (${GITHUB_SHA::7})" > build.txt
+          find . -type f ! -name manifest.txt | sed 's|^\./||' | LC_ALL=C sort | while IFS= read -r f; do
+            printf '%s\t%s\n' "$(sha256sum "$f" | cut -d' ' -f1)" "$f"
+          done > manifest.txt
+          cat build.txt; wc -l < manifest.txt
+
       - uses: actions/upload-artifact@v4
         with:
           name: CorporalJackie-windows-x64
           path: dist/
+
+      - uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main'
+        with:
+          name: CorporalJackie-windows-manifest
+          path: |
+            dist/build.txt
+            dist/manifest.txt
+
+      # The update package: only the files that changed since the last main
+      # build that has a manifest (see packaging/windows/README-update.txt).
+      - name: Get the previous build's manifest
+        if: github.ref == 'refs/heads/main'
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run=$(gh api "repos/${{ github.repository }}/actions/artifacts?name=CorporalJackie-windows-manifest&per_page=30" \
+            --jq '[.artifacts[] | select(.expired | not) | select(.workflow_run.head_branch == "main")
+                   | select(.workflow_run.id != ${{ github.run_id }})][0].workflow_run.id // empty')
+          if [ -z "$run" ]; then echo "No earlier manifest: no update package this time"; exit 0; fi
+          echo "Previous build: run $run"
+          gh run download "$run" -R "${{ github.repository }}" -n CorporalJackie-windows-manifest -D previous
+          cat previous/build.txt
+
+      - name: Make the update package
+        if: github.ref == 'refs/heads/main' && hashFiles('previous/manifest.txt') != ''
+        run: packaging/windows/make-update.sh dist previous update
+
+      - uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main' && hashFiles('update/_update/from-build.txt') != ''
+        with:
+          name: CorporalJackie-windows-x64-update
+          path: update/
 
       # Runs the packaged app the way a user would: outside MSYS2, with only
       # Windows' own folders on PATH, so a missing DLL or plugin fails here.
