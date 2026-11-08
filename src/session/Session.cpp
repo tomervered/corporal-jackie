@@ -533,31 +533,4 @@ void Session::setHardwareDecoding(bool enabled)
     emit hardwareDecodingChanged();
 }
 
-void Session::setHighQualityScaling(bool enabled)
-{
-    if (!require(Capability::VideoOutput, "Scaling quality") || enabled == m_highQualityScaling)
-        return;
-    m_highQualityScaling = enabled;
-    m_target->setHighQualityScaling(enabled);
-    emit videoOutputChanged();
-}
-
-void Session::setDisplaySync(bool enabled)
-{
-    if (!require(Capability::VideoOutput, "Display sync") || enabled == m_displaySync)
-        return;
-    m_displaySync = enabled;
-    m_target->setDisplaySync(enabled);
-    emit videoOutputChanged();
-}
-
-void Session::setSmoothMotion(bool enabled)
-{
-    if (!require(Capability::VideoOutput, "Smooth motion") || enabled == m_smoothMotion)
-        return;
-    m_smoothMotion = enabled;
-    m_target->setSmoothMotion(enabled);
-    emit videoOutputChanged();
-}
-
 } // namespace cj

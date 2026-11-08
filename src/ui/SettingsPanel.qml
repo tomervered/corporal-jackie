@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Dialogs
 
-// Settings (press P): picture and motion options, applied at once, and where
+// Settings (press P): hardware decoding, applied at once, and where
 // torrents are stored, applied the next time the app opens. Binds to
 // `session` for playback options and `preferences` for the rest.
 Rectangle {
@@ -16,8 +16,6 @@ Rectangle {
     color: "#141418"
     border.color: "#30ffffff"
     radius: 12
-
-    readonly property bool picture: session.supports("VideoOutput")
 
     // Clicks and scrolls on the panel stay here, away from the video below.
     MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons; onWheel: wheel => wheel.accepted = true }
@@ -119,33 +117,8 @@ Rectangle {
             width: flick.width - 12
             spacing: 6
 
-            // --- Picture and motion ---------------------------------------------
-            Heading { text: "Picture and motion" }
-            Note {
-                visible: !panel.picture
-                text: "These options are for videos playing on this computer."
-            }
-            Toggle {
-                title: "Sync to the display"
-                detail: "Times each frame to your screen's refresh, so motion is even. Turn off if playback gets worse."
-                enabledHere: panel.picture
-                checked: session.displaySync
-                onToggled: on => session.displaySync = on
-            }
-            Toggle {
-                title: "Smooth motion"
-                detail: "Blends frames when the video's frame rate doesn't fit the screen's (a 24 fps film on a 60 Hz screen), so pans don't judder. Needs Sync to the display."
-                enabledHere: panel.picture && session.displaySync
-                checked: session.smoothMotion
-                onToggled: on => session.smoothMotion = on
-            }
-            Toggle {
-                title: "High-quality scaling"
-                detail: "Sharper when the video is smaller than the screen, but much heavier on the graphics card. Can cause stutter."
-                enabledHere: panel.picture
-                checked: session.highQualityScaling
-                onToggled: on => session.highQualityScaling = on
-            }
+            // --- Picture ------------------------------------------------------------
+            Heading { text: "Picture" }
             Toggle {
                 title: "Hardware decoding"
                 detail: "Lets the graphics card decode the video. Turn off only if the picture shows glitches."

@@ -36,11 +36,7 @@ signals:
     void sessionChanged();
 
 private:
-    void reportDisplayFps();
-
     QPointer<Session> m_session;
-    QMetaObject::Connection m_screenConnection;
-    QMetaObject::Connection m_rateConnection;
 };
 
 } // namespace cj

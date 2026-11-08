@@ -110,15 +110,6 @@ int main(int argc, char* argv[])
     QObject::connect(&session, &cj::Session::hardwareDecodingChanged, &app, [&] {
         QSettings().setValue(QStringLiteral("playback/hwdec"), session.hardwareDecoding());
     });
-    session.setHighQualityScaling(settings.value(QStringLiteral("playback/highQualityScaling"), false).toBool());
-    session.setDisplaySync(settings.value(QStringLiteral("playback/displaySync"), true).toBool());
-    session.setSmoothMotion(settings.value(QStringLiteral("playback/smoothMotion"), true).toBool());
-    QObject::connect(&session, &cj::Session::videoOutputChanged, &app, [&] {
-        QSettings s;
-        s.setValue(QStringLiteral("playback/highQualityScaling"), session.highQualityScaling());
-        s.setValue(QStringLiteral("playback/displaySync"), session.displaySync());
-        s.setValue(QStringLiteral("playback/smoothMotion"), session.smoothMotion());
-    });
 
     // Resume points are saved to the library in Step 6; for now they are logged.
     QObject::connect(&session, &cj::Session::resumePoint, &app,

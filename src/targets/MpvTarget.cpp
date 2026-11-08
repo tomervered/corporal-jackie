@@ -35,7 +35,6 @@ enum PropertyId : uint64_t {
     PropDecoderDropped,
     PropDelayed,
     PropMistimed,
-    PropDisplayFps,
 };
 
 void wakeup(void* ctx)
@@ -104,10 +103,6 @@ void setOption(mpv_handle* mpv, const char* name, const char* value)
 
 QByteArray number(double v) { return QByteArray::number(v, 'f', 3); }
 
-// mpv's own default upscaler, and the one its "high-quality" profile uses.
-constexpr const char* kStandardScaler = "lanczos";
-constexpr const char* kHighQualityScaler = "ewa_lanczossharp";
-
 // "16:9" or "2.39:1" or "1.85" -> width/height, or 0 if not a ratio.
 double parseRatio(const QString& text)
 {
@@ -130,14 +125,10 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
 
     if (mode == Mode::Video) {
         setOption(m_mpv, "vo", "libmpv");
-        // Standard scaling by default; setHighQualityScaling() switches to
-        // the sharper, much heavier one.
-        setOption(m_mpv, "scale", kStandardScaler);
-        // Frames timed to the display's refresh, blended where a film's
-        // frame rate does not divide it (24 fps on 60 Hz): even motion
-        // instead of a 3:2 judder. Needs the display's rate, which the video
-        // surface reports (setDisplayFps).
-        applyVideoSync();
+        // mpv's defaults on purpose: its "high-quality" scaling and display
+        // sync with frame blending ("smooth motion") were tried on
+        // 2026-11-08 and each made playback stutter in this embedded
+        // Qt Quick output, even on an RTX 4060.
     } else {
         setOption(m_mpv, "vo", "null");
         setOption(m_mpv, "ao", "null");
@@ -167,7 +158,6 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
         m_mpv = nullptr;
         throw std::runtime_error("mpv_initialize failed");
     }
-    m_initialized = true;
 
     // CJ_MPV_LOG=v (or debug) shows more of mpv's own log, for troubleshooting.
     const QByteArray mpvLog = qgetenv("CJ_MPV_LOG");
@@ -194,7 +184,6 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
         {PropDecoderDropped, "decoder-frame-drop-count", MPV_FORMAT_INT64},
         {PropDelayed,        "vo-delayed-frame-count", MPV_FORMAT_INT64},
         {PropMistimed,       "mistimed-frame-count",   MPV_FORMAT_INT64},
-        {PropDisplayFps,     "display-fps",            MPV_FORMAT_DOUBLE},
     };
     for (const auto& o : observed)
         mpv_observe_property(m_mpv, o.id, o.name, o.format);
@@ -217,8 +206,7 @@ Capabilities MpvTarget::capabilities() const
     return Capability::SubtitleDelay | Capability::SubtitleStyle | Capability::AudioDelay
          | Capability::Chapters | Capability::FrameStep | Capability::Screenshot
          | Capability::AbLoop | Capability::AspectRatio | Capability::Crop
-         | Capability::VideoEqualizer | Capability::HardwareDecoding
-         | (m_mode == Mode::Video ? Capability::VideoOutput : Capability::None);
+         | Capability::VideoEqualizer | Capability::HardwareDecoding;
 }
 
 // --- Plumbing -----------------------------------------------------------------
@@ -434,63 +422,6 @@ void MpvTarget::setVideoEqualizer(const VideoEqualizer& eq)
     setProperty("hue",        QByteArray::number(eq.hue));
 }
 
-void MpvTarget::setHighQualityScaling(bool enabled)
-{
-    m_highQualityScaling = enabled;
-    setProperty("scale", enabled ? kHighQualityScaler : kStandardScaler);
-    qCInfo(lcTargets) << "High-quality scaling" << (enabled ? "on" : "off");
-    emitStats();
-}
-
-void MpvTarget::setDisplaySync(bool enabled)
-{
-    m_displaySync = enabled;
-    applyVideoSync();
-    qCInfo(lcTargets) << "Display sync" << (enabled ? "on" : "off");
-}
-
-void MpvTarget::setSmoothMotion(bool enabled)
-{
-    m_smoothMotion = enabled;
-    applyVideoSync();
-    qCInfo(lcTargets) << "Smooth motion" << (enabled ? "on" : "off");
-}
-
-void MpvTarget::setDisplayFps(double fps)
-{
-    if (fps <= 1 || qFuzzyCompare(fps, m_displayFpsSet))
-        return;
-    m_displayFpsSet = fps;
-    // "display-fps-override" since mpv 0.37, "override-display-fps" before.
-    const QByteArray value = number(fps);
-    const char* v = value.constData();
-    if (mpv_set_property(m_mpv, "display-fps-override", MPV_FORMAT_STRING, &v) < 0)
-        mpv_set_property(m_mpv, "override-display-fps", MPV_FORMAT_STRING, &v);
-    qCInfo(lcTargets) << "Display refresh rate" << fps << "Hz";
-}
-
-// Before mpv_initialize this sets options, after it properties: both take
-// the same strings.
-void MpvTarget::applyVideoSync()
-{
-    if (m_mode != Mode::Video)
-        return;
-    const bool sync = m_displaySync;
-    const bool blend = m_displaySync && m_smoothMotion;
-    auto set = [this](const char* name, const char* value) {
-        if (m_initialized)
-            setProperty(name, value);
-        else
-            mpv_set_option_string(m_mpv, name, value);
-    };
-    set("video-sync", sync ? "display-resample" : "audio");
-    set("interpolation", blend ? "yes" : "no");
-    // "oversample" only blends the two frames around a refresh: smooth, sharp
-    // and cheap, unlike the softer filters.
-    set("tscale", "oversample");
-    emitStats();
-}
-
 void MpvTarget::setHardwareDecoding(bool enabled)
 {
     m_hwdecEnabled = enabled;
@@ -669,10 +600,6 @@ void MpvTarget::handleProperty(uint64_t id, const mpv_event_property* p)
         m_mistimed = intOf(p);
         emitStats();
         break;
-    case PropDisplayFps:
-        m_displayFps = doubleOf(p);
-        emitStats();
-        break;
     }
 }
 
@@ -690,11 +617,6 @@ void MpvTarget::emitStats()
         // refresh: which one grows says why playback stutters.
         {QStringLiteral("Dropped frames"), QStringLiteral("%1 drawing, %2 decoding").arg(m_dropped).arg(m_decoderDropped)},
         {QStringLiteral("Late frames"), QStringLiteral("%1 delayed, %2 mistimed").arg(m_delayed).arg(m_mistimed)},
-        {QStringLiteral("Display"), m_displayFps > 0 ? QString::number(m_displayFps, 'f', 2) + QStringLiteral(" Hz") : QStringLiteral("-")},
-        {QStringLiteral("Motion"), !m_displaySync ? QStringLiteral("timed to audio")
-                                   : m_smoothMotion ? QStringLiteral("display sync, smooth motion")
-                                                    : QStringLiteral("display sync")},
-        {QStringLiteral("Scaling"), m_highQualityScaling ? QStringLiteral("high quality") : QStringLiteral("standard")},
     });
 }
 

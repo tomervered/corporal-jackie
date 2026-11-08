@@ -196,16 +196,6 @@ private slots:
         QVERIFY(t.last().endsWith(QStringLiteral("movie 00-00-00.png")));
         s.setHardwareDecoding(false);
         QCOMPARE(t.last(), QStringLiteral("hwdec false"));
-        s.setHighQualityScaling(true);
-        QCOMPARE(t.last(), QStringLiteral("hqscale true"));
-        s.setDisplaySync(false);
-        QCOMPARE(t.last(), QStringLiteral("displaysync false"));
-        s.setSmoothMotion(false);
-        QCOMPARE(t.last(), QStringLiteral("smoothmotion false"));
-        // The same value again sends nothing.
-        const int sent = t.commands.size();
-        s.setSmoothMotion(false);
-        QCOMPARE(t.commands.size(), sent);
     }
 
     void unsupportedFeaturesAreNotSent()
@@ -224,9 +214,6 @@ private slots:
         s.cycleCrop();
         s.setEqualizer(QStringLiteral("hue"), 10);
         s.setHardwareDecoding(false);
-        s.setHighQualityScaling(true);
-        s.setDisplaySync(false);
-        s.setSmoothMotion(false);
         s.nextChapter();
         QCOMPARE(t.commands.size(), before);
         QCOMPARE(s.subtitleDelay(), 0.0);
