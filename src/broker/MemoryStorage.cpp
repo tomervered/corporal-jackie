@@ -5,6 +5,7 @@
 #include <libtorrent/error_code.hpp>
 #include <libtorrent/hasher.hpp>
 #include <libtorrent/storage_defs.hpp>
+#include <libtorrent/version.hpp>
 
 #include <boost/asio/post.hpp>
 
@@ -15,6 +16,16 @@
 namespace cj::broker_detail {
 
 namespace {
+
+// libtorrent 2.1 (MSYS2 ships it) changed a few disk interface types: status
+// codes became flags, and buffers no longer carry their size.
+#if LIBTORRENT_VERSION_NUM >= 20100
+const lt::status_t kStatusOk{};
+const lt::status_t kStatusFatal = lt::disk_status::fatal_disk_error;
+#else
+const lt::status_t kStatusOk = lt::status_t::no_error;
+const lt::status_t kStatusFatal = lt::status_t::fatal_disk_error;
+#endif
 
 lt::storage_error aborted()
 {
@@ -226,11 +237,17 @@ public:
             boost::asio::post(m_ioc, [handler = std::move(handler)] { handler(lt::disk_buffer_holder(), aborted()); });
             return;
         }
-        char* buffer = new char[data.size()];
-        std::memcpy(buffer, data.data(), data.size());
+        // At least the asked length: libtorrent 2.1 assumes it.
         const int size = int(data.size());
+        char* buffer = new char[std::size_t(std::max(size, r.length))];
+        std::memcpy(buffer, data.data(), data.size());
         boost::asio::post(m_ioc, [this, handler = std::move(handler), buffer, size] {
+#if LIBTORRENT_VERSION_NUM >= 20100
+            (void)size;
+            handler(lt::disk_buffer_holder(*this, buffer), lt::storage_error());
+#else
             handler(lt::disk_buffer_holder(*this, buffer, size), lt::storage_error());
+#endif
         });
     }
 
@@ -273,7 +290,7 @@ public:
         boost::asio::post(m_ioc, [handler = std::move(handler), path] {
             lt::storage_error e;
             e.ec = boost::system::errc::make_error_code(boost::system::errc::operation_not_supported);
-            handler(lt::status_t::fatal_disk_error, path, e);
+            handler(kStatusFatal, path, e);
         });
     }
 
@@ -288,7 +305,7 @@ public:
                            std::function<void(lt::status_t, const lt::storage_error&)> handler) override
     {
         // Nothing on disk to check; pieces named in resume data are held.
-        boost::asio::post(m_ioc, [handler = std::move(handler)] { handler(lt::status_t::no_error, lt::storage_error()); });
+        boost::asio::post(m_ioc, [handler = std::move(handler)] { handler(kStatusOk, lt::storage_error()); });
     }
 
     void async_stop_torrent(lt::storage_index_t, std::function<void()> handler) override
@@ -336,6 +353,13 @@ public:
     void settings_updated() override {}
 
     void free_disk_buffer(char* buffer) override { delete[] buffer; }
+#if LIBTORRENT_VERSION_NUM >= 20100
+    void free_multiple_buffers(lt::span<char*> buffers) override
+    {
+        for (char* b : buffers)
+            delete[] b;
+    }
+#endif
 
 private:
     struct Slot
