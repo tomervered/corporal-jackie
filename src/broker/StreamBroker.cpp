@@ -67,6 +67,27 @@ std::shared_ptr<StreamHandle> StreamBroker::open(const OpenRequest& request, Bro
         t->cv.wait_for(lock, std::chrono::milliseconds(100));
     }
 
+    // A torrent reopened from the cache first reads its resume data, in the
+    // background. Until then libtorrent reports none of its pieces, and the
+    // reader would wait for (or ask peers for) pieces already on disk. It
+    // takes a moment; wait for it, at most 3 s.
+    for (int i = 0; i < 60; ++i) {
+        lt::torrent_status st;
+        try {
+            st = t->handle.status(lt::torrent_handle::query_pieces);
+        } catch (const std::exception&) {
+            break;
+        }
+        if (st.state != lt::torrent_status::checking_resume_data) {
+            for (int p = 0; p < int(st.pieces.size()) && p < int(t->have.size()); ++p)
+                if (st.pieces.get_bit(lt::piece_index_t(p)) && !t->evicted.count(p))
+                    t->have[std::size_t(p)] = true;
+            break;
+        }
+        t->cv.wait_for(lock, std::chrono::milliseconds(50));
+        if (t->removed || m_engine->closing) { *error = BrokerError::Closed; return nullptr; }
+    }
+
     const lt::file_storage& files = fileLayout(*t->info);
     int index = request.fileIndex;
     if (index < 0) {
