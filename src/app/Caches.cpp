@@ -43,47 +43,29 @@ QNetworkAccessManager* ImageCacheFactory::create(QObject* parent)
     auto* manager = new QNetworkAccessManager(parent);
     auto* cache = new QNetworkDiskCache(manager);
     cache->setCacheDirectory(m_folder);
-    std::lock_guard lock(m_mutex);
     cache->setMaximumCacheSize(m_maxBytes);
     manager->setCache(cache);
-    m_caches.erase(std::remove_if(m_caches.begin(), m_caches.end(), [](const auto& c) { return c.isNull(); }),
-                   m_caches.end());
-    m_caches.emplace_back(cache);
+    ++m_live;
+    QObject::connect(cache, &QObject::destroyed, [this] { --m_live; });
+    // `cache` as the context: the change runs on the cache's own thread.
+    QObject::connect(&m_signals, &ImageCacheSignals::maximumSizeChanged, cache,
+                     [cache](qint64 bytes) { cache->setMaximumCacheSize(bytes); });
+    QObject::connect(&m_signals, &ImageCacheSignals::clearRequested, cache, [cache] { cache->clear(); });
     return manager;
 }
 
 void ImageCacheFactory::setMaximumSize(qint64 bytes)
 {
-    std::lock_guard lock(m_mutex);
     m_maxBytes = bytes;
-    // Each cache lives on its manager's thread: change it there.
-    for (const QPointer<QNetworkDiskCache>& cache : m_caches)
-        if (cache)
-            QMetaObject::invokeMethod(cache.data(), [cache, bytes] {
-                if (cache)
-                    cache->setMaximumCacheSize(bytes);
-            }, Qt::QueuedConnection);
+    emit m_signals.maximumSizeChanged(bytes);
 }
 
 void ImageCacheFactory::clear()
 {
-    std::vector<QPointer<QNetworkDiskCache>> caches;
-    {
-        std::lock_guard lock(m_mutex);
-        caches = m_caches;
-    }
-    bool any = false;
-    for (const QPointer<QNetworkDiskCache>& cache : caches) {
-        if (!cache)
-            continue;
-        any = true;
-        QMetaObject::invokeMethod(cache.data(), [cache] {
-            if (cache)
-                cache->clear();
-        }, Qt::QueuedConnection);
-    }
-    if (!any)
-        QDir(m_folder).removeRecursively();
+    if (m_live > 0)
+        emit m_signals.clearRequested();
+    else
+        QDir(m_folder).removeRecursively();  // no cache has its files open
 }
 
 // --- Caches ----------------------------------------------------------------------------
@@ -101,8 +83,8 @@ Caches::Caches(Storage& storage, TorrentTransport& torrents, const QString& imag
 Caches::~Caches()
 {
     *m_alive = false;
-    for (std::thread& t : m_threads)
-        t.join();
+    if (m_thread.joinable())
+        m_thread.join();
 }
 
 void Caches::setImageCacheMB(int mb)
@@ -131,8 +113,10 @@ void Caches::runInBackground(std::function<void()> job)
         return;
     m_busy = true;
     emit usageChanged();
-    // Joined at the latest when this object goes; finished ones go now.
-    m_threads.emplace_back([this, alive = m_alive, job = std::move(job)] {
+    // The last one has finished: it reported before m_busy went false.
+    if (m_thread.joinable())
+        m_thread.join();
+    m_thread = std::thread([this, alive = m_alive, job = std::move(job)] {
         job();
         const qint64 images = folderSize(m_factory.folder());
         const qint64 torrents = m_torrents.cacheUsage();

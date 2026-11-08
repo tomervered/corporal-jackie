@@ -52,3 +52,8 @@ set_tests_properties(tst_browseplay PROPERTIES TIMEOUT 300)
 # and the Library against the fake target.
 cj_add_test(tst_storage FakeTarget.h)
 target_link_libraries(tst_storage PRIVATE cj_storage cj::sqlite)
+
+# The app's core as main() builds it, against the fake target: settings kept
+# between runs, defaults, import, old settings; preferences and caches.
+cj_add_test(tst_app FakeTarget.h)
+target_link_libraries(tst_app PRIVATE cj_app)

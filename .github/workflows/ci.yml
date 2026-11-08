@@ -53,7 +53,7 @@ jobs:
         run: |
           DEPS="$(cygpath -u "$GITHUB_WORKSPACE")/.deps"
           export PATH="$DEPS/bin:$PATH" PKG_CONFIG_PATH="$DEPS/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(cygpath -m "$DEPS")"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCJ_WARNINGS_AS_ERRORS=ON -DCMAKE_PREFIX_PATH="$(cygpath -m "$DEPS")"
 
       - name: Build
         run: cmake --build build
@@ -205,7 +205,7 @@ jobs:
         run: brew install qt mpv libtorrent-rasterbar ninja pkgconf
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCJ_WARNINGS_AS_ERRORS=ON -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
 
       - name: Build
         run: cmake --build build
@@ -255,7 +255,7 @@ jobs:
             libmpv-dev libtorrent-rasterbar-dev libsqlite3-dev
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCJ_WARNINGS_AS_ERRORS=ON
 
       - name: Build
         run: cmake --build build
@@ -275,3 +275,31 @@ jobs:
         env:
           CJ_MPV_OPTS: gpu-dumb-mode=yes
         run: xvfb-run -a -s "-screen 0 1280x720x24" ./build/src/app/CorporalJackie --smoke-test tests/data/testsrc-10s.mkv
+
+  sanitizers:
+    name: Linux (tests under ASan and UBSan)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build pkg-config \
+            qt6-base-dev qt6-declarative-dev libmpv-dev libtorrent-rasterbar-dev libsqlite3-dev
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCJ_WARNINGS_AS_ERRORS=ON -DCJ_SANITIZE=ON
+
+      - name: Build
+        run: cmake --build build --target all
+
+      # Memory errors and undefined behaviour stop the test. Leaks are not
+      # checked: Qt, mpv and fontconfig keep caches until exit on purpose.
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QTEST_FUNCTION_TIMEOUT: "250000"
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1:strict_string_checks=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --test-dir build --output-on-failure

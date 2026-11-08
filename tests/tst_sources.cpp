@@ -612,6 +612,25 @@ private slots:
         QTRY_COMPARE(browser.homeRows().value(0).toMap().value("name").toString(), QStringLiteral("B · New series"));
     }
 
+    void homeFillsInWhenTheFirstAddonArrives()
+    {
+        FakeHttpServer server;
+        server.setJson("/a/manifest.json", manifest("org.a", "A", R"(["catalog"])",
+            R"([{"type":"movie","id":"top","name":"Top"}])"));
+        server.setJson("/a/catalog/movie/top.json", R"({"metas":[{"id":"tt1","type":"movie","name":"One"}]})");
+        QTemporaryDir data;
+        StremioAdapter addons(data.filePath("addons.json"), false);
+        Browser browser(nullptr);
+        browser.setStremio(&addons);
+        browser.loadHome();
+        QVERIFY(browser.homeRows().isEmpty());  // nothing installed yet
+
+        Waiter<QString> w;
+        addons.install(server.base() + "/a/manifest.json", [&](const QString& e) { w.value = e; });
+        QVERIFY(w.wait());
+        QTRY_COMPARE(browser.homeRows().size(), 1);
+    }
+
     void boundsResponseSize()
     {
         FakeHttpServer server;

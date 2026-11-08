@@ -160,7 +160,8 @@ private:
     int m_catalogIndex = -1;
     QString m_search;
     QString m_genre;
-    QStringList m_homeKeys;   // the catalogs the home rows were loaded for
+    bool m_homeLoaded = false;  // loadHome() ran: later list changes reload it
+    QStringList m_homeKeys;     // the catalogs the home rows were loaded for
     QList<Row> m_homeRows;
     quint64 m_homeGen = 0;
     QList<Row> m_searchRows;

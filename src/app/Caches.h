@@ -4,14 +4,12 @@
 // request QML makes), and the torrent cache. Exposed to QML as `caches`.
 
 #include <QObject>
-#include <QPointer>
 #include <QQmlNetworkAccessManagerFactory>
 
+#include <atomic>
 #include <functional>
 #include <memory>
-#include <mutex>
 #include <thread>
-#include <vector>
 
 class QNetworkDiskCache;
 
@@ -20,8 +18,18 @@ namespace cj {
 class Storage;
 class TorrentTransport;
 
+// Tells every disk cache, each on its own thread, about a change. Queued
+// connections carry it there, and a cache that is gone is disconnected.
+class ImageCacheSignals : public QObject
+{
+    Q_OBJECT
+signals:
+    void maximumSizeChanged(qint64 bytes);
+    void clearRequested();
+};
+
 // Gives every QML network access manager a disk cache in one folder, capped.
-// QML makes one manager per thread, each on its own thread.
+// QML makes managers on its own threads and calls create() there.
 class ImageCacheFactory : public QQmlNetworkAccessManagerFactory
 {
 public:
@@ -30,13 +38,14 @@ public:
 
     QString folder() const { return m_folder; }
     void setMaximumSize(qint64 bytes);
+    // Each cache empties itself a moment later, on its own thread.
     void clear();
 
 private:
-    QString m_folder;
-    std::mutex m_mutex;
-    qint64 m_maxBytes;
-    std::vector<QPointer<QNetworkDiskCache>> m_caches;
+    const QString m_folder;
+    std::atomic<qint64> m_maxBytes;
+    std::atomic<int> m_live{0};   // caches that exist now
+    ImageCacheSignals m_signals;
 };
 
 class Caches : public QObject
@@ -84,8 +93,8 @@ private:
     QString m_imageUsed;
     QString m_torrentUsed;
     bool m_busy = false;
-    std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);
-    std::vector<std::thread> m_threads;
+    std::shared_ptr<std::atomic<bool>> m_alive = std::make_shared<std::atomic<bool>>(true);
+    std::thread m_thread;   // measuring or clearing; one at a time
 };
 
 } // namespace cj

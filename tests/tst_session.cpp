@@ -50,7 +50,7 @@ private slots:
         s.addSourceResolver([](const QString& input) -> std::optional<PlayableSource> {
             if (!input.startsWith(QLatin1String("magnet:")))
                 return std::nullopt;
-            return PlayableSource{QUrl(QStringLiteral("torrent://abc")), QStringLiteral("A movie")};
+            return PlayableSource::fromUrl(QUrl(QStringLiteral("torrent://abc")), QStringLiteral("A movie"));
         });
         s.openPath(QStringLiteral("magnet:?xt=urn:btih:abc"));
         QVERIFY(t.sent(QStringLiteral("load torrent://abc 0")));

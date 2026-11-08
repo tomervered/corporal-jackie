@@ -180,7 +180,7 @@ void Browser::rebuildCatalogs()
     QStringList keys;
     for (const CatalogRef& c : std::as_const(m_catalogs))
         keys << c.adapter + c.provider + c.type + c.id;
-    if (keys != m_homeKeys && !m_homeKeys.isEmpty())
+    if (m_homeLoaded && keys != m_homeKeys)
         QTimer::singleShot(0, this, &Browser::loadHome);
     if (lost) {
         ++m_itemsGen;
@@ -260,6 +260,7 @@ void Browser::fetchRows(QList<Row>* rows, quint64* gen, const QString& search, v
 
 void Browser::loadHome()
 {
+    m_homeLoaded = true;
     m_homeRows.clear();
     m_homeKeys.clear();
     for (int i = 0; i < m_catalogs.size() && m_homeRows.size() < kHomeRows; ++i) {
