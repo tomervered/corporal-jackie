@@ -240,7 +240,10 @@ qint64 StreamHandle::read(qint64 offset, char* buffer, qint64 length)
             if (t.failed)
                 return -2;
             t.cv.wait_for(lock, std::chrono::milliseconds(250));
-            if (++waits % 8 == 0) {
+            if (++waits % 40 == 0)
+                qCDebug(lcBroker).noquote() << "Read of piece" << piece << "of" << QString::fromStdString(t.id)
+                                            << "still waits for the download after" << waits / 4 << "s";
+            if (waits % 8 == 0) {
                 try {
                     if (!t.have[piece] && m_engine->holds(t, piece)) {
                         qCInfo(lcBroker) << "Piece" << piece << "was done without an alert";
@@ -269,8 +272,11 @@ qint64 StreamHandle::read(qint64 offset, char* buffer, qint64 length)
             // state (a torrent just reloaded, say) does not use up the tries.
             if (t.readErrors[piece] > 10)
                 return -2;
-            if (++waits % 20 == 0)
+            if (++waits % 20 == 0) {
+                qCDebug(lcBroker).noquote() << "Read of piece" << piece << "of" << QString::fromStdString(t.id)
+                                            << "has no bytes after" << waits / 4 << "s; errors" << t.readErrors[piece];
                 t.readsPending.erase(piece);  // 5 s without an answer: ask again
+            }
             if (!t.readsPending.count(piece) && t.readErrors[piece] > 0 && !rested) {
                 lock.unlock();
                 std::this_thread::sleep_for(std::chrono::milliseconds(200));
