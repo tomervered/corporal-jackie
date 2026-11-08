@@ -112,8 +112,7 @@ private:
         QByteArray extra;
         if (!a.filePath.isEmpty()) {
             QFile f(a.filePath);
-            f.open(QIODevice::ReadOnly);
-            const QByteArray all = f.readAll();
+            const QByteArray all = f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
             body = all;
             static const QRegularExpression range(QStringLiteral(R"(bytes=(\d+)-(\d*))"));
             const auto m = range.match(QString::fromLatin1(req.headers.value("range")));

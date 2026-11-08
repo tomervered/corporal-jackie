@@ -41,8 +41,8 @@ inline void writeFile(const QString& path, const QByteArray& data)
 {
     QDir().mkpath(QFileInfo(path).absolutePath());
     QFile f(path);
-    f.open(QIODevice::WriteOnly | QIODevice::Truncate);
-    f.write(data);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate) || f.write(data) != data.size())
+        qFatal("Could not write %s", qPrintable(path));
 }
 
 // A v1 torrent of `content` (a file or a folder) inside `root`.
@@ -110,7 +110,8 @@ inline TestTorrent makeTorrentOfFile(const QString& root, const QString& name, c
     TestTorrent t;
     t.root = root;
     QFile in(source);
-    in.open(QIODevice::ReadOnly);
+    if (!in.open(QIODevice::ReadOnly))
+        qFatal("Could not read %s", qPrintable(source));
     t.data.push_back(in.readAll());
     const QString content = QDir(root).filePath(name);
     writeFile(content, t.data.back());

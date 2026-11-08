@@ -37,7 +37,7 @@ void touch(const QString& path, qint64 size = 1)
     QDir().mkpath(QFileInfo(path).absolutePath());
     QFile f(path);
     QVERIFY(f.open(QIODevice::WriteOnly));
-    f.resize(size);
+    QVERIFY(f.resize(size));
 }
 
 QByteArray manifest(const QByteArray& id, const QByteArray& name, const QByteArray& resources,
