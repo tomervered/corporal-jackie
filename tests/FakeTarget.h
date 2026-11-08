@@ -56,6 +56,10 @@ public:
     void setMuted(bool m) override { log("muted", m); }
     void setSubtitleDelay(double s) override { log("subtitleDelay", s); }
     void setSubtitleScale(double f) override { log("subtitleScale", f); }
+    void setSubtitleStyle(const SubtitleStyle& s) override
+    {
+        log("subtitleStyle", s.font, s.color, s.outline, s.background, s.restyleAll);
+    }
     void setAudioDelay(double s) override { log("audioDelay", s); }
     void seekChapter(int i) override { log("chapter", i); }
     void frameStep(bool f) override { log("frameStep", f); }

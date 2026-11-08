@@ -175,6 +175,30 @@ int main(int argc, char* argv[])
         storage.setSetting(QStringLiteral("playback/hwdec"), session.hardwareDecoding());
     });
 
+    // Subtitle size and look, kept between runs.
+    {
+        const QVariantMap stored = storage.setting(QStringLiteral("subtitles/style")).toMap();
+        cj::SubtitleStyle style;
+        style.font = stored.value(QStringLiteral("font"), style.font).toString();
+        style.color = stored.value(QStringLiteral("color"), style.color).toString();
+        style.outline = stored.value(QStringLiteral("outline"), style.outline).toDouble();
+        style.background = stored.value(QStringLiteral("background"), style.background).toInt();
+        style.restyleAll = stored.value(QStringLiteral("restyleAll"), style.restyleAll).toBool();
+        session.setSubtitleStyle(style);
+        session.setSubtitleScale(storage.setting(QStringLiteral("subtitles/scale"), 1.0).toDouble());
+    }
+    QObject::connect(&session, &cj::Session::subtitleStyleChanged, &app, [&] {
+        const cj::SubtitleStyle style = session.subtitleStyle();
+        storage.setSetting(QStringLiteral("subtitles/style"),
+                           QVariantMap{{QStringLiteral("font"), style.font}, {QStringLiteral("color"), style.color},
+                                       {QStringLiteral("outline"), style.outline},
+                                       {QStringLiteral("background"), style.background},
+                                       {QStringLiteral("restyleAll"), style.restyleAll}});
+    });
+    QObject::connect(&session, &cj::Session::subtitleScaleChanged, &app, [&] {
+        storage.setSetting(QStringLiteral("subtitles/scale"), session.subtitleScale());
+    });
+
     cj::SleepBlocker sleepBlocker;
     QObject::connect(&session, &cj::Session::stateChanged, &app, [&] {
         sleepBlocker.setActive(session.state() == cj::PlaybackState::Playing);

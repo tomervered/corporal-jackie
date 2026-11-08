@@ -178,6 +178,17 @@ private slots:
         QCOMPARE(t.last(), QStringLiteral("audioDelay -0.2"));
         s.setSubtitleScale(1.5);
         QCOMPARE(t.last(), QStringLiteral("subtitleScale 1.5"));
+        SubtitleStyle style;
+        style.font = QStringLiteral("Arial");
+        style.color = QStringLiteral("#FFE14D");
+        style.outline = 50;    // clamped
+        style.background = 70;
+        s.setSubtitleStyle(style);
+        QCOMPARE(t.last(), QStringLiteral("subtitleStyle Arial #FFE14D 10 70 false"));
+        QCOMPARE(s.subtitleStyle().outline, 10.0);
+        style.color = QStringLiteral("not a color");
+        s.setSubtitleStyle(style);  // falls back to white
+        QCOMPARE(s.subtitleStyle().color, QStringLiteral("#FFFFFF"));
         s.frameStep(false);
         QCOMPARE(t.last(), QStringLiteral("frameStep false"));
         s.cycleAspectRatio();

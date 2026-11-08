@@ -32,7 +32,7 @@ Every target implements `cj::PlaybackTarget` (`src/session/PlaybackTarget.h`). T
 | Capability | Command | Meaning |
 | --- | --- | --- |
 | `SubtitleDelay` | `setSubtitleDelay(seconds)` | Shift subtitles later (+) or earlier (−). |
-| `SubtitleStyle` | `setSubtitleScale(factor)` | Subtitle size, 1.0 = default. |
+| `SubtitleStyle` | `setSubtitleScale(factor)`, `setSubtitleStyle(style)` | Subtitle size (1.0 = default), and font, color, outline, background box, and whether styled (ASS) subtitles are restyled too. |
 | `AudioDelay` | `setAudioDelay(seconds)` | Shift audio later (+) or earlier (−). |
 | `Chapters` | `seekChapter(index)` | Jump to a chapter from `chaptersChanged`. |
 | `FrameStep` | `frameStep(forward)` | Pause and move one frame. **Local only.** |

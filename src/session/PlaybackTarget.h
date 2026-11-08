@@ -43,6 +43,7 @@ public:
     // --- Optional commands; only called when the capability is listed ------
     virtual void setSubtitleDelay(double) {}
     virtual void setSubtitleScale(double) {}
+    virtual void setSubtitleStyle(const SubtitleStyle&) {}
     virtual void setAudioDelay(double) {}
     virtual void seekChapter(int) {}
     virtual void frameStep(bool /*forward*/) {}

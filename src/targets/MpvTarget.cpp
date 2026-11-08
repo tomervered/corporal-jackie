@@ -360,6 +360,25 @@ void MpvTarget::setMuted(bool muted)     { setProperty("mute", muted ? "yes" : "
 
 void MpvTarget::setSubtitleDelay(double seconds) { setProperty("sub-delay", number(seconds)); }
 void MpvTarget::setSubtitleScale(double factor)  { setProperty("sub-scale", number(factor)); }
+
+void MpvTarget::setSubtitleStyle(const SubtitleStyle& style)
+{
+    setProperty("sub-font", style.font.isEmpty() ? QByteArray("sans-serif") : style.font.toUtf8());
+    setProperty("sub-color", style.color.toLatin1());  // "#RRGGBB", checked by the Session
+    setProperty("sub-border-size", number(style.outline));
+    // mpv colors with alpha are #AARRGGBB.
+    const QByteArray box = "#" + QByteArray::number(qRound(style.background * 2.55), 16).rightJustified(2, '0') + "000000";
+    // A box behind the text that keeps the outline. mpv 0.38 and later; the
+    // app ships 0.39, older system builds just show no box.
+    const char* border = style.background > 0 ? "background-box" : "outline-and-shadow";
+    if (mpv_set_property_string(m_mpv, "sub-border-style", border) < 0 && style.background > 0)
+        qCInfo(lcTargets) << "This mpv cannot draw a box behind subtitles";
+    if (style.background > 0)
+        setProperty("sub-back-color", box);
+    // Styled subtitles (ASS, common for anime) keep their own look unless asked.
+    setProperty("sub-ass-override", style.restyleAll ? "force" : "scale");
+}
+
 void MpvTarget::setAudioDelay(double seconds)    { setProperty("audio-delay", number(seconds)); }
 void MpvTarget::seekChapter(int index)           { setProperty("chapter", QByteArray::number(index)); }
 

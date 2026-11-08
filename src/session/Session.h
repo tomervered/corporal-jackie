@@ -42,6 +42,7 @@ class Session : public QObject
     Q_PROPERTY(int currentChapter READ currentChapter NOTIFY positionChanged)
     Q_PROPERTY(double subtitleDelay READ subtitleDelay WRITE setSubtitleDelay NOTIFY subtitleDelayChanged)
     Q_PROPERTY(double subtitleScale READ subtitleScale WRITE setSubtitleScale NOTIFY subtitleScaleChanged)
+    Q_PROPERTY(cj::SubtitleStyle subtitleStyle READ subtitleStyle WRITE setSubtitleStyle NOTIFY subtitleStyleChanged)
     Q_PROPERTY(double audioDelay READ audioDelay WRITE setAudioDelay NOTIFY audioDelayChanged)
     Q_PROPERTY(double abLoopA READ abLoopA NOTIFY abLoopChanged)
     Q_PROPERTY(double abLoopB READ abLoopB NOTIFY abLoopChanged)
@@ -90,6 +91,7 @@ public:
     int currentChapter() const;
     double subtitleDelay() const { return m_subtitleDelay; }
     double subtitleScale() const { return m_subtitleScale; }
+    SubtitleStyle subtitleStyle() const { return m_subtitleStyle; }
     double audioDelay() const { return m_audioDelay; }
     double abLoopA() const { return m_abA; }
     double abLoopB() const { return m_abB; }
@@ -158,6 +160,7 @@ public:
     void setSpeed(double factor);
     void setSubtitleDelay(double seconds);
     void setSubtitleScale(double factor);
+    void setSubtitleStyle(const SubtitleStyle& style);
     void setAudioDelay(double seconds);
     Q_INVOKABLE void nextChapter();
     Q_INVOKABLE void previousChapter();
@@ -185,6 +188,7 @@ signals:
     void chaptersChanged();
     void subtitleDelayChanged();
     void subtitleScaleChanged();
+    void subtitleStyleChanged();
     void audioDelayChanged();
     void abLoopChanged();
     void aspectRatioChanged();
@@ -224,6 +228,7 @@ private:
     QList<Chapter> m_chapters;
     double m_subtitleDelay = 0;
     double m_subtitleScale = 1.0;
+    SubtitleStyle m_subtitleStyle;
     double m_audioDelay = 0;
     double m_abA = -1;
     double m_abB = -1;

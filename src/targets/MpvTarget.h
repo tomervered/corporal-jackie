@@ -54,6 +54,7 @@ public:
 
     void setSubtitleDelay(double seconds) override;
     void setSubtitleScale(double factor) override;
+    void setSubtitleStyle(const SubtitleStyle& style) override;
     void setAudioDelay(double seconds) override;
     void seekChapter(int index) override;
     void frameStep(bool forward) override;

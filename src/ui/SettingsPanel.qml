@@ -23,6 +23,12 @@ Rectangle {
     Keys.onEscapePressed: panel.closeRequested()
     onVisibleChanged: if (visible) { caches.measure(); panel.confirmClear = false; panel.result = "" }
 
+    function setSubtitleStyle(key, value) {
+        const style = session.subtitleStyle
+        style[key] = value
+        session.subtitleStyle = style
+    }
+
     property bool confirmClear: false
     property string result: ""      // what the last export or import did
 
@@ -153,6 +159,84 @@ Rectangle {
                 onToggled: on => session.hardwareDecoding = on
             }
             Note { text: "Press I while playing to see dropped and late frames." }
+
+            // --- Subtitles ------------------------------------------------------------
+            Heading { text: "Subtitles" }
+            // A sample line, drawn the way the player will draw it.
+            Rectangle {
+                width: parent.width
+                height: 64
+                radius: 8
+                color: "#3a4a5a"
+                clip: true
+                Rectangle {
+                    anchors.centerIn: sample
+                    width: sample.contentWidth + 16
+                    height: sample.contentHeight + 6
+                    color: Qt.rgba(0, 0, 0, session.subtitleStyle.background / 100)
+                }
+                Text {
+                    id: sample
+                    anchors.centerIn: parent
+                    text: "This is how subtitles look"
+                    font.family: session.subtitleStyle.font !== "" ? session.subtitleStyle.font : "sans-serif"
+                    font.pixelSize: Math.round(20 * session.subtitleScale)
+                    color: session.subtitleStyle.color
+                    style: session.subtitleStyle.outline > 0 ? Text.Outline : Text.Normal
+                    styleColor: "black"
+                }
+            }
+            Item {
+                width: parent.width
+                height: fontBox.implicitHeight + 8
+                enabled: session.supports("SubtitleStyle")
+                Text {
+                    anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+                    text: "Font"
+                    color: panel.textColor
+                    font.pixelSize: 14
+                }
+                ComboBox {
+                    id: fontBox
+                    anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                    width: Math.min(280, parent.width * 0.6)
+                    focusPolicy: Qt.NoFocus
+                    model: ["Default"].concat(Qt.fontFamilies())
+                    currentIndex: session.subtitleStyle.font === "" ? 0 : Math.max(0, model.indexOf(session.subtitleStyle.font))
+                    onActivated: index => panel.setSubtitleStyle("font", index === 0 ? "" : model[index])
+                }
+            }
+            Choice {
+                title: "Size"
+                options: [[0.75, "Small"], [1.0, "Normal"], [1.25, "Large"], [1.5, "Larger"], [2.0, "Huge"]]
+                value: Math.round(session.subtitleScale * 100) / 100
+                onPicked: v => session.subtitleScale = v
+            }
+            Choice {
+                title: "Color"
+                options: [["#FFFFFF", "White"], ["#FFE14D", "Yellow"], ["#C8C8C8", "Grey"]]
+                value: session.subtitleStyle.color.toUpperCase()
+                onPicked: v => panel.setSubtitleStyle("color", v)
+            }
+            Choice {
+                title: "Outline"
+                options: [[0, "None"], [1.5, "Thin"], [3, "Normal"], [5, "Thick"]]
+                value: session.subtitleStyle.outline
+                onPicked: v => panel.setSubtitleStyle("outline", v)
+            }
+            Choice {
+                title: "Background"
+                options: [[0, "None"], [40, "Light"], [70, "Dark"], [100, "Solid"]]
+                value: session.subtitleStyle.background
+                onPicked: v => panel.setSubtitleStyle("background", v)
+            }
+            Toggle {
+                title: "Also restyle subtitles that have their own look"
+                detail: "Some subtitles (often anime) come with their own fonts and placement. Off keeps those as they are."
+                checked: session.subtitleStyle.restyleAll
+                onToggled: on => panel.setSubtitleStyle("restyleAll", on)
+            }
+            Note { text: "While watching, G makes subtitles bigger and Shift+G smaller." }
 
             // --- Torrents --------------------------------------------------------
             Heading { text: "Torrent storage" }

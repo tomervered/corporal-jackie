@@ -111,6 +111,24 @@ struct PlayableSource {
     bool operator==(const PlayableSource&) const = default;
 };
 
+// How subtitles look. Size is separate (Session::subtitleScale), since keys
+// change it while watching.
+struct SubtitleStyle {
+    Q_GADGET
+    Q_PROPERTY(QString font MEMBER font)
+    Q_PROPERTY(QString color MEMBER color)
+    Q_PROPERTY(double outline MEMBER outline)
+    Q_PROPERTY(int background MEMBER background)
+    Q_PROPERTY(bool restyleAll MEMBER restyleAll)
+public:
+    QString font;                    // a font family; empty = the player's default
+    QString color = QStringLiteral("#FFFFFF");
+    double outline = 3;              // thickness of the dark outline, 0 = none
+    int background = 0;              // opacity of a dark box behind the text, 0-100
+    bool restyleAll = false;         // also restyle subtitles that bring their own look (ASS)
+    bool operator==(const SubtitleStyle&) const = default;
+};
+
 struct Track {
     enum class Type { Video, Audio, Subtitle };
     Type type = Type::Video;
@@ -143,6 +161,7 @@ struct VideoEqualizer {
 Q_DECLARE_OPERATORS_FOR_FLAGS(cj::Capabilities)
 Q_DECLARE_METATYPE(cj::PlayableSource)
 Q_DECLARE_METATYPE(cj::SubtitleSource)
+Q_DECLARE_METATYPE(cj::SubtitleStyle)
 Q_DECLARE_METATYPE(cj::Track)
 Q_DECLARE_METATYPE(cj::Chapter)
 Q_DECLARE_METATYPE(cj::StreamStatus)

@@ -400,6 +400,21 @@ void Session::setSubtitleScale(double factor)
     emit subtitleScaleChanged();
 }
 
+void Session::setSubtitleStyle(const SubtitleStyle& style)
+{
+    SubtitleStyle s = style;
+    s.outline = qBound(0.0, s.outline, 10.0);
+    s.background = qBound(0, s.background, 100);
+    static const QRegularExpression rgb(QStringLiteral("^#[0-9A-Fa-f]{6}$"));
+    if (!rgb.match(s.color).hasMatch())
+        s.color = SubtitleStyle().color;
+    if (!require(Capability::SubtitleStyle, "Subtitle style") || s == m_subtitleStyle)
+        return;
+    m_subtitleStyle = s;
+    m_target->setSubtitleStyle(s);
+    emit subtitleStyleChanged();
+}
+
 void Session::setAudioDelay(double seconds)
 {
     if (!require(Capability::AudioDelay, "Audio delay") || qFuzzyCompare(1 + seconds, 1 + m_audioDelay))
