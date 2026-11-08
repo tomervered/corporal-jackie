@@ -422,6 +422,9 @@ private slots:
         ownTracker.setTracker(1);
         BrokerSettings s = testSettings(dir.filePath("cache"));
         s.extraTrackers = {openTracker.base() + QStringLiteral("/announce")};
+        // With the DHT on, a magnet link gets them at once (the DHT shows its
+        // hash to strangers anyway). Off, as here, they wait for metadata.
+        s.dht = false;
         StreamBroker broker(s);
 
         const QString root = dir.filePath("private");

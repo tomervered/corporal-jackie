@@ -168,11 +168,17 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
     }
 
     // Magnet links from add-ons often name few trackers; well-known open
-    // trackers find more peers sooner. But a private torrent must be
-    // announced only to its own trackers, so they are added once the
-    // metadata says it is public: here for a .torrent file, in onMetadata()
-    // for a magnet link.
-    if (atp.ti && !atp.ti->priv()) {
+    // trackers find more peers sooner. A private torrent (BEP 27) must be
+    // announced only to its own trackers:
+    // - a .torrent file says at once whether it is private;
+    // - a magnet link cannot say until its metadata comes. Until then the
+    //   info hash is already being looked up on the DHT, which shows it and
+    //   the viewer's address to strangers just as an open tracker would, so
+    //   the open trackers learn nothing new. They are added at once (as
+    //   Stremio adds a link's trackers and DHT at once) and removed again in
+    //   onMetadata() if it turns out private. With the DHT off, they wait.
+    const bool mayBePrivate = atp.ti ? atp.ti->priv() : !settings.dht;
+    if (!mayBePrivate) {
         for (const std::string& tracker : extraTrackers)
             if (std::find(atp.trackers.begin(), atp.trackers.end(), tracker) == atp.trackers.end())
                 atp.trackers.push_back(tracker);
@@ -192,6 +198,12 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
                 for (const auto& peer : atp.peers)
                     if (std::find(t->linkPeers.begin(), t->linkPeers.end(), peer) == t->linkPeers.end())
                         t->linkPeers.push_back(peer);
+            }
+            {
+                // Known to be private: only its own trackers.
+                std::lock_guard tl(t->mutex);
+                if (t->info && t->info->priv())
+                    dropExtraTrackers(atp);
             }
             for (const auto& tracker : atp.trackers)
                 h.add_tracker(lt::announce_entry(tracker));
@@ -290,10 +302,30 @@ void Engine::onMetadata(Torrent& t)
         t.have[i] = st.pieces.get_bit(lt::piece_index_t(i));
     t.handle.prioritize_pieces(
         std::vector<lt::download_priority_t>(std::size_t(t.info->num_pieces()), lt::dont_download));
-    // Now it is known whether the open trackers may hear of it.
-    if (!t.info->priv())
+    // Now it is known whether the open trackers may hear of it. libtorrent
+    // stops its DHT and peer exchange for a private torrent by itself.
+    if (t.info->priv()) {
+        lt::add_torrent_params own;
+        for (const lt::announce_entry& e : t.handle.trackers()) {
+            own.trackers.push_back(e.url);
+            own.tracker_tiers.push_back(e.tier);
+        }
+        const std::size_t before = own.trackers.size();
+        dropExtraTrackers(own);
+        if (own.trackers.size() != before) {
+            std::vector<lt::announce_entry> keep;
+            for (std::size_t i = 0; i < own.trackers.size(); ++i) {
+                lt::announce_entry e(own.trackers[i]);
+                e.tier = std::uint8_t(own.tracker_tiers[i]);
+                keep.push_back(e);
+            }
+            t.handle.replace_trackers(keep);
+            qCInfo(lcBroker).noquote() << QString::fromStdString(t.id) << "is private: open trackers removed";
+        }
+    } else {
         for (const std::string& tracker : extraTrackers)
             t.handle.add_tracker(lt::announce_entry(tracker));
+    }
 
     const QString saved = QDir(t.dir).filePath(QString::fromLatin1(kMetadataFile));
     if (!QFileInfo::exists(saved)) {
