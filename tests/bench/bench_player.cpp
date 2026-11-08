@@ -60,18 +60,48 @@ qint64 peakProcessMemory()
 #endif
 }
 
+// For the watchdog: when a read last returned, and where the player waits.
+QElapsedTimer g_clock;
+std::atomic<qint64> g_progressAt{0};
+std::atomic<qint64> g_waitingAt{-1};
+std::atomic<const char*> g_phase{"opening"};
+
 // Reads `length` bytes at `offset`, across piece boundaries. False on error.
 bool readFully(StreamHandle& h, qint64 offset, qint64 length)
 {
     static thread_local QByteArray buffer(int(kChunk), Qt::Uninitialized);
     while (length > 0) {
+        g_waitingAt = offset;
         const qint64 n = h.read(offset, buffer.data(), qMin<qint64>(length, buffer.size()));
+        g_progressAt = g_clock.elapsed();
         if (n <= 0)
             return false;
         offset += n;
         length -= n;
     }
     return true;
+}
+
+const char* stateName(StreamState s)
+{
+    switch (s) {
+    case StreamState::FindingPeers: return "finding peers";
+    case StreamState::FetchingMetadata: return "fetching metadata";
+    case StreamState::Buffering: return "buffering";
+    case StreamState::Ready: return "ready";
+    case StreamState::Stalled: return "stalled";
+    }
+    return "?";
+}
+
+const char* pieceName(PieceState s)
+{
+    switch (s) {
+    case PieceState::Missing: return "missing";
+    case PieceState::Held: return "held";
+    case PieceState::Evicted: return "evicted";
+    }
+    return "?";
 }
 
 const char* kindName(PieceState s, bool readBefore)
@@ -104,20 +134,41 @@ int main(int argc, char** argv)
     }
 
     // Sample the broker's own counters in the background, for their peaks.
+    // A read stuck for a minute ends the run with what the broker saw, so a
+    // hang shows its cause instead of a timeout.
+    g_clock.start();
     StreamBroker broker(settings);
     std::atomic<bool> done{false};
     std::atomic<qint64> peakStore{0};
     std::atomic<qint64> peakReadCache{0};
+    std::atomic<StreamHandle*> handle{nullptr};
     std::thread sampler([&] {
         while (!done) {
             peakStore = qMax(peakStore.load(), broker.memoryUsed());
             peakReadCache = qMax(peakReadCache.load(), broker.readCacheBytes());
+            if (g_clock.elapsed() - g_progressAt > 60000) {
+                const qint64 at = g_waitingAt;
+                std::fprintf(stderr, "bench_player: stuck for 60 s while %s, at byte %lld\n", g_phase.load(),
+                             static_cast<long long>(at));
+                if (StreamHandle* hp = handle.load()) {
+                    const StreamStats st = hp->stats();
+                    std::fprintf(stderr,
+                                 "bench_player: state %s, %d peers, %lld KiB/s, piece there %s, "
+                                 "store %lld MiB, read cache %lld MiB\n",
+                                 stateName(st.state), st.peers, static_cast<long long>(st.downloadRate / 1024),
+                                 pieceName(hp->stateAt(at)), static_cast<long long>(broker.memoryUsed() / MiB),
+                                 static_cast<long long>(broker.readCacheBytes() / MiB));
+                }
+                std::fflush(stderr);
+                std::_Exit(3);
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
     });
     auto fail = [&](const char* what) {
         done = true;
         sampler.join();
+        handle = nullptr;
         std::fprintf(stderr, "bench_player: %s\n", what);
         return 1;
     };
@@ -132,6 +183,8 @@ int main(int argc, char** argv)
     const std::shared_ptr<StreamHandle> h = broker.open(req, &error);
     if (!h)
         return fail("open failed");
+    handle = h.get();
+    g_phase = "reading the start";
     out[QStringLiteral("openMs")] = clock.elapsed();
 
     // The player's first read: the container's headers.
@@ -146,6 +199,7 @@ int main(int argc, char** argv)
     h->setDuration(double(size) / bitrate);
     const qint64 played = qMin<qint64>(size / 2, 48 * MiB);
     std::set<qint64> readChunks;
+    g_phase = "playing";
     QElapsedTimer playClock;
     playClock.start();
     qint64 stallMs = 0;
@@ -178,6 +232,7 @@ int main(int argc, char** argv)
     const double targets[] = {0.02, 0.45, 0.10, 0.55, 0.30, 0.90, 0.05, 0.60, 0.20, 0.75,
                               0.40, 0.95, 0.15, 0.65, 0.35, 0.85, 0.25, 0.70, 0.48, 0.80};
     QJsonArray seeks;
+    g_phase = "seeking";
     for (double f : targets) {
         const qint64 at = (qint64(double(size) * f) / kChunk) * kChunk;
         const PieceState before = h->stateAt(at);
@@ -199,6 +254,7 @@ int main(int argc, char** argv)
 
     done = true;
     sampler.join();
+    handle = nullptr;
     out[QStringLiteral("ramOnly")] = settings.memoryOnly;
     out[QStringLiteral("memoryCap")] = settings.memoryOnly ? settings.memoryCapBytes : 0;
     out[QStringLiteral("peakStoreBytes")] = peakStore.load();

@@ -16,6 +16,7 @@
 #include <QtTest>
 
 #include <algorithm>
+#include <cstdio>
 #include <map>
 
 using harness::Seeder;
@@ -44,27 +45,40 @@ class TestBench : public QObject
     Q_OBJECT
 
 private:
+    // Runs the player. On failure, shows the end of its log.
     QJsonObject runPlayer(const QString& magnet, const QString& cacheDir, qint64 ramCap)
     {
         QProcess p;
-        p.setProcessChannelMode(QProcess::ForwardedErrorChannel);
-        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-        env.insert(QStringLiteral("QT_LOGGING_RULES"), QStringLiteral("cj.broker.info=false"));
-        p.setProcessEnvironment(env);
         QStringList args{magnet, cacheDir};
         if (ramCap > 0)
             args << QString::number(ramCap);
         p.start(QStringLiteral(CJ_BENCH_PLAYER), args);
-        if (!p.waitForFinished(240000)) {
+        const bool finished = p.waitForFinished(240000);
+        if (!finished) {
             p.kill();
             p.waitForFinished();
+        }
+        const QByteArray out = p.readAllStandardOutput().trimmed();
+        if (!finished || p.exitStatus() != QProcess::NormalExit || p.exitCode() != 0) {
+            const QList<QByteArray> log = p.readAllStandardError().split('\n');
+            QByteArray tail;
+            for (qsizetype i = qMax<qsizetype>(0, log.size() - 60); i < log.size(); ++i)
+                tail += log[i] + '\n';
+            print(QStringLiteral("bench_player %1 (exit code %2). Its last log lines:\n%3")
+                      .arg(finished ? QStringLiteral("failed") : QStringLiteral("timed out"))
+                      .arg(p.exitCode())
+                      .arg(QString::fromLocal8Bit(tail)));
             return {};
         }
-        if (p.exitStatus() != QProcess::NormalExit || p.exitCode() != 0)
-            return {};
-        const QByteArray out = p.readAllStandardOutput().trimmed();
         const QByteArray last = out.mid(out.lastIndexOf('\n') + 1);
         return QJsonDocument::fromJson(last).object();
+    }
+
+    // To stderr, flushed: on Windows CI, stdout of a test does not reach the log.
+    static void print(const QString& line)
+    {
+        std::fprintf(stderr, "%s\n", line.toLocal8Bit().constData());
+        std::fflush(stderr);
     }
 
     void report(const char* mode, const QJsonObject& r)
@@ -74,21 +88,21 @@ private:
             const QJsonObject s = v.toObject();
             byKind[s[QStringLiteral("kind")].toString()].push_back(s[QStringLiteral("ms")].toInteger());
         }
-        qInfo().noquote() << QStringLiteral("BENCH %1: open %2 ms, first byte %3 ms, stalled %4 ms while playing (%5 stalls, longest %6 ms)")
+        print(QStringLiteral("BENCH %1: open %2 ms, first byte %3 ms, stalled %4 ms while playing (%5 stalls, longest %6 ms)")
                                  .arg(QLatin1String(mode))
                                  .arg(r[QStringLiteral("openMs")].toInteger())
                                  .arg(r[QStringLiteral("firstByteMs")].toInteger())
                                  .arg(r[QStringLiteral("playStallMs")].toInteger())
                                  .arg(r[QStringLiteral("playStalls")].toInteger())
-                                 .arg(r[QStringLiteral("longestStallMs")].toInteger());
+                                 .arg(r[QStringLiteral("longestStallMs")].toInteger()));
         for (const char* kind : {"cached", "missing", "evicted"})
-            qInfo().noquote() << QStringLiteral("BENCH %1:   seek to %2: %3")
-                                     .arg(QLatin1String(mode), QLatin1String(kind), msLine(byKind[QLatin1String(kind)]));
-        qInfo().noquote() << QStringLiteral("BENCH %1:   peak memory: process %2 MiB, piece store %3 MiB, read cache %4 MiB")
+            print(QStringLiteral("BENCH %1:   seek to %2: %3")
+                                     .arg(QLatin1String(mode), QLatin1String(kind), msLine(byKind[QLatin1String(kind)])));
+        print(QStringLiteral("BENCH %1:   peak memory: process %2 MiB, piece store %3 MiB, read cache %4 MiB")
                                  .arg(QLatin1String(mode))
                                  .arg(r[QStringLiteral("peakProcessBytes")].toInteger() / MiB)
                                  .arg(r[QStringLiteral("peakStoreBytes")].toInteger() / MiB)
-                                 .arg(r[QStringLiteral("peakReadCacheBytes")].toInteger() / MiB);
+                                 .arg(r[QStringLiteral("peakReadCacheBytes")].toInteger() / MiB));
     }
 
 private slots:
