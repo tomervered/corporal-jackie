@@ -40,6 +40,13 @@ std::shared_ptr<StreamHandle> StreamBroker::open(const OpenRequest& request, Bro
     std::shared_ptr<Torrent> t = m_engine->addOrFind(request, error);
     if (!t)
         return nullptr;
+    // addOrFind() counted this open as a use; it ends however this returns.
+    struct PendingOpen
+    {
+        broker_detail::Engine& engine;
+        Torrent& torrent;
+        ~PendingOpen() { engine.endPendingOpen(torrent); }
+    } pending{*m_engine, *t};
     // After adding, so the torrent being opened counts as just used and is
     // never the one deleted to make room.
     m_engine->enforceCacheCap(t->id);

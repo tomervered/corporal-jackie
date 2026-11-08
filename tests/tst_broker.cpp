@@ -51,6 +51,14 @@ BrokerSettings trackerSettings(const QString& cacheDir, const FakeHttpServer& op
     return s;
 }
 
+// A short idle delay, so the pause shows within a test.
+BrokerSettings idleSettings(const QString& cacheDir)
+{
+    BrokerSettings s = testSettings(cacheDir);
+    s.idlePauseMs = 300;
+    return s;
+}
+
 // Opens on another thread: open() waits for metadata, and the fake trackers
 // answer on this one.
 std::future<std::shared_ptr<StreamHandle>> openLater(StreamBroker& broker, const QString& uri)
@@ -519,6 +527,89 @@ private slots:
         QVERIFY(broker.open({harness::magnet(t, {})}));
         QTest::qWait(2000);
         QVERIFY2(openTracker.requests.isEmpty(), qPrintable(openTracker.paths().join(' ')));
+    }
+
+    // A torrent pauses only once its last reader has gone, and opening it
+    // again resumes it and fetches what it never had.
+    void idlePauseWaitsForTheLastReader()
+    {
+        QTemporaryDir dir;
+        const TestTorrent t = harness::makeTorrent(dir.filePath("seed"), "movie.mkv", {16 * MiB}, kPiece, 4);
+        Seeder seeder(t, t.root, 1024 * 1024);  // slow: the middle is still missing at the pause
+        StreamBroker broker(idleSettings(dir.filePath("cache")));
+        const QString link = harness::magnet(t, {seeder.port()});
+        const QString hash = harness::infoHash(t);
+
+        auto a = broker.open({link});
+        auto b = broker.open({link});
+        QVERIFY(a && b);
+        QVERIFY(readRange(*a, 0, kPiece) == t.data[0].left(int(kPiece)));
+        a.reset();
+        QTest::qWait(1500);  // several times the idle delay: one reader is left
+        QVERIFY(!broker.torrentStats(hash).paused);
+        b.reset();
+        QTRY_VERIFY_WITH_TIMEOUT(broker.torrentStats(hash).paused, 5000);
+
+        auto c = broker.open({link});
+        QVERIFY(c);
+        QVERIFY(!broker.torrentStats(hash).paused);
+        const qint64 middle = 8 * MiB;
+        QVERIFY(readRange(*c, middle, kPiece) == t.data[0].mid(int(middle), int(kPiece)));
+    }
+
+    // An open that ends without a reader leaves the torrent unused.
+    void failedOpensLeaveNothingInUse()
+    {
+        QTemporaryDir dir;
+        BrokerSettings s = idleSettings(dir.filePath("cache"));
+        s.metadataTimeoutMs = 1000;
+        StreamBroker broker(s);
+
+        const TestTorrent lonely = harness::makeTorrent(dir.filePath("a"), "lonely.mkv", {MiB}, kPiece, 5);
+        BrokerError error;
+        QVERIFY(!broker.open({harness::magnet(lonely, {})}, &error));
+        QCOMPARE(error, BrokerError::MetadataTimeout);
+        QTRY_VERIFY_WITH_TIMEOUT(broker.torrentStats(harness::infoHash(lonely)).paused, 5000);
+
+        const TestTorrent dropped = harness::makeTorrent(dir.filePath("b"), "dropped.mkv", {MiB}, kPiece, 6);
+        QElapsedTimer clock;
+        clock.start();
+        QVERIFY(!broker.open({harness::magnet(dropped, {})}, &error, [&] { return clock.elapsed() > 300; }));
+        QCOMPARE(error, BrokerError::Cancelled);
+        QTRY_VERIFY_WITH_TIMEOUT(broker.torrentStats(harness::infoHash(dropped)).paused, 5000);
+    }
+
+    // The cache never deletes a torrent someone is still opening. A waits for
+    // its metadata while B's reader closes and the cache is far over its cap.
+    void cacheKeepsATorrentBeingOpened()
+    {
+        QTemporaryDir dir;
+        BrokerSettings s = idleSettings(dir.filePath("cache"));
+        s.cacheCapBytes = 1;  // everything not in use must go
+        StreamBroker broker(s);
+
+        const TestTorrent b = harness::makeTorrent(dir.filePath("b"), "b.mkv", {2 * MiB}, kPiece, 7);
+        Seeder seederB(b, b.root);
+        auto readerB = broker.open({harness::magnet(b, {seederB.port()})});
+        QVERIFY(readerB);
+        QVERIFY(readRange(*readerB, 0, 2 * MiB) == b.data[0]);
+
+        const TestTorrent a = harness::makeTorrent(dir.filePath("a"), "a.mkv", {2 * MiB}, kPiece, 8);
+        auto opening = openLater(broker, harness::magnet(a, {}));  // no peers yet: waits
+        QTRY_VERIFY_WITH_TIMEOUT(QDir(s.cacheDir).exists(harness::infoHash(a)), 5000);
+
+        readerB.reset();  // the last close runs the cache cleanup
+        QTRY_VERIFY_WITH_TIMEOUT(!QDir(s.cacheDir).exists(harness::infoHash(b)), 5000);
+        QVERIFY(QDir(s.cacheDir).exists(harness::infoHash(a)));
+
+        // A's metadata arrives: the open that was waiting succeeds.
+        Seeder seederA(a, a.root);
+        auto second = openLater(broker, harness::magnet(a, {seederA.port()}));
+        QTRY_VERIFY_WITH_TIMEOUT(ready(opening) && ready(second), 15000);
+        auto readerA = opening.get();
+        QVERIFY(readerA);
+        QVERIFY(second.get());
+        QVERIFY(readRange(*readerA, 0, kPiece) == a.data[0].left(int(kPiece)));
     }
 
     // Resume data saved on close means a reopened torrent knows its verified

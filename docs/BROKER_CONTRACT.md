@@ -37,9 +37,11 @@ Deadlines are refreshed every second, since libtorrent counts them from the mome
 
 ## Cache
 
-Each torrent lives in its own folder under the cache folder, named by its info hash. After every open and close, and once a minute while anything plays, the broker adds up the disk space the cache really uses (sparse files count only the parts written). While that is over the cap, it deletes whole torrents, least recently used first. A torrent with an open handle is never deleted, and neither is the one being opened.
+Each torrent lives in its own folder under the cache folder, named by its info hash. After every open and close, and once a minute while anything plays, the broker adds up the disk space the cache really uses (sparse files count only the parts written). While that is over the cap, it deletes whole torrents, least recently used first. A torrent in use is never deleted. In use means it has an open handle or an open in progress (from the moment the broker finds or adds it until the open returns a handle, fails or is cancelled), so a torrent still waiting for its metadata is safe too.
 
 The cap is 10 GB by default, and smaller when the disk is short of space: the cache always leaves 2 GB free.
+
+A torrent that stops being in use is paused `idlePauseMs` later (2 minutes by default): it stops uploading and drops its peers. Pausing the film in the player keeps its handle open, so it does not count. Opening the torrent again resumes it at once and looks for peers again; cached bytes are readable straight away, missing ones wait for peers. Seeding on purpose is not part of this; it would be a separate, opt-in mode.
 
 When the last handle on a torrent closes, and when the broker shuts down (waiting at most 3 s), libtorrent's resume data is saved as `resume.dat` in the torrent's folder. It records the file list and which pieces are verified, so a torrent watched before reopens at once: no wait for peers and no re-check of the files on disk.
 

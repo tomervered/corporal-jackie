@@ -108,6 +108,8 @@ void Engine::releaseHandle(Torrent& t)
         if (t.openHandles > 0)
             --t.openHandles;
         last = t.openHandles == 0;
+        if (!t.inUse())
+            t.idleSince = Clock::now();
         schedule(t, true);
     }
     t.touch();
@@ -156,8 +158,8 @@ void Engine::enforceCacheCap(const std::string& keep, qint64 capOverride)
             auto t = it->second;
             {
                 std::lock_guard tl(t->mutex);
-                if (t->openHandles > 0)
-                    continue;  // never delete what someone is watching
+                if (t->inUse())
+                    continue;  // never delete what someone is watching or opening
                 t->removed = true;
                 t->cv.notify_all();
             }
@@ -271,6 +273,7 @@ StreamStats Engine::torrentStats(const std::string& id)
     } catch (const std::exception&) {
     }
     std::lock_guard tl(t->mutex);
+    s.paused = t->paused;
     s.state = t->hasMetadata ? StreamState::Buffering
             : s.peers > 0    ? StreamState::FetchingMetadata
                              : StreamState::FindingPeers;

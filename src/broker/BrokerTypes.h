@@ -27,6 +27,10 @@ struct BrokerSettings
     int downloadLimit = 0;                   // bytes/s, 0 = unlimited
     int uploadLimit = 0;                     // bytes/s, 0 = unlimited
     int metadataTimeoutMs = 60000;
+    // A torrent nobody is using (no open reader, no open in progress) is
+    // paused this long after the last one ends: no uploading on its own.
+    // Reopening resumes it. Its cached bytes stay readable.
+    int idlePauseMs = 2 * 60 * 1000;
     // Tests only: listen on 127.0.0.1 and use no DHT, LAN discovery or port mapping.
     bool loopbackOnly = false;
     // Open trackers asked as well as a torrent's own, for public torrents
@@ -62,6 +66,7 @@ struct StreamStats
     qint64 bufferedBytes = 0;     // verified bytes in a row from the read position
     double bufferedSeconds = 0;   // the same, at the file's bitrate
     int waitingPercent = 0;       // while buffering: how much of the piece at the read position is here
+    bool paused = false;          // nobody has used it for BrokerSettings::idlePauseMs
 };
 
 // Bytes per second assumed when the duration is not known yet (about 12 Mbit/s).

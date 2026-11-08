@@ -209,8 +209,20 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
             }
             for (const auto& tracker : atp.trackers)
                 h.add_tracker(lt::announce_entry(tracker));
-            // An earlier error (a full disk, say) may be gone: try again.
             std::lock_guard tl(t->mutex);
+            // Counted under m_mutex, so the cache cannot delete it from here on.
+            ++t->pendingOpens;
+            if (t->paused) {
+                qCInfo(lcBroker).noquote() << "Resuming" << QString::fromStdString(id) << ": opened again";
+                t->paused = false;
+                t->handle.resume();
+                // The peer list was cleared at the pause: find peers afresh.
+                for (const auto& peer : t->linkPeers)
+                    t->handle.connect_peer(peer);
+                t->handle.force_reannounce();
+                t->handle.force_dht_announce();
+            }
+            // An earlier error (a full disk, say) may be gone: try again.
             if (t->failed) {
                 qCInfo(lcBroker).noquote() << "Retrying" << QString::fromStdString(id) << "after an error";
                 t->failed = false;
@@ -226,6 +238,7 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
 
     auto t = std::make_shared<Torrent>();
     t->id = id;
+    t->pendingOpens = 1;  // this open, from before the cache can see it
     t->linkPeers = atp.peers;
     t->dir = QDir(settings.cacheDir).filePath(QString::fromStdString(id));
     QDir().mkpath(t->dir);
@@ -289,6 +302,32 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
         onMetadata(*t);
     }
     return t;
+}
+
+// An open has become a reader, failed or been cancelled.
+void Engine::endPendingOpen(Torrent& t)
+{
+    std::lock_guard tl(t.mutex);
+    if (t.pendingOpens > 0)
+        --t.pendingOpens;
+    if (!t.inUse())
+        t.idleSince = Clock::now();
+}
+
+// Once a second. Paused, a torrent stops uploading and keeps no peers; its
+// cached bytes stay, and opening it again resumes it.
+void Engine::pauseIfIdle(Torrent& t)
+{
+    std::lock_guard tl(t.mutex);
+    if (t.removed || t.paused || t.inUse() || !t.handle.is_valid()
+        || Clock::now() - t.idleSince < std::chrono::milliseconds(settings.idlePauseMs))
+        return;
+    t.handle.pause();
+    // libtorrent waits a minute before it calls a peer it was just connected
+    // to again; a cleared list lets a reopen reconnect at once.
+    t.handle.clear_peers();
+    t.paused = true;
+    qCInfo(lcBroker).noquote() << "Paused" << QString::fromStdString(t.id) << ": nobody is using it";
 }
 
 void Engine::onMetadata(Torrent& t)
@@ -398,6 +437,7 @@ void Engine::alertLoop()
             }
             for (auto& t : torrents) {
                 try {
+                    pauseIfIdle(*t);
                     refresh(*t);
                 } catch (const std::exception& e) {
                     qCDebug(lcBroker) << "Refreshing a torrent failed:" << e.what();

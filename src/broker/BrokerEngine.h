@@ -179,6 +179,13 @@ struct Torrent
     std::vector<lt::tcp::endpoint> linkPeers;
     std::vector<std::weak_ptr<Reader>> readers;
     int openHandles = 0;
+    // Opens between addOrFind() and becoming a reader (waiting for metadata,
+    // say). They count as use: the cache must not delete the torrent, and it
+    // must not pause, while someone is opening it.
+    int pendingOpens = 0;
+    bool paused = false;                            // idle for BrokerSettings::idlePauseMs
+    Clock::time_point idleSince = Clock::now();     // when the last use ended
+    bool inUse() const { return openHandles > 0 || pendingOpens > 0; }
     qint64 downloadRate = 0;
     Clock::time_point lastPieceAt = Clock::now();   // last piece finished, or a reader opened
     Clock::time_point peersSeenAt = Clock::now();   // last time it had a peer
@@ -227,7 +234,9 @@ public:
 
     void shutdown();
 
+    // Counts the open as a use of the torrent until endPendingOpen().
     std::shared_ptr<Torrent> addOrFind(const OpenRequest& req, BrokerError* error);
+    void endPendingOpen(Torrent& t);
     void releaseHandle(Torrent& t);
     void schedule(Torrent& t, bool force);  // t.mutex must be held
     // cap < 0: the configured cap. 0 empties the cache of everything not open.
@@ -254,6 +263,7 @@ private:
     void refresh(Torrent& t);
     void handleAlert(lt::alert* a);
     void onMetadata(Torrent& t);  // t.mutex must be held
+    void pauseIfIdle(Torrent& t);
     void dropExtraTrackers(lt::add_torrent_params& atp) const;
     void saveResume(Torrent& t);
     void trimMemory();
