@@ -204,6 +204,9 @@ qint64 StreamHandle::read(qint64 offset, char* buffer, qint64 length)
     // Alerts can be dropped when libtorrent's queue overflows (many pieces
     // finishing at once). A read must never wait on an alert that will not
     // come, so every 2 s it asks libtorrent directly.
+    // For the log: how long each step of a slow read took.
+    const auto startedAt = std::chrono::steady_clock::now();
+    auto verifiedAt = startedAt;
     for (;;) {
         // 1. Wait until the piece is downloaded and verified.
         int waits = 0;
@@ -224,6 +227,7 @@ qint64 StreamHandle::read(qint64 offset, char* buffer, qint64 length)
                 }
             }
         }
+        verifiedAt = std::chrono::steady_clock::now();
         // 2. Get its bytes from libtorrent (or the in-memory copy).
         waits = 0;
         bool dropped = false;
@@ -264,6 +268,14 @@ qint64 StreamHandle::read(qint64 offset, char* buffer, qint64 length)
         if (!dropped)
             break;
         m_engine->schedule(t, true);
+    }
+    if (const auto now = std::chrono::steady_clock::now(); now - startedAt > std::chrono::milliseconds(40)) {
+        using std::chrono::duration_cast;
+        using std::chrono::milliseconds;
+        qCDebug(lcBroker).noquote() << "Read of piece" << piece << "waited"
+                                    << duration_cast<milliseconds>(verifiedAt - startedAt).count()
+                                    << "ms for the download and" << duration_cast<milliseconds>(now - verifiedAt).count()
+                                    << "ms for the bytes";
     }
     const auto& [data, size] = t.pieces[piece];
     const qint64 n = qMin(count, qint64(size) - inPiece);

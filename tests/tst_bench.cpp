@@ -57,6 +57,8 @@ private:
         // pick the system log otherwise), to be shown if the run fails.
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
         env.insert(QStringLiteral("QT_FORCE_STDERR_LOGGING"), QStringLiteral("1"));
+        // Slow reads say where they waited (StreamHandle::read).
+        env.insert(QStringLiteral("QT_LOGGING_RULES"), QStringLiteral("cj.broker.debug=true"));
         p.setProcessEnvironment(env);
         p.start(QStringLiteral(CJ_BENCH_PLAYER), args);
         const bool finished = p.waitForFinished(240000);
@@ -147,8 +149,14 @@ private slots:
         report(ram ? "ram " : "disk", r);
         // A stall of seconds in a swarm faster than playback is a fault to
         // look into: show what the broker logged.
-        if (r[QStringLiteral("longestStallMs")].toInteger() > 3000)
+        if (r[QStringLiteral("longestStallMs")].toInteger() > 3000) {
             print(QStringLiteral("A stall over 3 s. The player's log:\n%1").arg(QString::fromLocal8Bit(m_lastLog)));
+        } else if (r[QStringLiteral("playStalls")].toInteger() > 0) {
+            // Where the stalls waited: for the download, or for the bytes.
+            for (const QByteArray& line : m_lastLog.split('\n'))
+                if (line.contains("Read of piece"))
+                    print(QStringLiteral("BENCH %1:   %2").arg(QLatin1String(ram ? "ram " : "disk"), QString::fromLocal8Bit(line.trimmed())));
+        }
         QFile save(qEnvironmentVariable("CJ_BENCH_OUT"));
         if (!save.fileName().isEmpty() && save.open(QIODevice::WriteOnly | QIODevice::Append)) {
             save.write(QJsonDocument(r).toJson(QJsonDocument::Compact));

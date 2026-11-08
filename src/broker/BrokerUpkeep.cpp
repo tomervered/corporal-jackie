@@ -75,7 +75,11 @@ void Engine::reload(const std::shared_ptr<Torrent>& tp)
     t.wanted.clear();
     t.readsPending.clear();
     t.readErrors.clear();
-    t.peersSeenAt = Clock::now();
+    // The seeders may still hold the connection of the torrent just removed
+    // and refuse ours as a duplicate, and libtorrent then waits a minute
+    // before calling again. With no peers 3 s from now, refresh() clears
+    // the list and calls again.
+    t.peersSeenAt = Clock::now() - kReannounceAfter + std::chrono::seconds(3);
     for (const auto& weak : t.readers)
         if (auto r = weak.lock())
             r->scheduledPiece = -1;
