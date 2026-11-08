@@ -88,10 +88,12 @@ int main(int argc, char* argv[])
         QTimer::singleShot(3000, &core, [&core] { core.addons().refreshManifests(); });
 
     cj::MpvVideoItem::useOpenGL();
-    qmlRegisterType<cj::MpvVideoItem>("CorporalJackie", 1, 0, "VideoSurface");
-    qmlRegisterUncreatableType<cj::Session>("CorporalJackie", 1, 0, "Session",
+    // The C++ types have a module of their own: sharing the QML files' URI
+    // made Qt 6.12 call "CorporalJackie" ambiguous in the packaged app.
+    qmlRegisterType<cj::MpvVideoItem>("CorporalJackie.Player", 1, 0, "VideoSurface");
+    qmlRegisterUncreatableType<cj::Session>("CorporalJackie.Player", 1, 0, "Session",
                                             QStringLiteral("Use the app's session"));
-    qmlRegisterUncreatableMetaObject(cj::staticMetaObject, "CorporalJackie", 1, 0, "Playback",
+    qmlRegisterUncreatableMetaObject(cj::staticMetaObject, "CorporalJackie.Player", 1, 0, "Playback",
                                      QStringLiteral("Enums only"));
 
     QQmlApplicationEngine engine;

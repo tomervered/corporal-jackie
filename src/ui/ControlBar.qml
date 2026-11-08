@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
-import CorporalJackie
+import CorporalJackie.Player   // VideoSurface, Session and the Playback enums, from C++
 import "Format.js" as Format
 
 // The bar under the video: play, time, seek (with chapters and the A-B

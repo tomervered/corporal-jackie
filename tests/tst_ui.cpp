@@ -61,9 +61,9 @@ private slots:
     {
         // No GPU needed, and pictures can be taken of the window.
         QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
-        qmlRegisterType<FakeVideoSurface>("CorporalJackie", 1, 0, "VideoSurface");
-        qmlRegisterUncreatableType<Session>("CorporalJackie", 1, 0, "Session", QStringLiteral("Use the app's session"));
-        qmlRegisterUncreatableMetaObject(cj::staticMetaObject, "CorporalJackie", 1, 0, "Playback",
+        qmlRegisterType<FakeVideoSurface>("CorporalJackie.Player", 1, 0, "VideoSurface");
+        qmlRegisterUncreatableType<Session>("CorporalJackie.Player", 1, 0, "Session", QStringLiteral("Use the app's session"));
+        qmlRegisterUncreatableMetaObject(cj::staticMetaObject, "CorporalJackie.Player", 1, 0, "Playback",
                                          QStringLiteral("Enums only"));
 
         m_server.setJson("/films/manifest.json", manifest());

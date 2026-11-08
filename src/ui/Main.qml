@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Window
 import QtQuick.Controls.Basic
 import QtQuick.Dialogs
-import CorporalJackie
+import CorporalJackie.Player   // VideoSurface, Session and the Playback enums, from C++
 import "Format.js" as Format
 
 // The main window. It binds only to `session` (the Playback Session) and never
