@@ -3,15 +3,16 @@ import QtQuick.Controls.Basic
 import QtQuick.Dialogs
 
 // The browse panel (press B): catalogs from add-ons and your folders, an
-// item's details and episodes, and the ways to play it, best first. It binds
-// only to `browser`; picking a stream hands it to the session.
+// item's details and episodes, and the ways to play it, best first; and the
+// user's library. It binds to `browser` and `library`; picking a stream
+// hands it to the session.
 Rectangle {
     id: panel
 
     property color textColor: "#f2f2f5"
     property color mutedText: "#9a9aa6"
     property color accent: "#e8b04b"
-    property string tab: "discover"     // discover, addons, folders
+    property string tab: "discover"     // discover, library, addons, folders
     property string page: "items"       // items, detail, streams
     signal closeRequested()
     signal message(string text, bool isError)
@@ -31,6 +32,10 @@ Rectangle {
         target: browser
         function onNotice(text, isError) { panel.message(text, isError) }
         function onPlayStarted(title) { panel.closeRequested() }
+    }
+    Connections {
+        target: library
+        function onOpenRequested() { panel.tab = "discover"; panel.page = "detail" }
     }
 
     component Muted: Text {
@@ -77,7 +82,7 @@ Rectangle {
         anchors { left: parent.left; top: parent.top; margins: 16 }
         spacing: 6
         Repeater {
-            model: [["discover", "Discover"], ["addons", "Add-ons"], ["folders", "Your folders"]]
+            model: [["discover", "Discover"], ["library", "Library"], ["addons", "Add-ons"], ["folders", "Your folders"]]
             Button {
                 text: modelData[1]
                 highlighted: panel.tab === modelData[0]
@@ -190,10 +195,20 @@ Rectangle {
                             text: [browser.detail.releaseInfo, browser.detail.runtime, browser.detail.genres].filter(s => s).join("  ·  ")
                         }
                         Muted { width: parent.width; visible: text !== ""; text: browser.detail.description || ""; maximumLineCount: 6; elide: Text.ElideRight }
-                        Button {
-                            visible: !browser.detail.isSeries && !browser.detailLoading
-                            text: "Find ways to play"
-                            onClicked: { browser.openVideo(-1); panel.page = "streams" }
+                        Row {
+                            spacing: 8
+                            Button {
+                                visible: !browser.detail.isSeries && !browser.detailLoading
+                                text: "Find ways to play"
+                                onClicked: { browser.openVideo(-1); panel.page = "streams" }
+                            }
+                            Button {
+                                // Reads library.items so it updates when the library changes.
+                                readonly property bool saved: library.items.length >= 0 && library.contains(browser.detail.key || "")
+                                visible: (browser.detail.id || "") !== ""
+                                text: saved ? "✓ In your library" : "Add to library"
+                                onClicked: saved ? library.remove(browser.detail.key) : library.add(browser.detail)
+                            }
                         }
                     }
                 }
@@ -266,6 +281,42 @@ Rectangle {
                         secondary: (modelData.description ? modelData.description.replace(/\n/g, "  ") + "\n" : "") + modelData.facts
                         onClicked: browser.play(index)
                     }
+                }
+            }
+        }
+
+        // --- Library ----------------------------------------------------------------
+        Column {
+            anchors.fill: parent
+            visible: panel.tab === "library"
+            spacing: 10
+            Heading { visible: libraryContinue.count > 0; text: "Continue watching" }
+            ContinueWatching {
+                id: libraryContinue
+                visible: count > 0
+                width: parent.width
+                height: implicitHeight
+                textColor: panel.textColor
+                mutedText: panel.mutedText
+                accent: panel.accent
+                onResumed: panel.closeRequested()
+            }
+            Heading { text: "Saved" }
+            Muted {
+                width: parent.width
+                visible: library.items.length === 0
+                text: "Nothing saved yet. Open something in Discover and press Add to library."
+            }
+            ListView {
+                width: parent.width
+                height: parent.height - y
+                clip: true
+                model: library.items
+                ScrollBar.vertical: ScrollBar {}
+                delegate: RowItem {
+                    primary: modelData.name + (modelData.releaseInfo ? "  ·  " + modelData.releaseInfo : "")
+                    secondary: modelData.type === "series" ? "Series" : modelData.type === "movie" ? "Movie" : modelData.type
+                    onClicked: library.open(modelData.key)
                 }
             }
         }

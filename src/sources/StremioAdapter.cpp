@@ -57,44 +57,66 @@ StremioAdapter::StremioAdapter(const QString& storeFile, bool preinstall, QObjec
 
 void StremioAdapter::load(bool preinstall)
 {
+    if (m_storeFile.isEmpty())
+        return;
     QFile file(m_storeFile);
     if (!file.exists()) {
-        if (preinstall) {
-            QString error;
-            const QJsonObject raw = QJsonDocument::fromJson(kCinemetaManifest).object();
-            if (auto m = stremio::parseManifest(raw, &error))
-                setManifest(QUrl(QString::fromLatin1(kCinemetaUrl)), *m, raw);
-            save();
-        }
+        if (preinstall)
+            installDefaults();
         return;
     }
     if (!file.open(QIODevice::ReadOnly)) {
         qCWarning(lcSources).noquote() << "Could not read" << m_storeFile << file.errorString();
         return;
     }
-    const QJsonArray list = QJsonDocument::fromJson(file.read(16 * 1024 * 1024)).object().value("addons").toArray();
+    restore(QJsonDocument::fromJson(file.read(16 * 1024 * 1024)).object().value("addons").toArray());
+}
+
+void StremioAdapter::installDefaults()
+{
+    QString error;
+    const QJsonObject raw = QJsonDocument::fromJson(kCinemetaManifest).object();
+    if (auto m = stremio::parseManifest(raw, &error))
+        setManifest(QUrl(QString::fromLatin1(kCinemetaUrl)), *m, raw);
+    save();
+    emit addonsChanged();
+    emit catalogsChanged();
+}
+
+QJsonArray StremioAdapter::storedList() const
+{
+    QJsonArray list;
+    for (const InstalledAddon& a : m_addons)
+        list.append(QJsonObject{{"transportUrl", a.manifestUrl.toString()}, {"manifest", a.rawManifest}});
+    return list;
+}
+
+void StremioAdapter::restore(const QJsonArray& list)
+{
+    m_addons.clear();
     for (const QJsonValue& v : list) {
         const QJsonObject o = v.toObject();
         const QUrl url(o.value("transportUrl").toString());
         const QJsonObject raw = o.value("manifest").toObject();
         QString error;
-        if (auto m = stremio::parseManifest(raw, &error); m && url.isValid())
+        if (auto m = stremio::parseManifest(raw, &error); m && url.isValid() && m_addons.size() < kMaxAddons)
             setManifest(url, *m, raw);
         else
             qCWarning(lcSources).noquote() << "Skipping a stored add-on:" << url.toDisplayString() << error;
     }
     qCInfo(lcSources) << "Add-ons installed:" << m_addons.size();
+    emit addonsChanged();
+    emit catalogsChanged();
 }
 
 void StremioAdapter::save() const
 {
-    QJsonArray list;
-    for (const InstalledAddon& a : m_addons)
-        list.append(QJsonObject{{"transportUrl", a.manifestUrl.toString()}, {"manifest", a.rawManifest}});
+    if (m_storeFile.isEmpty())
+        return;
     QDir().mkpath(QFileInfo(m_storeFile).absolutePath());
     QSaveFile file(m_storeFile);
     if (!file.open(QIODevice::WriteOnly)
-        || file.write(QJsonDocument(QJsonObject{{"version", 1}, {"addons", list}}).toJson()) < 0 || !file.commit())
+        || file.write(QJsonDocument(QJsonObject{{"version", 1}, {"addons", storedList()}}).toJson()) < 0 || !file.commit())
         qCWarning(lcSources).noquote() << "Could not save" << m_storeFile << file.errorString();
 }
 

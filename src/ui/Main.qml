@@ -435,6 +435,28 @@ Window {
             color: "#5c5c66"
             font.pixelSize: 12
         }
+
+        // Where the user left off
+        Column {
+            anchors.horizontalCenter: parent.horizontalCenter
+            visible: homeContinue.count > 0
+            topPadding: 24
+            spacing: 10
+            Text {
+                text: "Continue watching"
+                color: root.textColor
+                font.pixelSize: 16
+                font.weight: Font.DemiBold
+            }
+            ContinueWatching {
+                id: homeContinue
+                width: Math.min(implicitWidth, root.width - 64)
+                height: implicitHeight
+                textColor: root.textColor
+                mutedText: root.mutedText
+                accent: root.accent
+            }
+        }
     }
 
     // --- Browse panel (press B) ---------------------------------------------------

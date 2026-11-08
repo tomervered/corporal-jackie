@@ -50,13 +50,24 @@ LocalLibrary::LocalLibrary(const QString& storeFile, QObject* parent)
     connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this, [this] { m_rescanTimer.start(); });
 
     QFile file(m_storeFile);
-    if (file.open(QIODevice::ReadOnly)) {
+    if (!m_storeFile.isEmpty() && file.open(QIODevice::ReadOnly)) {
         for (const QJsonValue& v : QJsonDocument::fromJson(file.read(1024 * 1024)).object().value("folders").toArray())
             if (const QString f = v.toString(); !f.isEmpty() && !m_folders.contains(f))
                 m_folders << f;
     }
     if (!m_folders.isEmpty())
         rescan();
+}
+
+void LocalLibrary::restoreFolders(const QStringList& folders)
+{
+    m_folders.clear();
+    for (const QString& f : folders)
+        if (!f.isEmpty() && !m_folders.contains(f))
+            m_folders << f;
+    save();
+    emit foldersChanged();
+    rescan();
 }
 
 LocalLibrary::~LocalLibrary()
@@ -67,6 +78,8 @@ LocalLibrary::~LocalLibrary()
 
 void LocalLibrary::save() const
 {
+    if (m_storeFile.isEmpty())
+        return;
     QDir().mkpath(QFileInfo(m_storeFile).absolutePath());
     QSaveFile file(m_storeFile);
     if (!file.open(QIODevice::WriteOnly)

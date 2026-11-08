@@ -1,8 +1,10 @@
 #include "AppInfo.h"
 #include "AppPaths.h"
 #include "Browser.h"
+#include "Caches.h"
 #include "CrashHandler.h"
 #include "DependencyInfo.h"
+#include "Library.h"
 #include "LocalLibrary.h"
 #include "Logging.h"
 #include "MpvTarget.h"
@@ -10,11 +12,16 @@
 #include "Preferences.h"
 #include "Session.h"
 #include "SleepBlocker.h"
+#include "Storage.h"
 #include "StremioAdapter.h"
 #include "TorrentTransport.h"
 
 #include <QCommandLineParser>
 #include <QDir>
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -28,6 +35,60 @@
 #include <clocale>
 #include <exception>
 #include <memory>
+
+namespace {
+
+// Before the database, settings were in QSettings and the add-ons and
+// folders in two JSON files. Copied over once; the old ones stay as they were.
+void importOldSettings(cj::Storage& storage, const QString& dataDir)
+{
+    const QString done = QStringLiteral("app/importedOldSettings");
+    if (!storage.isOpen() || storage.setting(done).toBool())
+        return;
+    QSettings old;
+    int copied = 0;
+    const auto copy = [&](const QString& key, QMetaType::Type type) {
+        if (old.contains(key) && !storage.setting(key).isValid()) {
+            QVariant v = old.value(key);
+            v.convert(QMetaType(type));
+            storage.setSetting(key, v);
+            ++copied;
+        }
+    };
+    copy(QStringLiteral("playback/hwdec"), QMetaType::Bool);
+    copy(QStringLiteral("torrents/inMemory"), QMetaType::Bool);
+    copy(QStringLiteral("torrents/memoryCapMB"), QMetaType::Int);
+    copy(QStringLiteral("torrents/diskCacheGB"), QMetaType::Int);
+    copy(QStringLiteral("torrents/cacheFolder"), QMetaType::QString);
+
+    const auto readJson = [&](const QString& name) {
+        QFile file(QDir(dataDir).filePath(name));
+        return file.open(QIODevice::ReadOnly) ? QJsonDocument::fromJson(file.read(16 * 1024 * 1024)).object()
+                                              : QJsonObject();
+    };
+    if (!storage.addons()) {
+        const QJsonObject json = readJson(QStringLiteral("addons.json"));
+        if (json.contains(QLatin1String("addons"))) {
+            storage.saveAddons(json.value("addons").toArray());
+            ++copied;
+        }
+    }
+    if (!storage.folders()) {
+        const QJsonObject json = readJson(QStringLiteral("local-folders.json"));
+        if (json.contains(QLatin1String("folders"))) {
+            QStringList folders;
+            for (const QJsonValue& v : json.value("folders").toArray())
+                folders << v.toString();
+            storage.saveFolders(folders);
+            ++copied;
+        }
+    }
+    storage.setSetting(done, true);
+    if (copied > 0)
+        qCInfo(lcApp) << "Copied" << copied << "old settings and lists into the database";
+}
+
+} // namespace
 
 int main(int argc, char* argv[])
 {
@@ -69,7 +130,11 @@ int main(int argc, char* argv[])
     // Torrents reach mpv through this; it must outlive mpv, so it comes first.
     // Torrent storage comes from the preferences as they were at start;
     // changes in Settings apply the next time the app opens.
-    cj::Preferences preferences(QDir(paths.cache).filePath(QStringLiteral("torrents")));
+    // Step 6: settings, add-ons, folders, library and history, in one file.
+    cj::Storage storage(QDir(paths.data).filePath(QStringLiteral("corporal-jackie.sqlite")));
+    importOldSettings(storage, paths.data);
+
+    cj::Preferences preferences(storage, QDir(paths.cache).filePath(QStringLiteral("torrents")));
     cj::BrokerSettings brokerSettings;
     brokerSettings.cacheDir = preferences.startCacheFolder();
     brokerSettings.cacheCapBytes = preferences.startDiskCacheBytes();
@@ -105,16 +170,9 @@ int main(int argc, char* argv[])
         QObject::connect(&torrents, &cj::TorrentTransport::openFailed, &session, &cj::Session::reportSourceError);
     }
 
-    QSettings settings;
-    session.setHardwareDecoding(settings.value(QStringLiteral("playback/hwdec"), true).toBool());
+    session.setHardwareDecoding(storage.setting(QStringLiteral("playback/hwdec"), true).toBool());
     QObject::connect(&session, &cj::Session::hardwareDecodingChanged, &app, [&] {
-        QSettings().setValue(QStringLiteral("playback/hwdec"), session.hardwareDecoding());
-    });
-
-    // Resume points are saved to the library in Step 6; for now they are logged.
-    QObject::connect(&session, &cj::Session::resumePoint, &app,
-                     [](const cj::PlayableSource& source, double position, double duration) {
-        qCDebug(lcSession).noquote() << "Resume point" << source.url.toDisplayString() << position << "/" << duration;
+        storage.setSetting(QStringLiteral("playback/hwdec"), session.hardwareDecoding());
     });
 
     cj::SleepBlocker sleepBlocker;
@@ -124,11 +182,34 @@ int main(int argc, char* argv[])
 
     // Step 5: where things to watch come from. Each source adapter only
     // produces PlayableSources; the browse panel hands them to the Session.
-    cj::StremioAdapter addons(QDir(paths.data).filePath(QStringLiteral("addons.json")));
-    cj::LocalLibrary localFiles(QDir(paths.data).filePath(QStringLiteral("local-folders.json")));
+    // Their lists are kept in the database; a fresh install starts with
+    // Cinemeta.
+    cj::StremioAdapter addons;
+    if (const auto stored = storage.addons())
+        addons.restore(*stored);
+    else
+        addons.installDefaults();
+    storage.saveAddons(addons.storedList());
+    QObject::connect(&addons, &cj::StremioAdapter::addonsChanged, &storage,
+                     [&] { storage.saveAddons(addons.storedList()); });
+    cj::LocalLibrary localFiles;
+    if (const auto stored = storage.folders(); stored && !stored->isEmpty())
+        localFiles.restoreFolders(*stored);
+    QObject::connect(&localFiles, &cj::LocalLibrary::foldersChanged, &storage,
+                     [&] { storage.saveFolders(localFiles.folders()); });
+    // An import may bring add-ons and folders.
+    QObject::connect(&storage, &cj::Storage::addonsImported, &addons, [&] { addons.restore(*storage.addons()); });
+    QObject::connect(&storage, &cj::Storage::foldersImported, &localFiles,
+                     [&] { localFiles.restoreFolders(*storage.folders()); });
+
     cj::Browser browser(&session);
     browser.setStremio(&addons);
     browser.setLocal(&localFiles);
+
+    // Watch history, Continue Watching and saved items.
+    cj::Library library(storage, session, browser);
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, &library, &cj::Library::saveNow);
+    cj::Caches caches(storage, torrents, QDir(paths.cache).filePath(QStringLiteral("images")));
     // A YouTube adapter would be added here with browser.addAdapter().
     if (!args.isSet(smokeTest))
         QTimer::singleShot(3000, &addons, [&] { addons.refreshManifests(); });
@@ -141,6 +222,8 @@ int main(int argc, char* argv[])
                                      QStringLiteral("Enums only"));
 
     QQmlApplicationEngine engine;
+    // Posters and other images are kept on disk, up to a limit.
+    engine.setNetworkAccessManagerFactory(caches.factory());
     // Packaged builds keep Qt's QML modules in a "qml" folder next to the app.
     // Without this, Qt looks in its build machine's install path and fails.
     if (const QString bundled = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("qml"));
@@ -151,6 +234,8 @@ int main(int argc, char* argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("session"), &session);
     engine.rootContext()->setContextProperty(QStringLiteral("browser"), &browser);
     engine.rootContext()->setContextProperty(QStringLiteral("preferences"), &preferences);
+    engine.rootContext()->setContextProperty(QStringLiteral("library"), &library);
+    engine.rootContext()->setContextProperty(QStringLiteral("caches"), &caches);
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
     engine.load(QUrl(QStringLiteral("qrc:/CorporalJackie/Main.qml")));
@@ -183,6 +268,11 @@ int main(int argc, char* argv[])
                 qCCritical(lcApp) << "Smoke test failed: no TLS backend (available:"
                                   << QSslSocket::availableBackends() << ")";
                 QCoreApplication::exit(3);
+                return;
+            }
+            if (!storage.isOpen()) {
+                qCCritical(lcApp).noquote() << "Smoke test failed: the database did not open:" << storage.error();
+                QCoreApplication::exit(4);
                 return;
             }
             if (withFile && !(session.hasMedia() && session.position() > 0.5)) {

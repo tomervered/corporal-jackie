@@ -47,3 +47,8 @@ if(WIN32)
     target_compile_definitions(tst_browseplay PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 endif()
 set_tests_properties(tst_browseplay PROPERTIES TIMEOUT 300)
+
+# The database: migrations, persistence, history, library, export/import;
+# and the Library against the fake target.
+cj_add_test(tst_storage FakeTarget.h)
+target_link_libraries(tst_storage PRIVATE cj_storage cj::sqlite)

@@ -9,6 +9,8 @@
 #include <QRegularExpression>
 #include <QStandardPaths>
 
+#include <algorithm>
+
 namespace cj {
 namespace {
 
@@ -140,8 +142,11 @@ void Session::emitResumePoint()
 std::optional<PlayableSource> Session::resolve(const QString& input) const
 {
     for (const SourceResolver& resolver : m_resolvers)
-        if (auto source = resolver(input))
+        if (auto source = resolver(input)) {
+            if (source->origin.isEmpty())
+                source->origin = input;
             return source;
+        }
     return std::nullopt;
 }
 
@@ -178,10 +183,13 @@ void Session::playSource(const PlayableSource& source, double startSeconds)
 {
     // A magnet link from an add-on still goes through the torrent resolver;
     // everything else the adapter said (title, subtitles, headers) is kept.
+    // A source played before keeps what it was opened from: resolve that
+    // again, since the stream URL it got last time is gone.
     PlayableSource s = source;
-    if (auto resolved = resolve(source.url.toString())) {
+    if (auto resolved = resolve(source.origin.isEmpty() ? source.url.toString() : source.origin)) {
         s.url = resolved->url;
         s.kind = resolved->kind;
+        s.origin = resolved->origin;
         if (s.title.isEmpty())
             s.title = resolved->title;
     }
@@ -200,6 +208,8 @@ void Session::load(const PlayableSource& source, double startSeconds)
 {
     emitResumePoint();  // remember where the previous item was left
 
+    if (startSeconds <= 0 && m_resumeLookup)
+        startSeconds = std::max(0.0, m_resumeLookup(source));
     m_source = source;
     m_title = source.title;
     m_position = startSeconds;

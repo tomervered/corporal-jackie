@@ -35,7 +35,10 @@ public:
     static constexpr int kMaxWatchedDirs = 2000;  // inotify and kqueue have limits
     static constexpr int kPageSize = 100;
 
-    explicit LocalLibrary(const QString& storeFile, QObject* parent = nullptr);
+    // storeFile: a JSON file the folder list is kept in. Empty: no file; the
+    // app keeps the list in its database through folders(), restoreFolders()
+    // and foldersChanged.
+    explicit LocalLibrary(const QString& storeFile = {}, QObject* parent = nullptr);
     ~LocalLibrary() override;
 
     QString id() const override { return QStringLiteral("local"); }
@@ -50,6 +53,8 @@ public:
     QStringList folders() const { return m_folders; }
     bool addFolder(const QString& path);
     bool removeFolder(const QString& path);
+    // Replaces the folder list with a stored one and scans it.
+    void restoreFolders(const QStringList& folders);
     void rescan();
 
     bool scanning() const { return m_scanning; }

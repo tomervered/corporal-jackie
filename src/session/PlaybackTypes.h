@@ -93,6 +93,8 @@ struct PlayableSource {
     QString videoCodec;
     QString audioCodec;
     QString adapter;        // which source adapter made it, e.g. "stremio:org.example"
+    QString origin;         // the text it was opened from (a magnet link, say) when a
+                            // resolver turned it into another URL; empty otherwise
 
     // A source for a plain link or path: the kind follows from the URL.
     static PlayableSource fromUrl(const QUrl& url, const QString& title)

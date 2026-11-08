@@ -72,6 +72,7 @@ public:
     bool paused() const { return m_state == PlaybackState::Paused; }
     QString targetName() const { return m_target->name(); }
     QUrl source() const { return m_source.url; }
+    const PlayableSource& playableSource() const { return m_source; }
     QString title() const { return m_title; }
     double position() const { return m_position; }
     double duration() const { return m_duration; }
@@ -112,6 +113,10 @@ public:
     // adapters register here.
     using SourceResolver = std::function<std::optional<PlayableSource>(const QString& input)>;
     void addSourceResolver(SourceResolver resolver) { m_resolvers.push_back(std::move(resolver)); }
+    // Where to start an item loaded without a start time: the watch history
+    // answers with the saved position, or 0.
+    using ResumeLookup = std::function<double(const PlayableSource& source)>;
+    void setResumeLookup(ResumeLookup lookup) { m_resumeLookup = std::move(lookup); }
 
     // Set by whoever delivers the current item's bytes (the torrent transport).
     // Cleared to None whenever a new item loads.
@@ -230,6 +235,7 @@ private:
     StreamStatus m_stream;
     bool m_sourceErrorReported = false;
     std::vector<SourceResolver> m_resolvers;
+    ResumeLookup m_resumeLookup;
     // Where the last seek is going. Until the target gets there, relative
     // seeks (a held arrow key) add to this, not to the old position.
     double m_seekTarget = -1;

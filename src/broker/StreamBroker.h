@@ -94,6 +94,8 @@ public:
     // Torrents with an open handle are never deleted. Runs on its own after
     // open and close; public for tests.
     void enforceCacheCap();
+    // Deletes every cached torrent that is not being watched.
+    void clearCache();
 
     // RAM only (BrokerSettings::memoryOnly): bytes of pieces held in memory,
     // over all torrents. Kept near the memory cap; 0 when pieces go to disk.

@@ -28,10 +28,11 @@ public:
     static constexpr int kMaxAddons = 50;
     static constexpr auto kCinemetaUrl = "https://v3-cinemeta.strem.io/manifest.json";
 
-    // storeFile: where the installed list is kept (JSON until the Step 6
-    // database). With preinstall, a first run starts with Cinemeta, which
-    // has catalogs and details but no streams.
-    explicit StremioAdapter(const QString& storeFile, bool preinstall = true, QObject* parent = nullptr);
+    // storeFile: a JSON file the installed list is kept in. Empty: no file;
+    // the app keeps the list in its database through storedList(), restore()
+    // and addonsChanged. With preinstall and no file yet, a first run starts
+    // with Cinemeta, which has catalogs and details but no streams.
+    explicit StremioAdapter(const QString& storeFile = {}, bool preinstall = true, QObject* parent = nullptr);
 
     QString id() const override { return QStringLiteral("stremio"); }
     QString name() const override { return QStringLiteral("Add-ons"); }
@@ -52,6 +53,13 @@ public:
     bool uninstall(const QString& addonId);
     // Fetches every manifest again (add-ons change their catalogs).
     void refreshManifests();
+
+    // The installed list as stored: [{transportUrl, manifest}, ...].
+    QJsonArray storedList() const;
+    // Replaces the installed list with a stored one; bad entries are skipped.
+    void restore(const QJsonArray& list);
+    // What a first run starts with: Cinemeta.
+    void installDefaults();
 
     JsonFetcher& fetcher() { return m_fetcher; }
 

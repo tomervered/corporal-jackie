@@ -1,9 +1,9 @@
 #include "Preferences.h"
 
 #include "Logging.h"
+#include "Storage.h"
 
 #include <QDir>
-#include <QSettings>
 
 namespace cj {
 
@@ -14,15 +14,16 @@ const QString kDiskCap = QStringLiteral("torrents/diskCacheGB");
 const QString kFolder = QStringLiteral("torrents/cacheFolder");
 } // namespace
 
-Preferences::Preferences(const QString& defaultCacheFolder, QObject* parent)
+Preferences::Preferences(Storage& storage, const QString& defaultCacheFolder, QObject* parent)
     : QObject(parent)
+    , m_storage(storage)
     , m_defaultFolder(defaultCacheFolder)
 {
-    QSettings s;
-    m_inMemory = s.value(kInMemory, true).toBool();
-    m_memoryCapMB = qBound(256, s.value(kMemoryCap, 1024).toInt(), 16384);
-    m_diskCacheGB = qBound(1, s.value(kDiskCap, 10).toInt(), 1000);
-    m_cacheFolder = s.value(kFolder).toString();
+    const auto value = [&](const QString& key, const QVariant& fallback) { return storage.setting(key, fallback); };
+    m_inMemory = value(kInMemory, true).toBool();
+    m_memoryCapMB = qBound(256, value(kMemoryCap, 1024).toInt(), 16384);
+    m_diskCacheGB = qBound(1, value(kDiskCap, 10).toInt(), 1000);
+    m_cacheFolder = value(kFolder, QString()).toString();
     if (!m_cacheFolder.isEmpty() && !QDir().mkpath(m_cacheFolder)) {
         qCWarning(lcApp).noquote() << "Torrent cache folder" << m_cacheFolder << "is not usable; using the default";
         m_cacheFolder.clear();
@@ -92,11 +93,10 @@ void Preferences::resetCacheFolder()
 
 void Preferences::save()
 {
-    QSettings s;
-    s.setValue(kInMemory, m_inMemory);
-    s.setValue(kMemoryCap, m_memoryCapMB);
-    s.setValue(kDiskCap, m_diskCacheGB);
-    s.setValue(kFolder, m_cacheFolder);
+    m_storage.setSetting(kInMemory, m_inMemory);
+    m_storage.setSetting(kMemoryCap, m_memoryCapMB);
+    m_storage.setSetting(kDiskCap, m_diskCacheGB);
+    m_storage.setSetting(kFolder, m_cacheFolder);
     qCInfo(lcApp).noquote() << "Torrent storage:" << (m_inMemory ? "RAM only" : "disk") << m_memoryCapMB << "MB RAM,"
                             << m_diskCacheGB << "GB disk, folder" << effectiveFolder()
                             << (restartNeeded() ? "(applies after a restart)" : "");

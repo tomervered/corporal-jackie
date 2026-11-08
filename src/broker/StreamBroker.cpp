@@ -199,7 +199,8 @@ public:
     std::shared_ptr<Torrent> addOrFind(const OpenRequest& req, BrokerError* error);
     void releaseHandle(Torrent& t);
     void schedule(Torrent& t, bool force);  // t.mutex must be held
-    void enforceCacheCap(const std::string& keep = {});
+    // cap < 0: the configured cap. 0 empties the cache of everything not open.
+    void enforceCacheCap(const std::string& keep = {}, qint64 cap = -1);
     StreamStats stats(Torrent& t, const Reader& r);
     StreamStats torrentStats(const std::string& id);
     int listenPort() const { return m_session ? m_session->listen_port() : 0; }
@@ -997,7 +998,7 @@ void Engine::releaseHandle(Torrent& t)
     enforceCacheCap();
 }
 
-void Engine::enforceCacheCap(const std::string& keep)
+void Engine::enforceCacheCap(const std::string& keep, qint64 capOverride)
 {
     if (closing)
         return;
@@ -1019,7 +1020,7 @@ void Engine::enforceCacheCap(const std::string& keep)
     }
 
     // Never fill the disk: the cap shrinks to what fits while leaving a reserve.
-    qint64 cap = settings.cacheCapBytes;
+    qint64 cap = capOverride >= 0 ? capOverride : settings.cacheCapBytes;
     const QStorageInfo disk(settings.cacheDir);
     if (disk.isValid() && disk.bytesAvailable() >= 0)
         cap = qMin(cap, qMax<qint64>(0, total + disk.bytesAvailable() - kDiskReserve));
@@ -1178,6 +1179,8 @@ StreamStats StreamBroker::torrentStats(const QString& infoHash) const
     return m_engine->torrentStats(infoHash.toLower().toStdString());
 }
 void StreamBroker::enforceCacheCap() { m_engine->enforceCacheCap(); }
+
+void StreamBroker::clearCache() { m_engine->enforceCacheCap({}, 0); }
 bool StreamBroker::memoryOnly() const { return m_engine->memoryOnly(); }
 qint64 StreamBroker::memoryUsed() const { return m_engine->memoryUsed(); }
 

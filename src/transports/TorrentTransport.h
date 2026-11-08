@@ -62,6 +62,11 @@ public:
     // firewall prompt or an open port.
     StreamBroker& broker();
 
+    // The disk cache: what it uses, and emptying it of everything not being
+    // watched. Blocking (walks the folder); call off the UI thread.
+    qint64 cacheUsage() const;
+    void clearCache();
+
     static QString infoHashOf(const QUrl& torrentUrl);
 
 signals:

@@ -84,6 +84,8 @@ public:
     Q_INVOKABLE void openCatalog(int index, const QString& search = {});
     Q_INVOKABLE void loadMore();
     Q_INVOKABLE void openItem(int index);
+    // Shows an item that is not in the list: one from the library or history.
+    void openPreview(const MetaPreview& item);
     // A video of the open item (an episode), or -1 for the item itself (a movie).
     Q_INVOKABLE void openVideo(int index);
     Q_INVOKABLE void play(int streamIndex);
@@ -102,7 +104,8 @@ signals:
     void streamsChanged();
     // Short messages for the panel: "Example installed", "Not an add-on link".
     void notice(const QString& text, bool isError);
-    // A choice was handed to the Session.
+    // A choice is about to be handed to the Session, then was.
+    void aboutToPlay(const cj::PlayContext& context);
     void playStarted(const QString& title);
 
 private:
@@ -133,6 +136,7 @@ private:
     QString m_streamsTitle;
     QString m_streamsType;
     QString m_streamsVideoId;
+    VideoEntry m_streamsVideo;
     QList<StreamOption> m_streams;
     bool m_streamsLoading = false;
     QStringList m_streamProblems;

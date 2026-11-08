@@ -26,8 +26,8 @@ Open a file with the **Open** button, by dropping it on the window, or by passin
 | I | Debug overlay: decoder, codec, resolution, FPS, dropped frames |
 | H | Hardware decoding on/off (remembered) |
 | O | Open a file |
-| B | Browse add-ons and your folders |
-| P | Settings: hardware decoding, torrent storage |
+| B | Browse: add-ons, your library and Continue Watching, your folders |
+| P | Settings: hardware decoding, torrent storage, caches, history, export and import |
 | U | Open a link (magnet link, info hash, web address) |
 | Ctrl+V | Open the copied link |
 | [ / ] , Backspace | Slower / faster, normal speed |

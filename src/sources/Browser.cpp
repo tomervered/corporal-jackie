@@ -24,7 +24,8 @@ QVariantMap previewMap(const MetaPreview& m)
     return {{"id", m.id},           {"name", m.name},
             {"type", m.type},       {"poster", m.poster},
             {"releaseInfo", m.releaseInfo}, {"description", m.description},
-            {"adapter", m.adapter}};
+            {"adapter", m.adapter}, {"provider", m.provider},
+            {"key", m.adapter + QLatin1Char(':') + m.id}};
 }
 
 } // namespace
@@ -253,7 +254,11 @@ void Browser::openItem(int index)
 {
     if (index < 0 || index >= m_items.size())
         return;
-    const MetaPreview item = m_items[index];
+    openPreview(m_items[index]);
+}
+
+void Browser::openPreview(const MetaPreview& item)
+{
     SourceAdapter* adapter = adapterFor(item.adapter);
     if (!adapter)
         return;
@@ -314,10 +319,12 @@ void Browser::openVideo(int index)
         return;
     QString videoId = m_detail->preview.id;
     QString title = m_detail->preview.name;
+    m_streamsVideo = VideoEntry{videoId, title, 0, 0, {}};
     if (index >= 0) {
         if (index >= m_detail->videos.size())
             return;
         const VideoEntry& v = m_detail->videos[index];
+        m_streamsVideo = v;
         videoId = v.id;
         title = v.season > 0 ? QStringLiteral("%1 %2x%3").arg(title).arg(v.season).arg(v.episode, 2, 10, QLatin1Char('0'))
                              : title + QStringLiteral(" · ") + v.title;
@@ -402,6 +409,8 @@ void Browser::play(int streamIndex)
     if (m_playingVideoId == m_streamsVideoId && m_session->source() == m_playingUrl
         && (m_session->hasMedia() || m_session->loading()))
         start = m_session->position();
+    if (m_detail)
+        emit aboutToPlay(PlayContext{m_detail->preview, m_streamsVideo});
     m_session->playSource(choice.source, start);
     m_playingVideoId = m_streamsVideoId;
     m_playingUrl = m_session->source();

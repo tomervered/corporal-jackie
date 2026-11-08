@@ -2,9 +2,10 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Dialogs
 
-// Settings (press P): hardware decoding, applied at once, and where
-// torrents are stored, applied the next time the app opens. Binds to
-// `session` for playback options and `preferences` for the rest.
+// Settings (press P): hardware decoding, applied at once; where torrents are
+// stored, applied the next time the app opens; the caches; and the watch
+// history and library. Binds to `session` for playback options, and to
+// `preferences`, `caches` and `library` for the rest.
 Rectangle {
     id: panel
 
@@ -20,6 +21,10 @@ Rectangle {
     // Clicks and scrolls on the panel stay here, away from the video below.
     MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons; onWheel: wheel => wheel.accepted = true }
     Keys.onEscapePressed: panel.closeRequested()
+    onVisibleChanged: if (visible) { caches.measure(); panel.confirmClear = false; panel.result = "" }
+
+    property bool confirmClear: false
+    property string result: ""      // what the last export or import did
 
     component Heading: Text {
         color: panel.textColor
@@ -58,6 +63,27 @@ Rectangle {
             enabled: toggle.enabledHere
             checked: toggle.checked
             onToggled: toggle.toggled(checked)
+        }
+    }
+    // A title and a value on the left, buttons on the right.
+    component ActionRow: Item {
+        id: actionRow
+        property string title
+        property string detail
+        default property alias buttons: buttonRow.children
+        width: parent ? parent.width : 400
+        height: Math.max(buttonRow.implicitHeight, actionTexts.implicitHeight) + 8
+        Column {
+            id: actionTexts
+            anchors { left: parent.left; right: buttonRow.left; rightMargin: 12; verticalCenter: parent.verticalCenter }
+            spacing: 2
+            Text { width: parent.width; text: actionRow.title; color: panel.textColor; font.pixelSize: 14; wrapMode: Text.WordWrap }
+            Text { width: parent.width; text: actionRow.detail; color: panel.mutedText; font.pixelSize: 12; wrapMode: Text.WordWrap; visible: text !== "" }
+        }
+        Row {
+            id: buttonRow
+            anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+            spacing: 4
         }
     }
     // A title, then a row of choices with one picked.
@@ -204,9 +230,73 @@ Rectangle {
                     wrapMode: Text.WordWrap
                 }
             }
+            ActionRow {
+                title: "Torrent cache on disk"
+                detail: caches.busy ? "Measuring…" : caches.torrentCacheUsed !== "" ? "Using " + caches.torrentCacheUsed + ". What is playing now is kept." : ""
+                Button { text: "Clear"; focusPolicy: Qt.NoFocus; enabled: !caches.busy; onClicked: caches.clearTorrents() }
+            }
+
+            // --- Images ------------------------------------------------------------
+            Heading { text: "Posters and images" }
+            Choice {
+                title: "Disk space for posters"
+                options: [[100, "100 MB"], [250, "250 MB"], [500, "500 MB"], [1000, "1 GB"]]
+                value: caches.imageCacheMB
+                onPicked: v => caches.imageCacheMB = v
+            }
+            ActionRow {
+                title: "Image cache"
+                detail: caches.busy ? "Measuring…" : caches.imageCacheUsed !== "" ? "Using " + caches.imageCacheUsed + ". Posters are kept so lists show quickly." : ""
+                Button { text: "Clear"; focusPolicy: Qt.NoFocus; enabled: !caches.busy; onClicked: caches.clearImages() }
+            }
+
+            // --- History and library -------------------------------------------------
+            Heading { text: "History and library" }
+            ActionRow {
+                title: "Watch history"
+                detail: (library.historyCount === 1 ? "1 video" : library.historyCount + " videos") + ". Continue Watching comes from this."
+                Button {
+                    text: panel.confirmClear ? "Clear all history?" : "Clear"
+                    focusPolicy: Qt.NoFocus
+                    enabled: library.historyCount > 0
+                    onClicked: {
+                        if (!panel.confirmClear) { panel.confirmClear = true; return }
+                        library.clearHistory()
+                        panel.confirmClear = false
+                    }
+                }
+            }
+            ActionRow {
+                title: "Back up or move"
+                detail: "One file with your library, history, add-ons and folders. Importing adds to what is here."
+                Button { text: "Export…"; focusPolicy: Qt.NoFocus; onClicked: exportDialog.open() }
+                Button { text: "Import…"; focusPolicy: Qt.NoFocus; onClicked: importDialog.open() }
+            }
+            Note { visible: panel.result !== ""; text: panel.result }
         }
     }
 
+    FileDialog {
+        id: exportDialog
+        title: "Export library and history"
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "json"
+        nameFilters: ["Corporal Jackie export (*.json)"]
+        onAccepted: {
+            const error = library.exportTo(selectedFile)
+            panel.result = error !== "" ? error : "Exported."
+        }
+    }
+    FileDialog {
+        id: importDialog
+        title: "Import library and history"
+        fileMode: FileDialog.OpenFile
+        nameFilters: ["Corporal Jackie export (*.json)", "All files (*)"]
+        onAccepted: {
+            const error = library.importFrom(selectedFile)
+            panel.result = error !== "" ? error : "Imported."
+        }
+    }
     FolderDialog {
         id: folderDialog
         title: "Choose where torrents are cached"

@@ -3,6 +3,7 @@
 #include "Logging.h"
 #include "StreamBroker.h"
 
+#include <QDir>
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QUrlQuery>
@@ -103,6 +104,30 @@ TorrentTransport::~TorrentTransport()
     // Unblocks any read still waiting; the handles then fail cleanly.
     std::lock_guard lock(m_brokerMutex);
     m_broker.reset();
+}
+
+qint64 TorrentTransport::cacheUsage() const
+{
+    return m_settings.cacheDir.isEmpty() ? 0 : StreamBroker::diskUsage(m_settings.cacheDir);
+}
+
+void TorrentTransport::clearCache()
+{
+    std::shared_ptr<StreamBroker> running;
+    {
+        std::lock_guard lock(m_brokerMutex);
+        running = m_broker;
+    }
+    if (running) {
+        running->clearCache();
+        return;
+    }
+    // Not started this run: nothing has a file open.
+    if (m_settings.cacheDir.isEmpty())
+        return;
+    for (const QFileInfo& d : QDir(m_settings.cacheDir).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot))
+        QDir(d.absoluteFilePath()).removeRecursively();
+    qCInfo(lcTransports).noquote() << "Torrent cache cleared:" << m_settings.cacheDir;
 }
 
 StreamBroker& TorrentTransport::broker()

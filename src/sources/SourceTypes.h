@@ -67,4 +67,12 @@ struct StreamOption
     QString bingeGroup;    // same group = same release, for the next episode later
 };
 
+// What is being played, from the browse panel: the item and its video (the
+// episode, or the movie itself). Watch history is kept by this.
+struct PlayContext
+{
+    MetaPreview item;
+    VideoEntry video;
+};
+
 } // namespace cj

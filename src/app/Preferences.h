@@ -1,7 +1,7 @@
 #pragma once
 // App-wide preferences the UI edits that are not part of playback: where and
-// how torrents are stored. Saved in QSettings (moved to SQLite in Step 6).
-// Exposed to QML as `preferences`.
+// how torrents are stored. Saved in the app's database. Exposed to QML as
+// `preferences`.
 //
 // The torrent engine reads these once at start, so changes apply the next
 // time the app opens; `restartNeeded` says when that is the case.
@@ -11,6 +11,8 @@
 #include <QUrl>
 
 namespace cj {
+
+class Storage;
 
 class Preferences : public QObject
 {
@@ -24,7 +26,7 @@ class Preferences : public QObject
 
 public:
     // defaultCacheFolder: the torrent cache under the app's cache folder.
-    explicit Preferences(const QString& defaultCacheFolder, QObject* parent = nullptr);
+    Preferences(Storage& storage, const QString& defaultCacheFolder, QObject* parent = nullptr);
 
     bool torrentsInMemory() const { return m_inMemory; }
     int memoryCapMB() const { return m_memoryCapMB; }
@@ -52,6 +54,7 @@ private:
     void save();
     QString effectiveFolder() const;
 
+    Storage& m_storage;
     QString m_defaultFolder;
     bool m_inMemory = true;
     int m_memoryCapMB = 1024;
