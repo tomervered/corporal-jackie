@@ -82,6 +82,11 @@ Caches::Caches(Storage& storage, TorrentTransport& torrents, const QString& imag
 
 Caches::~Caches()
 {
+    stop();
+}
+
+void Caches::stop()
+{
     *m_alive = false;
     if (m_thread.joinable())
         m_thread.join();
@@ -109,7 +114,7 @@ QString Caches::describe(qint64 bytes)
 
 void Caches::runInBackground(std::function<void()> job)
 {
-    if (m_busy)
+    if (m_busy || !*m_alive)  // stopped: the app is closing
         return;
     m_busy = true;
     emit usageChanged();

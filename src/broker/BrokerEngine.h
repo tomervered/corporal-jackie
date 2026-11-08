@@ -69,8 +69,9 @@ constexpr double kBackgroundSeconds = 600;
 // ...and at most this many bytes, so one big file does not fill the cache.
 constexpr qint64 kBackgroundMaxBytes = 2LL * 1024 * 1024 * 1024;
 
-// Open trackers added to every torrent (never the only source: DHT and the
-// link's own trackers stay).
+// Open trackers added to every public torrent (never the only source: DHT
+// and the link's own trackers stay). Never to a private one (BEP 27): they
+// would learn its info hash and the viewer's address.
 constexpr const char* kPublicTrackers[] = {
     "udp://tracker.opentrackr.org:1337/announce",
     "udp://open.demonii.com:1337/announce",
@@ -182,6 +183,14 @@ struct Torrent
     Clock::time_point lastPieceAt = Clock::now();   // last piece finished, or a reader opened
     Clock::time_point peersSeenAt = Clock::now();   // last time it had a peer
 
+    // The libtorrent handle, read under `mutex`: a RAM-only reload replaces
+    // it from the alert thread. Use the copy outside the lock.
+    lt::torrent_handle currentHandle()
+    {
+        std::lock_guard tl(mutex);
+        return handle;
+    }
+
     qint64 pieceLength() const { return info ? info->piece_length() : 0; }
     int pieceAt(qint64 torrentOffset) const { return int(torrentOffset / info->piece_length()); }
 
@@ -237,6 +246,7 @@ public:
     bool holds(Torrent& t, int piece);
 
     BrokerSettings settings;
+    std::vector<std::string> extraTrackers;  // for public torrents only
     std::atomic<bool> closing{false};
 
 private:
@@ -244,6 +254,7 @@ private:
     void refresh(Torrent& t);
     void handleAlert(lt::alert* a);
     void onMetadata(Torrent& t);  // t.mutex must be held
+    void dropExtraTrackers(lt::add_torrent_params& atp) const;
     void saveResume(Torrent& t);
     void trimMemory();
     void reload(const std::shared_ptr<Torrent>& t);

@@ -41,7 +41,8 @@ Flickable {
         Muted {
             width: parent.width
             visible: text !== ""
-            text: browser.searchRows.length === 0 ? "None of your add-ons can search" + (nav.searchType ? " " + nav.typeWord(nav.searchType).toLowerCase() : "") + "."
+            text: browser.searchAllText === "" ? ""
+                : browser.searchRows.length === 0 ? "None of your add-ons can search" + (nav.searchType ? " " + nav.typeWord(nav.searchType).toLowerCase() : "") + "."
                 : browser.searchRows.every(r => !r.loading && r.items.length === 0) ? "Nothing found for “" + browser.searchAllText + "”."
                 : ""
         }

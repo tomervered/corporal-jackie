@@ -22,13 +22,17 @@ rm -rf "$LIC" && mkdir -p "$LIC"
 cp "$ROOT/packaging/THIRD_PARTY_NOTICES.txt" "$DIST/THIRD_PARTY_NOTICES.txt"
 
 # --- Libraries we build: license files from their sources at the same tags.
-eval "$(grep -E '^(FFMPEG|LIBPLACEBO|MPV)_VERSION=' "$HERE/build-mpv.sh")"
+version() { sed -n "s/^$1=//p" "$HERE/build-mpv.sh"; }
+FFMPEG_VERSION=$(version FFMPEG_VERSION)
+LIBPLACEBO_VERSION=$(version LIBPLACEBO_VERSION)
+MPV_VERSION=$(version MPV_VERSION)
 fetch() {  # fetch <folder> <github owner/repo> <tag> <file>...
     local dir="$LIC/$1" repo=$2 tag=$3
     shift 3
     mkdir -p "$dir"
     for f in "$@"; do
-        curl -fsSL --retry 3 -o "$dir/$f" "https://raw.githubusercontent.com/$repo/$tag/$f"
+        local url="https://raw.githubusercontent.com/$repo/$tag/$f"
+        curl -fsSL --retry 3 -o "$dir/$f" "$url" || { echo "Could not fetch $url" >&2; exit 1; }
     done
 }
 fetch ffmpeg FFmpeg/FFmpeg "$FFMPEG_VERSION" LICENSE.md COPYING.GPLv3

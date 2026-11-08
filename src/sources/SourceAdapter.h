@@ -44,6 +44,11 @@ public:
     virtual void fetchStreams(const QString& type, const QString& videoId, StreamsPart part,
                               std::function<void()> finished) = 0;
 
+    // True when this adapter's ids name things on this computer (a local
+    // file's path, say). Such an id is never sent to another adapter: an
+    // add-on would learn the user's folders and file names.
+    virtual bool idsArePrivate() const { return false; }
+
     // Extra subtitle files for a video, from subtitle add-ons. Default: none.
     using SubtitlesDone = std::function<void(const QList<SubtitleSource>& subtitles)>;
     virtual void fetchSubtitles(const QString& /*type*/, const QString& /*videoId*/, SubtitlesDone done)

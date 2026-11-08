@@ -123,6 +123,8 @@ void AppCore::shutDown()
 {
     if (m_library)
         m_library->saveNow();
+    if (m_caches)
+        m_caches->stop();
     // mpv waits for its streams when it shuts down; a torrent still looking
     // for peers must not hold that up.
     if (m_torrents)

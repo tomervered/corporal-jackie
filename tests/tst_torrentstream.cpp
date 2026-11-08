@@ -152,6 +152,44 @@ private slots:
         QCOMPARE(p.session.title(), QStringLiteral("testsrc-10s"));
     }
 
+    // The next episode in the same torrent is an item of its own: its
+    // buffering shows, not dropped as a report for the last one.
+    void nextFileInTheSameTorrentReportsItsStatus()
+    {
+        QTemporaryDir dir;
+        TestTorrent t;
+        t.root = dir.filePath("seed");
+        const QString season = QDir(t.root).filePath(QStringLiteral("Season 1"));
+        for (const char* name : {"e1.mkv", "e2.mkv"}) {
+            QDir().mkpath(season);
+            QVERIFY(QFile::copy(kClip, QDir(season).filePath(QString::fromLatin1(name))));
+        }
+        t.info = harness::createTorrent(season, t.root, kPiece);
+        Seeder seeder(t, t.root, 24 * 1024);  // the second file takes a few seconds
+
+        Player p(dir.filePath("cache"));
+        auto source = p.transport.resolve(harness::magnet(t, {seeder.port()}));
+        QVERIFY(source);
+        const auto fileUrl = [&](const QString& name) {
+            PlayableSource s = *source;
+            s.url.setPath(QStringLiteral("/%1").arg(t.indexOf(name)));
+            return s;
+        };
+        const PlayableSource first = fileUrl(QStringLiteral("e1.mkv"));
+        const PlayableSource second = fileUrl(QStringLiteral("e2.mkv"));
+        QVERIFY(t.indexOf(QStringLiteral("e1.mkv")) >= 0 && t.indexOf(QStringLiteral("e2.mkv")) >= 0);
+
+        p.session.playSource(first);
+        QTRY_VERIFY_WITH_TIMEOUT(p.session.hasMedia(), 30000);
+
+        p.phases.clear();
+        p.session.playSource(second);
+        // The Session drops reports about any other item, so a phase here
+        // was reported for the second file.
+        QTRY_VERIFY_WITH_TIMEOUT(p.phases.contains(StreamPhase::Buffering) || p.phases.contains(StreamPhase::Ready), 15000);
+        QTRY_VERIFY_WITH_TIMEOUT(p.session.hasMedia(), 30000);
+    }
+
     // Nobody has it: the user is told exactly that, not "could not open".
     void noPeersIsItsOwnError()
     {

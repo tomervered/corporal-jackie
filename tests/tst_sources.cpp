@@ -527,6 +527,48 @@ private slots:
         QTRY_VERIFY(target.sent("subtitleTrack+ http://127.0.0.1:1/en.srt eng"));
     }
 
+    // A local video's id is its path. Add-ons, even ones that take any id,
+    // must not hear it: it holds the user's folder and file names.
+    void localPathsStayOnThisComputer()
+    {
+        FakeHttpServer server;
+        // No idPrefixes: it takes any id.
+        server.setJson("/any/manifest.json", R"({"id":"org.any","version":"1.0.0","name":"Any","types":["movie","series"],
+                                                 "resources":["stream","subtitles"],"catalogs":[]})");
+        QTemporaryDir data, videos;
+        touch(videos.filePath("Private Folder/Alpha.2001.mkv"), 1000);
+
+        StremioAdapter addons(data.filePath("addons.json"), false);
+        Waiter<QString> installed;
+        addons.install(server.base() + "/any/manifest.json", [&](const QString& e) { installed.value = e; });
+        QVERIFY(installed.wait());
+        LocalLibrary lib(data.filePath("local-folders.json"));
+        QSignalSpy changed(&lib, &LocalLibrary::libraryChanged);
+        QVERIFY(lib.addFolder(videos.path()));
+        QVERIFY(changed.wait(10000));
+
+        FakeTarget target;
+        Session session(&target);
+        Browser browser(&session);
+        browser.setStremio(&addons);
+        browser.setLocal(&lib);
+        Waiter<QList<MetaPreview>> movies;
+        lib.fetchCatalog(lib.catalogs()[0], {}, 0, [&](const QList<MetaPreview>& items, const QString&) { movies.value = items; });
+        QVERIFY(movies.wait());
+        QCOMPARE(movies.value->size(), 1);
+
+        browser.openPreview(movies.value->first());
+        QTRY_VERIFY(!browser.detailLoading());
+        browser.openVideo(-1);
+        QTRY_VERIFY_WITH_TIMEOUT(!browser.streamsLoading(), 10000);
+        QCOMPARE(browser.streamList().size(), 1);  // the file itself
+        browser.play(0);
+        QTRY_VERIFY(target.sent("load"));
+        QTest::qWait(300);
+        for (const QString& p : server.paths())
+            QVERIFY2(p == "/any/manifest.json", qPrintable(p));
+    }
+
     void staleAnswersAreDropped()
     {
         FakeHttpServer server;

@@ -2,6 +2,7 @@
 // Plays a tiny bundled test clip (tests/data, made with FFmpeg's testsrc), so it
 // needs no GPU. Everything is checked through the Session, the way the UI sees it.
 
+#include "FakeHttpServer.h"
 #include "MpvTarget.h"
 #include "Session.h"
 
@@ -10,6 +11,7 @@
 #include <clocale>
 
 using namespace cj;
+using test::FakeHttpServer;
 
 namespace {
 // 10 seconds, 160x120, 25 fps, a keyframe every second.
@@ -124,6 +126,57 @@ private slots:
             s.openPath(kTestPattern, i);
             QTRY_VERIFY_WITH_TIMEOUT(s.hasMedia(), 10000);
         }
+    }
+
+    // A stream's headers (a token, say) are for the server that sent the
+    // stream. A subtitle from somewhere else must not receive them.
+    void streamHeadersStayWithTheirServer()
+    {
+        FakeHttpServer video;
+        FakeHttpServer elsewhere;
+        FakeHttpServer::Answer clip;
+        clip.contentType = "video/x-matroska";
+        clip.filePath = kTestPattern;
+        video.set(QStringLiteral("/clip.mkv"), clip);
+        FakeHttpServer::Answer srt;
+        srt.contentType = "text/plain";
+        srt.body = "1\n00:00:00,000 --> 00:00:09,000\nHello\n";
+        video.set(QStringLiteral("/same.srt"), srt);
+        elsewhere.set(QStringLiteral("/other.srt"), srt);
+
+        PlayableSource source = PlayableSource::fromUrl(QUrl(video.base() + QStringLiteral("/clip.mkv")), QStringLiteral("Clip"));
+        source.headers.insert(QStringLiteral("Authorization"), QStringLiteral("Bearer secret"));
+        source.headers.insert(QStringLiteral("User-Agent"), QStringLiteral("Custom/1"));
+        source.subtitles = {{QUrl(video.base() + QStringLiteral("/same.srt")), QStringLiteral("en"), QString()}};
+
+        MpvTarget target(MpvTarget::Mode::Headless);
+        Session s(&target);
+        s.playSource(source);
+        QTRY_VERIFY_WITH_TIMEOUT(s.hasMedia(), 10000);
+        s.addSubtitleTracks({{QUrl(elsewhere.base() + QStringLiteral("/other.srt")), QStringLiteral("fr"), QString()}},
+                            s.source());
+        QTRY_COMPARE_WITH_TIMEOUT(elsewhere.paths().count(QStringLiteral("/other.srt")), 1, 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(video.paths().contains(QStringLiteral("/same.srt")), 10000);
+        // Both subtitles end up as tracks.
+        QTRY_COMPARE_WITH_TIMEOUT(subtitleTracks(s), 2, 10000);
+
+        for (const auto& r : std::as_const(video.requests)) {
+            QCOMPARE(r.headers.value("authorization"), QByteArray("Bearer secret"));
+            QCOMPARE(r.headers.value("user-agent"), QByteArray("Custom/1"));
+        }
+        for (const auto& r : std::as_const(elsewhere.requests)) {
+            QVERIFY2(!r.headers.contains("authorization"), r.headers.value("authorization").constData());
+            QVERIFY(r.headers.value("user-agent") != "Custom/1");
+        }
+    }
+
+private:
+    static int subtitleTracks(const Session& s)
+    {
+        int n = 0;
+        for (const Track& t : s.tracks())
+            n += t.type == Track::Type::Subtitle;
+        return n;
     }
 };
 

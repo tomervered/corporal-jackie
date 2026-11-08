@@ -3,7 +3,11 @@
 #include "Logging.h"
 
 #include <QFile>
+#include <QFileInfo>
 #include <QMetaObject>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QRegularExpression>
 #include <mpv/client.h>
 
 #include <stdexcept>
@@ -251,6 +255,8 @@ void MpvTarget::load(const PlayableSource& source, double startSeconds)
     m_fileLoaded = false;
     m_eof = false;
     m_headers = source.headers;
+    m_headersFor = url;
+    ++m_loadGeneration;
     m_pendingSubtitles = source.subtitles;
     setState(PlaybackState::Loading);
     if (m_mode == Mode::Video && !m_renderReady) {
@@ -332,26 +338,98 @@ void MpvTarget::setSubtitleTrack(int id) { setProperty("sid", id < 0 ? "no" : QB
 
 void MpvTarget::addExternalSubtitle(const QUrl& url)
 {
-    const QByteArray path = url.isLocalFile() ? QFile::encodeName(url.toLocalFile()) : url.toString().toUtf8();
-    command({"sub-add", path.constData(), "select"});
+    addSubtitleNow(SubtitleSource{url, {}, {}}, "select");
 }
 
 void MpvTarget::addSubtitleTrack(const SubtitleSource& subtitle)
 {
     if (m_fileLoaded)
-        addSubtitleNow(subtitle);
+        addSubtitleNow(subtitle, "auto");
     else
         m_pendingSubtitles.append(subtitle);
 }
 
-void MpvTarget::addSubtitleNow(const SubtitleSource& subtitle)
+// mpv sends http-header-fields with every request it makes, subtitles
+// included, and it has no way to scope them to one server. So when the
+// stream has headers, a subtitle from any other server is downloaded here,
+// without them, and mpv gets the file.
+void MpvTarget::addSubtitleNow(const SubtitleSource& subtitle, const char* flag)
 {
+    if (needsOwnFetch(subtitle.url)) {
+        fetchSubtitle(subtitle, flag);
+        return;
+    }
     const QByteArray path = subtitle.url.isLocalFile() ? QFile::encodeName(subtitle.url.toLocalFile())
                                                        : subtitle.url.toString(QUrl::FullyEncoded).toUtf8();
+    addSubtitleFile(path, flag, subtitle);
+}
+
+void MpvTarget::addSubtitleFile(const QByteArray& path, const char* flag, const SubtitleSource& subtitle)
+{
     const QByteArray title = (subtitle.label.isEmpty() ? subtitle.language : subtitle.label).toUtf8();
     const QByteArray lang = subtitle.language.toUtf8();
     // "auto": add it as a choice; mpv's own language rules pick what shows.
-    command({"sub-add", path.constData(), "auto", title.constData(), lang.constData()});
+    // "select": the user picked this file, so show it.
+    if (title.isEmpty() && lang.isEmpty())
+        command({"sub-add", path.constData(), flag});
+    else
+        command({"sub-add", path.constData(), flag, title.constData(), lang.constData()});
+}
+
+bool MpvTarget::needsOwnFetch(const QUrl& url) const
+{
+    if (m_headers.isEmpty() || url.isLocalFile() || url.scheme().isEmpty())
+        return false;
+    const auto port = [](const QUrl& u) {
+        return u.port(u.scheme().compare(QLatin1String("https"), Qt::CaseInsensitive) == 0 ? 443 : 80);
+    };
+    return url.scheme().compare(m_headersFor.scheme(), Qt::CaseInsensitive) != 0
+        || url.host().compare(m_headersFor.host(), Qt::CaseInsensitive) != 0
+        || port(url) != port(m_headersFor);
+}
+
+void MpvTarget::fetchSubtitle(const SubtitleSource& subtitle, const char* flag)
+{
+    if (!m_subtitleDir.isValid()) {
+        qCWarning(lcTargets) << "No folder for downloaded subtitles; skipping" << subtitle.url.host();
+        return;
+    }
+    if (!m_network)
+        m_network = new QNetworkAccessManager(this);
+    QNetworkRequest request(subtitle.url);
+    request.setHeader(QNetworkRequest::UserAgentHeader, QByteArrayLiteral("libmpv"));
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+    request.setTransferTimeout(30000);
+    QNetworkReply* reply = m_network->get(request);
+    // A subtitle file is small; anything bigger is not one.
+    constexpr qint64 kMaxBytes = 20 * 1024 * 1024;
+    connect(reply, &QNetworkReply::downloadProgress, reply, [reply](qint64 received, qint64) {
+        if (received > kMaxBytes)
+            reply->abort();
+    });
+    const quint64 generation = m_loadGeneration;
+    const bool select = qstrcmp(flag, "select") == 0;
+    connect(reply, &QNetworkReply::finished, this, [this, reply, subtitle, generation, select] {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            qCWarning(lcTargets).noquote() << "Subtitle download failed:" << subtitle.url.host() << reply->errorString();
+            return;
+        }
+        if (generation != m_loadGeneration)
+            return;  // another item is playing now
+        // Keep the name's extension: mpv uses it to tell the format.
+        QString name = QFileInfo(subtitle.url.path()).fileName();
+        name.remove(QRegularExpression(QStringLiteral("[^A-Za-z0-9._-]")));
+        const QString file = m_subtitleDir.filePath(QString::number(++m_subtitleFiles) + QLatin1Char('-')
+                                                    + (name.isEmpty() ? QStringLiteral("subtitle.srt") : name.right(80)));
+        QFile out(file);
+        if (!out.open(QIODevice::WriteOnly) || out.write(reply->readAll()) < 0) {
+            qCWarning(lcTargets).noquote() << "Could not save a subtitle to" << file;
+            return;
+        }
+        out.close();
+        addSubtitleFile(QFile::encodeName(file), select ? "select" : "auto", subtitle);
+    });
 }
 
 void MpvTarget::setSpeed(double factor)  { setProperty("speed", number(factor)); }
@@ -471,7 +549,7 @@ void MpvTarget::processEvents()
             m_fileLoaded = true;
             m_eof = false;
             for (const SubtitleSource& sub : std::exchange(m_pendingSubtitles, {}))
-                addSubtitleNow(sub);
+                addSubtitleNow(sub, "auto");
             applyCrop();
             updateState();
             break;

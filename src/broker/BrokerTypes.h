@@ -3,6 +3,7 @@
 // so the transports layer can include this without pulling libtorrent in.
 
 #include <QString>
+#include <QStringList>
 #include <QtGlobal>
 #include <algorithm>
 
@@ -28,6 +29,9 @@ struct BrokerSettings
     int metadataTimeoutMs = 60000;
     // Tests only: listen on 127.0.0.1 and use no DHT, LAN discovery or port mapping.
     bool loopbackOnly = false;
+    // Open trackers asked as well as a torrent's own, for public torrents
+    // only. Empty: the built-in list (none with loopbackOnly). Tests set it.
+    QStringList extraTrackers;
 };
 
 enum class BrokerError {

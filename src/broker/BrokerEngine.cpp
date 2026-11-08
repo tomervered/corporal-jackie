@@ -10,6 +10,10 @@ Engine::Engine(const BrokerSettings& s)
     : settings(s)
 {
     QDir().mkpath(settings.cacheDir);
+    for (const QString& tracker : settings.extraTrackers)
+        extraTrackers.push_back(tracker.toStdString());
+    if (settings.extraTrackers.isEmpty() && !settings.loopbackOnly)
+        extraTrackers.assign(std::begin(kPublicTrackers), std::end(kPublicTrackers));
 
     lt::settings_pack pack;
     pack.set_str(lt::settings_pack::user_agent, "CorporalJackie/0.1 libtorrent/" LIBTORRENT_VERSION);
@@ -119,6 +123,25 @@ std::shared_ptr<Torrent> Engine::find(const lt::torrent_handle& h)
     return it == m_torrents.end() ? nullptr : it->second;
 }
 
+void Engine::dropExtraTrackers(lt::add_torrent_params& atp) const
+{
+    const auto isExtra = [this](const std::string& url) {
+        return std::find(extraTrackers.begin(), extraTrackers.end(), url) != extraTrackers.end()
+            || std::find(std::begin(kPublicTrackers), std::end(kPublicTrackers), url) != std::end(kPublicTrackers);
+    };
+    std::vector<std::string> trackers;
+    std::vector<int> tiers;
+    for (std::size_t i = 0; i < atp.trackers.size(); ++i) {
+        if (isExtra(atp.trackers[i]))
+            continue;
+        trackers.push_back(atp.trackers[i]);
+        if (i < atp.tracker_tiers.size())
+            tiers.push_back(atp.tracker_tiers[i]);
+    }
+    atp.trackers = std::move(trackers);
+    atp.tracker_tiers = std::move(tiers);
+}
+
 std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* error)
 {
     lt::add_torrent_params atp;
@@ -145,11 +168,14 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
     }
 
     // Magnet links from add-ons often name few trackers; well-known open
-    // trackers find more peers sooner. Not in tests: those stay offline.
-    if (!settings.loopbackOnly) {
-        for (const char* tracker : kPublicTrackers)
+    // trackers find more peers sooner. But a private torrent must be
+    // announced only to its own trackers, so they are added once the
+    // metadata says it is public: here for a .torrent file, in onMetadata()
+    // for a magnet link.
+    if (atp.ti && !atp.ti->priv()) {
+        for (const std::string& tracker : extraTrackers)
             if (std::find(atp.trackers.begin(), atp.trackers.end(), tracker) == atp.trackers.end())
-                atp.trackers.emplace_back(tracker);
+                atp.trackers.push_back(tracker);
     }
 
     const std::string id = idOf(atp.info_hashes);
@@ -158,8 +184,9 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
         auto& t = it->second;
         try {
             // Peers and trackers from a newer magnet link still help.
+            const lt::torrent_handle h = t->currentHandle();
             for (const auto& peer : atp.peers)
-                t->handle.connect_peer(peer);
+                h.connect_peer(peer);
             {
                 std::lock_guard tl(t->mutex);
                 for (const auto& peer : atp.peers)
@@ -167,7 +194,7 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
                         t->linkPeers.push_back(peer);
             }
             for (const auto& tracker : atp.trackers)
-                t->handle.add_tracker(lt::announce_entry(tracker));
+                h.add_tracker(lt::announce_entry(tracker));
             // An earlier error (a full disk, say) may be gone: try again.
             std::lock_guard tl(t->mutex);
             if (t->failed) {
@@ -207,6 +234,10 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
                     rp.peers.push_back(peer);
                 if (!rp.ti && atp.ti)
                     rp.ti = atp.ti;
+                // An earlier version gave private torrents the open
+                // trackers too, and saved them.
+                if (rp.ti && rp.ti->priv())
+                    dropExtraTrackers(rp);
                 atp = std::move(rp);
                 qCInfo(lcBroker).noquote() << "Resuming" << QString::fromStdString(id) << "from saved data";
             }
@@ -259,6 +290,10 @@ void Engine::onMetadata(Torrent& t)
         t.have[i] = st.pieces.get_bit(lt::piece_index_t(i));
     t.handle.prioritize_pieces(
         std::vector<lt::download_priority_t>(std::size_t(t.info->num_pieces()), lt::dont_download));
+    // Now it is known whether the open trackers may hear of it.
+    if (!t.info->priv())
+        for (const std::string& tracker : extraTrackers)
+            t.handle.add_tracker(lt::announce_entry(tracker));
 
     const QString saved = QDir(t.dir).filePath(QString::fromLatin1(kMetadataFile));
     if (!QFileInfo::exists(saved)) {
@@ -345,12 +380,14 @@ void Engine::alertLoop()
 // a new search for peers when a torrent someone is reading has none.
 void Engine::refresh(Torrent& t)
 {
+    lt::torrent_handle h;
     {
         std::lock_guard tl(t.mutex);
         if (t.removed || !t.handle.is_valid())
             return;
+        h = t.handle;
     }
-    const lt::torrent_status st = t.handle.status({});
+    const lt::torrent_status st = h.status({});
     std::lock_guard tl(t.mutex);
     if (t.removed)
         return;

@@ -44,7 +44,11 @@ Item {
             current: GridView.isCurrentItem && libraryGrid.activeFocus
             onActivated: { libraryGrid.currentIndex = index; library.open(modelData.key) }
         }
-        Keys.onReturnPressed: library.open(library.items[currentIndex].key)
-        Keys.onEnterPressed: library.open(library.items[currentIndex].key)
+        function openCurrent() {
+            const item = library.items[currentIndex]
+            if (item) library.open(item.key)
+        }
+        Keys.onReturnPressed: openCurrent()
+        Keys.onEnterPressed: openCurrent()
     }
 }

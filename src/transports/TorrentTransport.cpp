@@ -12,7 +12,16 @@
 #include <mpv/stream_cb.h>
 
 namespace cj {
+
 namespace {
+
+// The file a torrent:// URL names, or -1 for "the largest".
+int fileIndexOf(const QUrl& url)
+{
+    bool ok = false;
+    const int index = url.path().mid(1).toInt(&ok);
+    return ok ? index : -1;
+}
 
 const QRegularExpression kHex40(QStringLiteral("^[0-9a-fA-F]{40}$"));
 const QRegularExpression kBase32(QStringLiteral("^[A-Za-z2-7]{32}$"));
@@ -199,7 +208,9 @@ void TorrentTransport::setCurrent(const QUrl& url)
     std::vector<std::shared_ptr<StreamHandle>> others;
     {
         std::lock_guard lock(m_mutex);
-        if (hash == m_currentHash)
+        // Another file of the same torrent (the next episode of a season
+        // pack) is a new item too: its own URL, duration and reports.
+        if (hash == m_currentHash && (hash.isEmpty() || url == m_currentUrl))
             return;
         m_currentHash = hash;
         m_currentUrl = hash.isEmpty() ? QUrl() : url;
@@ -214,6 +225,13 @@ void TorrentTransport::setCurrent(const QUrl& url)
     for (auto& h : others)
         h->cancel();
     m_statusWake.notify_all();
+}
+
+// m_mutex must be held.
+bool TorrentTransport::isCurrent(const StreamHandle& h) const
+{
+    const int file = fileIndexOf(m_currentUrl);
+    return h.infoHash() == m_currentHash && (file < 0 || h.fileIndex() == file);
 }
 
 void TorrentTransport::abort()
@@ -241,7 +259,7 @@ void TorrentTransport::setDuration(double seconds)
     std::lock_guard lock(m_mutex);
     m_duration = seconds;
     for (const auto& weak : m_handles)
-        if (auto h = weak.lock(); h && h->infoHash() == m_currentHash)
+        if (auto h = weak.lock(); h && isCurrent(*h))
             h->setDuration(seconds);
 }
 
@@ -304,7 +322,9 @@ int TorrentTransport::open(const char* uri, mpv_stream_cb_info* info)
         QUrl current;
         {
             std::lock_guard lock(m_mutex);
-            if (hash == m_currentHash)
+            // Only for the file being played: an earlier episode of the
+            // same torrent failing is old news.
+            if (hash == m_currentHash && (fileIndexOf(m_currentUrl) < 0 || fileIndexOf(m_currentUrl) == fileIndex))
                 current = m_currentUrl;
         }
         // Cancelled or closed means the user moved on: nothing to show.
@@ -375,9 +395,11 @@ void TorrentTransport::pollStatus()
         hash = m_currentHash;
         url = m_currentUrl;
         opening = m_opening.contains(hash);
-        // The newest open handle on the current torrent is the one playing.
+        // The newest open handle on the current file is the one playing.
+        // While another file of the same torrent opens, there is none yet:
+        // the torrent's own figures are shown.
         for (auto it = m_handles.rbegin(); it != m_handles.rend() && !handle; ++it)
-            if (auto h = it->lock(); h && h->infoHash() == hash)
+            if (auto h = it->lock(); h && isCurrent(*h))
                 handle = h;
     }
     if (hash.isEmpty() || (!handle && !opening))

@@ -1,4 +1,4 @@
-find_package(Qt6 REQUIRED COMPONENTS OpenGL Quick)
+find_package(Qt6 REQUIRED COMPONENTS Network OpenGL Quick)
 
 add_library(cj_targets STATIC
     MpvTarget.cpp    MpvTarget.h
@@ -7,7 +7,7 @@ add_library(cj_targets STATIC
 )
 target_include_directories(cj_targets PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(cj_targets
-    PUBLIC  cj_common cj_session Qt6::Core Qt6::Quick Qt6::OpenGL
+    PUBLIC  cj_common cj_session Qt6::Core Qt6::Network Qt6::Quick Qt6::OpenGL
     PRIVATE cj::mpv)
 
 if(APPLE)

@@ -42,6 +42,7 @@ public:
     ~LocalLibrary() override;
 
     QString id() const override { return QStringLiteral("local"); }
+    bool idsArePrivate() const override { return true; }  // ids are file paths
     QString name() const override { return QStringLiteral("This computer"); }
 
     QList<CatalogRef> catalogs() const override;

@@ -33,7 +33,7 @@ for f in $formulae; do
     if [ -d "$keg/share/licenses" ]; then
         found="$found $(find -L "$keg/share/licenses" -type f)"
     fi
-    if [ -z "$(echo $found)" ]; then
+    if [ -z "${found//[[:space:]]/}" ]; then
         # A few packages ship no license file; packaging/licenses has them.
         fallback="$ROOT/packaging/licenses/$f"
         case $f in qt*) fallback="$ROOT/packaging/licenses/qt" ;; esac

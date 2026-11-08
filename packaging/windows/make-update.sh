@@ -21,7 +21,7 @@ cp "$here/apply-update.ps1" "$out/_update/"
 cp "$here/apply-update.cmd" "$here/README-update.txt" "$out/"
 
 # New or changed files (manifest.txt itself is not listed in it).
-awk -F'\t' 'NR == FNR { old[$2] = $1; next } old[$2] != $1 { print $2 }' \
+awk -F'\t' 'NR == FNR { old[$2] = $1; next } !($2 in old) || old[$2] != $1 { print $2 }' \
     "$prev/manifest.txt" "$dist/manifest.txt" > "$out/_update/changed.txt"
 echo "manifest.txt" >> "$out/_update/changed.txt"
 # Files the previous build had and this one does not.

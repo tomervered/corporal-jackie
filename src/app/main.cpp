@@ -65,16 +65,23 @@ int main(int argc, char* argv[])
     if (const QString crash = cj::crash::takePreviousReport(paths.logs); !crash.isEmpty())
         qCWarning(lcApp).noquote() << "Previous run crashed:" << crash;
 
+    // Declared in the order they must outlive each other: the transport
+    // outlives mpv (mpv reads its streams until it closes), and both outlive
+    // the core, whose Session drives mpv and whose cache worker asks the
+    // transport. They are made after the core, which holds their settings.
+    std::unique_ptr<cj::TorrentTransport> transport;
+    std::unique_ptr<cj::MpvTarget> target;
+
     // The database, preferences and everything that is not the window.
     cj::AppCore core(paths.data, paths.cache);
 
-    // Torrents reach mpv through this; it must outlive mpv, so it comes first.
-    // Its storage settings are the preferences as they were at start; changes
-    // in Settings apply the next time the app opens.
-    cj::TorrentTransport torrents(core.brokerSettings());
+    // Torrents reach mpv through this. Its storage settings are the
+    // preferences as they were at start; changes in Settings apply the next
+    // time the app opens.
+    transport = std::make_unique<cj::TorrentTransport>(core.brokerSettings());
+    cj::TorrentTransport& torrents = *transport;
 
     // Rule 3: one mpv instance for the whole app, reused for every item.
-    std::unique_ptr<cj::MpvTarget> target;
     try {
         target = std::make_unique<cj::MpvTarget>();
     } catch (const std::exception& e) {

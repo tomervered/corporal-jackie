@@ -61,6 +61,9 @@ public:
 
     Caches(Storage& storage, TorrentTransport& torrents, const QString& imageFolder, QObject* parent = nullptr);
     ~Caches() override;
+    // Waits for a measurement in progress: it asks the torrent transport,
+    // which must still be there.
+    void stop();
 
     // Install on the QML engine before it loads anything; the engine does
     // not take ownership.

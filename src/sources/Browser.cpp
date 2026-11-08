@@ -66,6 +66,15 @@ void Browser::setLocal(LocalLibrary* local)
     addAdapter(local);
 }
 
+// Who may hear an item's ids: every adapter, unless its own adapter's ids
+// are private (a local file's path), and then only that one.
+QList<SourceAdapter*> Browser::adaptersAskedAbout(const QString& owner) const
+{
+    if (SourceAdapter* own = adapterFor(owner); own && own->idsArePrivate())
+        return {own};
+    return m_adapters;
+}
+
 SourceAdapter* Browser::adapterFor(const QString& id) const
 {
     for (SourceAdapter* a : m_adapters)
@@ -262,10 +271,12 @@ void Browser::loadHome()
 {
     m_homeLoaded = true;
     m_homeRows.clear();
+    // Every list, not only those shown: a change to any of them reloads Home.
     m_homeKeys.clear();
+    for (const CatalogRef& c : std::as_const(m_catalogs))
+        m_homeKeys << c.adapter + c.provider + c.type + c.id;
     for (int i = 0; i < m_catalogs.size() && m_homeRows.size() < kHomeRows; ++i) {
         const CatalogRef& c = m_catalogs[i];
-        m_homeKeys << c.adapter + c.provider + c.type + c.id;
         if (c.searchOnly)
             continue;
         Row row;
@@ -436,6 +447,7 @@ void Browser::openVideo(int index)
     m_streamsTitle = title;
     m_streamsType = type;
     m_streamsVideoId = videoId;
+    m_streamsAdapter = m_detail->preview.adapter;
     m_streams.clear();
     m_streamProblems.clear();
     m_streamsLoading = true;
@@ -443,8 +455,9 @@ void Browser::openVideo(int index)
 
     // Every adapter is asked; each answers for what it knows. Results are
     // merged and re-ranked as each provider answers.
-    auto left = std::make_shared<int>(int(m_adapters.size()));
-    for (SourceAdapter* a : std::as_const(m_adapters)) {
+    const QList<SourceAdapter*> asked = adaptersAskedAbout(m_streamsAdapter);
+    auto left = std::make_shared<int>(int(asked.size()));
+    for (SourceAdapter* a : asked) {
         a->fetchStreams(
             type, videoId,
             [this, gen, title](const QList<StreamOption>& streams, const QString& provider, const QString& error) {
@@ -469,7 +482,7 @@ void Browser::openVideo(int index)
                 emit streamsChanged();
             });
     }
-    if (m_adapters.isEmpty()) {
+    if (asked.isEmpty()) {
         m_streamsLoading = false;
         emit streamsChanged();
     }
@@ -521,7 +534,7 @@ void Browser::play(int streamIndex)
     // Subtitle add-ons answer after the video starts; their files are added
     // as tracks to this item only.
     const QUrl playing = m_session->source();
-    for (SourceAdapter* a : std::as_const(m_adapters)) {
+    for (SourceAdapter* a : adaptersAskedAbout(m_streamsAdapter)) {
         QPointer<Session> session(m_session);
         a->fetchSubtitles(m_streamsType, m_streamsVideoId, [session, playing](const QList<SubtitleSource>& subs) {
             if (session && !subs.isEmpty())

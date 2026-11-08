@@ -45,8 +45,10 @@ inline void writeFile(const QString& path, const QByteArray& data)
         qFatal("Could not write %s", qPrintable(path));
 }
 
-// A v1 torrent of `content` (a file or a folder) inside `root`.
-inline std::shared_ptr<lt::torrent_info> createTorrent(const QString& content, const QString& root, int pieceSize)
+// A v1 torrent of `content` (a file or a folder) inside `root`, bencoded.
+// `priv` marks it private (BEP 27); `tracker`, if given, is its own tracker.
+inline std::vector<char> createTorrentFile(const QString& content, const QString& root, int pieceSize,
+                                           bool priv = false, const std::string& tracker = {})
 {
     const std::string path = QFile::encodeName(content).toStdString();
 #if LIBTORRENT_VERSION_NUM >= 20100
@@ -56,10 +58,18 @@ inline std::shared_ptr<lt::torrent_info> createTorrent(const QString& content, c
     lt::add_files(fs, path);
     lt::create_torrent ct(fs, pieceSize, lt::create_torrent::v1_only);
 #endif
+    ct.set_priv(priv);
+    if (!tracker.empty())
+        ct.add_tracker(tracker);
     lt::set_piece_hashes(ct, QFile::encodeName(root).toStdString());
     std::vector<char> buffer;
     lt::bencode(std::back_inserter(buffer), ct.generate());
-    return lt::load_torrent_buffer(buffer).ti;
+    return buffer;
+}
+
+inline std::shared_ptr<lt::torrent_info> createTorrent(const QString& content, const QString& root, int pieceSize)
+{
+    return lt::load_torrent_buffer(createTorrentFile(content, root, pieceSize)).ti;
 }
 
 struct TestTorrent

@@ -181,8 +181,8 @@ StreamStats Engine::stats(Torrent& t, const Reader& r)
     StreamStats s;
     lt::torrent_status st;
     try {
-        if (t.handle.is_valid())
-            st = t.handle.status({});
+        if (const lt::torrent_handle h = t.currentHandle(); h.is_valid())
+            st = h.status({});
     } catch (const std::exception&) {
         // Removed a moment ago: report no peers.
     }
@@ -261,8 +261,8 @@ StreamStats Engine::torrentStats(const std::string& id)
     }
     StreamStats s;
     try {
-        if (t->handle.is_valid()) {
-            const lt::torrent_status st = t->handle.status({});
+        if (const lt::torrent_handle h = t->currentHandle(); h.is_valid()) {
+            const lt::torrent_status st = h.status({});
             s.peers = st.num_peers;
             s.seeds = st.num_seeds;
             s.downloadRate = st.download_payload_rate;

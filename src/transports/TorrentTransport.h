@@ -85,6 +85,7 @@ private:
     int open(const char* uri, mpv_stream_cb_info* info);
     void statusLoop();
     void pollStatus();
+    bool isCurrent(const StreamHandle& h) const;
 
     BrokerSettings m_settings;
     std::mutex m_brokerMutex;

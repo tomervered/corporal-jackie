@@ -3,6 +3,9 @@
 
 #include <QByteArray>
 #include <QHash>
+#include <QNetworkAccessManager>
+#include <QTemporaryDir>
+#include <QUrl>
 #include <cstdint>
 
 struct mpv_handle;
@@ -72,7 +75,10 @@ private:
     void setProperty(const char* name, const QByteArray& value);
     void startLoad(const QByteArray& target, double startSeconds);
     void applyHeaders();
-    void addSubtitleNow(const SubtitleSource& subtitle);
+    void addSubtitleNow(const SubtitleSource& subtitle, const char* flag);
+    void addSubtitleFile(const QByteArray& path, const char* flag, const SubtitleSource& subtitle);
+    bool needsOwnFetch(const QUrl& url) const;
+    void fetchSubtitle(const SubtitleSource& subtitle, const char* flag);
     void setState(PlaybackState s);
     void updateState();
     void applyCrop();
@@ -87,6 +93,11 @@ private:
     int m_loadsInFlight = 0;      // loadfile sent, START_FILE not yet seen
     double m_pendingStart = 0;
     QMap<QString, QString> m_headers;          // for the item being loaded
+    QUrl m_headersFor;                         // ...and only for its server
+    quint64 m_loadGeneration = 0;              // a subtitle download is for one item
+    QNetworkAccessManager* m_network = nullptr;  // made on the first download
+    QTemporaryDir m_subtitleDir;
+    int m_subtitleFiles = 0;
     QList<SubtitleSource> m_pendingSubtitles;  // added once the file is loaded
 
     PlaybackState m_state = PlaybackState::Idle;

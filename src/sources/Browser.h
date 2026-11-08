@@ -149,6 +149,7 @@ private:
     void rebuildCatalogs();
     void fetchItems(bool append);
     SourceAdapter* adapterFor(const QString& id) const;
+    QList<SourceAdapter*> adaptersAskedAbout(const QString& owner) const;
 
     Session* m_session;
     QList<SourceAdapter*> m_adapters;
@@ -181,6 +182,7 @@ private:
     QString m_streamsTitle;
     QString m_streamsType;
     QString m_streamsVideoId;
+    QString m_streamsAdapter;  // the adapter whose item the streams are for
     VideoEntry m_streamsVideo;
     QList<StreamOption> m_streams;
     bool m_streamsLoading = false;

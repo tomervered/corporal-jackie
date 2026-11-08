@@ -1,6 +1,7 @@
 // Stream broker tests against a local swarm (tests/TorrentHarness.h).
 // Each test makes its own torrents and seeders in a temporary folder.
 
+#include "FakeHttpServer.h"
 #include "StreamBroker.h"
 #include "TorrentHarness.h"
 
@@ -16,6 +17,7 @@
 using namespace cj;
 using harness::Seeder;
 using harness::TestTorrent;
+using test::FakeHttpServer;
 
 namespace {
 
@@ -407,6 +409,44 @@ private slots:
         QVERIFY(h);
         QCOMPARE(h->size(), 8 * MiB);
         QVERIFY(readRange(*h, 0, 2 * MiB) == t.data[0].left(int(2 * MiB)));
+    }
+
+    // The open trackers hear of public torrents only: a private one (BEP 27)
+    // is announced to its own tracker and nowhere else.
+    void openTrackersOnlyForPublicTorrents()
+    {
+        QTemporaryDir dir;
+        FakeHttpServer openTracker;  // stands in for the well-known open trackers
+        FakeHttpServer ownTracker;   // the private torrent's own
+        openTracker.setTracker(1);
+        ownTracker.setTracker(1);
+        BrokerSettings s = testSettings(dir.filePath("cache"));
+        s.extraTrackers = {openTracker.base() + QStringLiteral("/announce")};
+        StreamBroker broker(s);
+
+        const QString root = dir.filePath("private");
+        harness::writeFile(QDir(root).filePath("private.mkv"), harness::testBytes(2 * MiB, 9));
+        const std::vector<char> torrent = harness::createTorrentFile(
+            QDir(root).filePath("private.mkv"), root, kPiece, true, (ownTracker.base() + QStringLiteral("/announce")).toStdString());
+        const QString file = dir.filePath("private.torrent");
+        {
+            QFile f(file);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            QCOMPARE(f.write(torrent.data(), qint64(torrent.size())), qint64(torrent.size()));
+        }
+        auto privateHandle = broker.open({file});
+        QVERIFY(privateHandle);
+        QTRY_VERIFY_WITH_TIMEOUT(!ownTracker.requests.isEmpty(), 10000);
+        QTest::qWait(1500);
+        QVERIFY2(openTracker.requests.isEmpty(), qPrintable(openTracker.paths().join(QLatin1Char(' '))));
+
+        // A public one from a magnet link: once its metadata comes, the open
+        // trackers are asked too.
+        const TestTorrent t = harness::makeTorrent(dir.filePath("seed"), "public.mkv", {2 * MiB}, kPiece, 3);
+        Seeder seeder(t, t.root);
+        auto publicHandle = broker.open({harness::magnet(t, {seeder.port()})});
+        QVERIFY(publicHandle);
+        QTRY_VERIFY_WITH_TIMEOUT(!openTracker.requests.isEmpty(), 10000);
     }
 
     // Resume data saved on close means a reopened torrent knows its verified
