@@ -35,6 +35,10 @@ The small `CorporalJackie.exe` launcher on Windows is plain C, linked statically
 
 Not used, though the build plan named it: KDE MpvQt. Step 1 wrote its own bridge on mpv's render API instead, so it is not a dependency.
 
+## Notices in the packages
+
+CI adds three things to each package: `THIRD_PARTY_NOTICES.txt` (from `packaging/`), a `licenses` folder with the license files of every library in the package, and `SOURCE.txt` with the exact versions and where to get their source. `packaging/windows/collect-licenses.sh` finds the MSYS2 package behind each shipped DLL and fetches the license files of FFmpeg, libplacebo and mpv at the tags `build-mpv.sh` builds. `packaging/macos/collect-licenses.sh` does the same for the Homebrew formulae behind each bundled library. A few packages ship no license file (MSYS2's ICU and libass, Homebrew's Qt and GLib); `packaging/licenses` holds theirs, taken from upstream. The Package step fails when a shipped library has no license file at all. When a dependency with a new license joins, add it to `THIRD_PARTY_NOTICES.txt` too.
+
 ## Version pinning
 
 The Windows mpv, FFmpeg and libplacebo versions are fixed in `packaging/windows/build-mpv.sh`. Everything else takes the package manager's current version, which keeps CI simple while nothing depends on exact versions. The app logs the version of each library it actually loaded at startup, and CI prints them, so any change shows up in the logs.

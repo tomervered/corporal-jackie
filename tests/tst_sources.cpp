@@ -120,8 +120,8 @@ private slots:
 
     void buildsResourceUrls()
     {
-        QCOMPARE(stremio::resourceUrl("https://a.example/x", "stream", "series", "tt0944947:1:1").toString(QUrl::FullyEncoded),
-                 QStringLiteral("https://a.example/x/stream/series/tt0944947%3A1%3A1.json"));
+        QCOMPARE(stremio::resourceUrl("https://a.example/x", "stream", "series", "tt1234567:1:1").toString(QUrl::FullyEncoded),
+                 QStringLiteral("https://a.example/x/stream/series/tt1234567%3A1%3A1.json"));
         QCOMPARE(stremio::resourceUrl("https://a.example", "catalog", "movie", "top",
                                       {{"search", "the office & co"}, {"skip", "100"}}).toString(QUrl::FullyEncoded),
                  QStringLiteral("https://a.example/catalog/movie/top/search=the%20office%20%26%20co&skip=100.json"));
@@ -150,9 +150,9 @@ private slots:
     void turnsStreamsIntoSources()
     {
         const auto streams = stremio::parseStreams(json(R"({"streams": [
-            {"name": "Torrentio\n4k", "title": "Movie.2160p.mkv\n👤 41 💾 15.2 GB", "infoHash": "ABCDEF0123456789ABCDEF0123456789ABCDEF01",
+            {"name": "Example\n4k", "title": "Movie.2160p.mkv\n👤 41 💾 15.2 GB", "infoHash": "ABCDEF0123456789ABCDEF0123456789ABCDEF01",
              "fileIdx": 2, "sources": ["tracker:udp:\/\/tr.example:80/announce", "dht:abcdef"],
-             "behaviorHints": {"bingeGroup": "torrentio|4k", "filename": "Movie.2160p.mkv"}},
+             "behaviorHints": {"bingeGroup": "example|4k", "filename": "Movie.2160p.mkv"}},
             {"name": "Web 720p", "url": "https:\/\/cdn.example/v.mp4",
              "behaviorHints": {"proxyHeaders": {"request": {"Referer": "https:\/\/site.example/"}}, "videoSize": 1048576},
              "subtitles": [{"url": "https:\/\/cdn.example/en.vtt", "lang": "eng"}]},
@@ -172,7 +172,7 @@ private slots:
         QCOMPARE(t.quality, 2160);
         QCOMPARE(t.seeders, 41);
         QCOMPARE(t.sizeBytes, qint64(15.2 * 1024 * 1024 * 1024));
-        QCOMPARE(t.bingeGroup, QStringLiteral("torrentio|4k"));
+        QCOMPARE(t.bingeGroup, QStringLiteral("example|4k"));
         QCOMPARE(t.source.adapter, QStringLiteral("stremio:org.example"));
         QCOMPARE(t.providerName, QStringLiteral("Example"));
 
@@ -189,7 +189,7 @@ private slots:
 
     void readsLabels()
     {
-        QCOMPARE(ranking::qualityOf("Torrentio\n4k DV"), 2160);
+        QCOMPARE(ranking::qualityOf("Example\n4k DV"), 2160);
         QCOMPARE(ranking::qualityOf("Movie.1080p.WEB"), 1080);
         QCOMPARE(ranking::qualityOf("720p"), 720);
         QCOMPARE(ranking::qualityOf("CAM"), 0);
@@ -233,9 +233,9 @@ private slots:
         QTest::addColumn<int>("season");
         QTest::addColumn<int>("episode");
         QTest::addColumn<int>("quality");
-        QTest::newRow("release movie") << "/v/The.Matrix.1999.1080p.BluRay.x264-GRP.mkv" << "The Matrix" << 1999 << 0 << 0 << 1080;
-        QTest::newRow("plain movie") << "/v/Spirited Away (2001).mp4" << "Spirited Away" << 2001 << 0 << 0 << 0;
-        QTest::newRow("year in title") << "/v/2001.A.Space.Odyssey.1968.720p.mkv" << "2001 A Space Odyssey" << 1968 << 0 << 0 << 720;
+        QTest::newRow("release movie") << "/v/Night.of.the.Living.Dead.1968.1080p.BluRay.x264-GRP.mkv" << "Night of the Living Dead" << 1968 << 0 << 0 << 1080;
+        QTest::newRow("plain movie") << "/v/Nosferatu (1922).mp4" << "Nosferatu" << 1922 << 0 << 0 << 0;
+        QTest::newRow("year in title") << "/v/1984.Garden.Tour.2010.720p.mkv" << "1984 Garden Tour" << 2010 << 0 << 0 << 720;
         QTest::newRow("no year") << "/v/Some_Home_Video.avi" << "Some Home Video" << 0 << 0 << 0 << 0;
         QTest::newRow("tagged") << "/v/[Group] Movie Name 2010 [1080p].mkv" << "Movie Name" << 2010 << 0 << 0 << 1080;
         QTest::newRow("SxxEyy") << "/v/Show.Name.S01E02.Pilot.720p.WEB-DL.mkv" << "Show Name" << 0 << 1 << 2 << 720;

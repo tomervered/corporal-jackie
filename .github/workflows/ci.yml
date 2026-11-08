@@ -5,6 +5,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -97,6 +100,7 @@ jobs:
           # The launcher must not need any DLL that is not part of Windows.
           if ldd dist/CorporalJackie.exe | grep -i ucrt64; then echo "launcher depends on MSYS2 DLLs"; exit 1; fi
           cp LICENSE dist/LICENSE.txt
+          packaging/windows/collect-licenses.sh dist "$(cygpath -u "$GITHUB_WORKSPACE")/.deps"
           echo "Top level:"; ls dist
           echo "Files in app: $(find dist/app -type f | wc -l)"
           echo "Total size:"; du -sh dist
@@ -178,6 +182,7 @@ jobs:
           # The bundle ships only the cocoa platform plugin; the runner has a GUI session.
           ./dist/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test
           cp LICENSE dist/LICENSE.txt
+          packaging/macos/collect-licenses.sh dist
           ditto -c -k --keepParent dist CorporalJackie-macos-arm64.zip
 
       - uses: actions/upload-artifact@v4
