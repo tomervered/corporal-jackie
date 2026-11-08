@@ -286,7 +286,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build pkg-config \
-            qt6-base-dev qt6-declarative-dev libmpv-dev libtorrent-rasterbar-dev libsqlite3-dev
+            qt6-base-dev qt6-declarative-dev qml6-module-qtquick qml6-module-qtquick-window qml6-module-qtqml-workerscript \
+            qml6-module-qtquick-controls qml6-module-qtquick-templates qml6-module-qtquick-dialogs \
+            qml6-module-qtquick-layouts qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-shapes \
+            libmpv-dev libtorrent-rasterbar-dev libsqlite3-dev
 
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCJ_WARNINGS_AS_ERRORS=ON -DCJ_SANITIZE=ON

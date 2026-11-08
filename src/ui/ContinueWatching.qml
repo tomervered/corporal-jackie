@@ -7,9 +7,6 @@ import QtQuick.Controls.Basic
 ListView {
     id: row
 
-    property color textColor: "#f2f2f5"
-    property color mutedText: "#9a9aa6"
-    property color accent: "#e8b04b"
     readonly property int tileWidth: 128
     signal resumed()
 
@@ -53,14 +50,14 @@ ListView {
             radius: 6
             color: "#1fffffff"
             border.width: 2
-            border.color: hover.hovered || (tile.ListView.isCurrentItem && row.activeFocus) ? row.accent : "transparent"
+            border.color: hover.hovered || (tile.ListView.isCurrentItem && row.activeFocus) ? Theme.accent : "transparent"
             clip: true
 
             Text {
                 anchors { fill: parent; margins: 10 }
                 visible: poster.status !== Image.Ready
                 text: tile.modelData.name
-                color: row.textColor
+                color: Theme.text
                 font.pixelSize: 14
                 wrapMode: Text.Wrap
                 horizontalAlignment: Text.AlignHCenter
@@ -80,14 +77,14 @@ ListView {
                 anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
                 height: 4
                 color: "#a0000000"
-                Rectangle { width: parent.width * tile.modelData.progress; height: parent.height; color: row.accent }
+                Rectangle { width: parent.width * tile.modelData.progress; height: parent.height; color: Theme.accent }
             }
             Rectangle {
                 anchors.centerIn: parent
                 visible: hover.hovered
                 width: 44; height: 44; radius: 22
                 color: "#c0000000"
-                Text { anchors.centerIn: parent; anchors.horizontalCenterOffset: 2; text: "▶"; color: row.textColor; font.pixelSize: 18 }
+                Text { anchors.centerIn: parent; anchors.horizontalCenterOffset: 2; text: "▶"; color: Theme.text; font.pixelSize: 18 }
             }
             HoverHandler { id: hover }
             TapHandler { onTapped: row.resumeAt(tile.index) }
@@ -106,7 +103,7 @@ ListView {
             anchors { top: art.bottom; topMargin: 6 }
             width: parent.width
             text: tile.modelData.name
-            color: row.textColor
+            color: Theme.text
             font.pixelSize: 13
             elide: Text.ElideRight
         }
@@ -114,7 +111,7 @@ ListView {
             anchors { top: name.bottom; topMargin: 1 }
             width: parent.width
             text: tile.modelData.subtitle !== "" ? tile.modelData.subtitle : row.remaining(tile.modelData)
-            color: row.mutedText
+            color: Theme.muted
             font.pixelSize: 11
             elide: Text.ElideRight
         }

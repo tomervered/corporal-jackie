@@ -1,5 +1,9 @@
 add_library(cj_broker STATIC
+    BrokerEngine.cpp
+    BrokerEngine.h
+    BrokerScheduling.cpp
     BrokerTypes.h
+    BrokerUpkeep.cpp
     MemoryStorage.cpp
     MemoryStorage.h
     StreamBroker.cpp

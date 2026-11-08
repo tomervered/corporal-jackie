@@ -17,6 +17,7 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQmlError>
 #include <QQuickWindow>
 #include <QSslSocket>
 #include <QTimer>
@@ -102,6 +103,12 @@ int main(int argc, char* argv[])
         QDir(bundled).exists())
         engine.addImportPath(bundled);
     core.exposeTo(engine.rootContext());
+    // Every QML warning is a bug: the smoke test fails on any.
+    QStringList qmlWarnings;
+    QObject::connect(&engine, &QQmlEngine::warnings, &app, [&qmlWarnings](const QList<QQmlError>& errors) {
+        for (const QQmlError& e : errors)
+            qmlWarnings << e.toString();
+    });
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
     engine.load(QUrl(QStringLiteral("qrc:/CorporalJackie/Main.qml")));
@@ -139,6 +146,11 @@ int main(int argc, char* argv[])
             if (!core.storage().isOpen()) {
                 qCCritical(lcApp).noquote() << "Smoke test failed: the database did not open:" << core.storage().error();
                 QCoreApplication::exit(4);
+                return;
+            }
+            if (!qmlWarnings.isEmpty()) {
+                qCCritical(lcApp).noquote() << "Smoke test failed: QML warnings:\n" << qmlWarnings.join(QLatin1Char('\n'));
+                QCoreApplication::exit(5);
                 return;
             }
             if (withFile && !(session.hasMedia() && session.position() > 0.5)) {

@@ -6,18 +6,8 @@ target_link_libraries(cj_app PUBLIC cj_common cj_session cj_targets cj_transport
 
 qt_add_executable(corporal-jackie WIN32 MACOSX_BUNDLE main.cpp)
 
-set_source_files_properties(../ui/Main.qml PROPERTIES QT_RESOURCE_ALIAS Main.qml)
-set_source_files_properties(../ui/Pages.qml PROPERTIES QT_RESOURCE_ALIAS Pages.qml)
-set_source_files_properties(../ui/SettingsPanel.qml PROPERTIES QT_RESOURCE_ALIAS SettingsPanel.qml)
-set_source_files_properties(../ui/ContinueWatching.qml PROPERTIES QT_RESOURCE_ALIAS ContinueWatching.qml)
-
-qt_add_qml_module(corporal-jackie
-    URI CorporalJackie
-    VERSION 1.0
-    RESOURCE_PREFIX /
-    QML_FILES ../ui/Main.qml ../ui/Pages.qml ../ui/SettingsPanel.qml ../ui/ContinueWatching.qml
-    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/qml/CorporalJackie"
-)
+include(${PROJECT_SOURCE_DIR}/src/ui/QmlFiles.cmake)
+cj_add_ui_module(corporal-jackie)
 
 set_target_properties(corporal-jackie PROPERTIES
     OUTPUT_NAME                    "CorporalJackie"

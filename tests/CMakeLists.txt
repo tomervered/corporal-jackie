@@ -57,3 +57,11 @@ target_link_libraries(tst_storage PRIVATE cj_storage cj::sqlite)
 # between runs, defaults, import, old settings; preferences and caches.
 cj_add_test(tst_app FakeTarget.h)
 target_link_libraries(tst_app PRIVATE cj_app)
+
+# The window, loaded as the app loads it, against the fake target and a fake
+# add-on: every page opens, keys work, and QML gives no warnings.
+include(${PROJECT_SOURCE_DIR}/src/ui/QmlFiles.cmake)
+find_package(Qt6 REQUIRED COMPONENTS Quick)
+cj_add_test(tst_ui FakeHttpServer.h FakeTarget.h)
+target_link_libraries(tst_ui PRIVATE cj_app Qt6::Gui Qt6::Quick)
+cj_add_ui_module(tst_ui)

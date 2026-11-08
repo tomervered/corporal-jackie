@@ -10,6 +10,7 @@
 #include <QString>
 
 #include <libtorrent/create_torrent.hpp>
+#include <libtorrent/load_torrent.hpp>
 #include <libtorrent/ip_filter.hpp>
 #include <libtorrent/magnet_uri.hpp>
 #include <libtorrent/session.hpp>
@@ -44,6 +45,23 @@ inline void writeFile(const QString& path, const QByteArray& data)
     f.write(data);
 }
 
+// A v1 torrent of `content` (a file or a folder) inside `root`.
+inline std::shared_ptr<lt::torrent_info> createTorrent(const QString& content, const QString& root, int pieceSize)
+{
+    const std::string path = QFile::encodeName(content).toStdString();
+#if LIBTORRENT_VERSION_NUM >= 20100
+    lt::create_torrent ct(lt::list_files(path), pieceSize, lt::create_torrent::v1_only);
+#else
+    lt::file_storage fs;
+    lt::add_files(fs, path);
+    lt::create_torrent ct(fs, pieceSize, lt::create_torrent::v1_only);
+#endif
+    lt::set_piece_hashes(ct, QFile::encodeName(root).toStdString());
+    std::vector<char> buffer;
+    lt::bencode(std::back_inserter(buffer), ct.generate());
+    return lt::load_torrent_buffer(buffer).ti;
+}
+
 struct TestTorrent
 {
     std::shared_ptr<lt::torrent_info> info;
@@ -54,7 +72,11 @@ struct TestTorrent
     // files up by name.
     int indexOf(const QString& fileName) const
     {
+#if LIBTORRENT_VERSION_NUM >= 20100
+        const lt::file_storage& fs = info->layout();
+#else
         const lt::file_storage& fs = info->files();
+#endif
         for (int i = 0; i < fs.num_files(); ++i)
             if (QString::fromStdString(std::string(fs.file_name(lt::file_index_t(i)))) == fileName)
                 return i;
@@ -76,13 +98,7 @@ inline TestTorrent makeTorrent(const QString& root, const QString& name, const s
                                                : QDir(content).filePath(QStringLiteral("file%1.bin").arg(i));
         writeFile(path, t.data.back());
     }
-    lt::file_storage fs;
-    lt::add_files(fs, QFile::encodeName(content).toStdString());
-    lt::create_torrent ct(fs, pieceSize, lt::create_torrent::v1_only);
-    lt::set_piece_hashes(ct, QFile::encodeName(root).toStdString());
-    std::vector<char> buffer;
-    lt::bencode(std::back_inserter(buffer), ct.generate());
-    t.info = std::make_shared<lt::torrent_info>(buffer.data(), int(buffer.size()));
+    t.info = createTorrent(content, root, pieceSize);
     return t;
 }
 
@@ -98,13 +114,7 @@ inline TestTorrent makeTorrentOfFile(const QString& root, const QString& name, c
     t.data.push_back(in.readAll());
     const QString content = QDir(root).filePath(name);
     writeFile(content, t.data.back());
-    lt::file_storage fs;
-    lt::add_files(fs, QFile::encodeName(content).toStdString());
-    lt::create_torrent ct(fs, pieceSize, lt::create_torrent::v1_only);
-    lt::set_piece_hashes(ct, QFile::encodeName(root).toStdString());
-    std::vector<char> buffer;
-    lt::bencode(std::back_inserter(buffer), ct.generate());
-    t.info = std::make_shared<lt::torrent_info>(buffer.data(), int(buffer.size()));
+    t.info = createTorrent(content, root, pieceSize);
     return t;
 }
 
@@ -166,7 +176,10 @@ private:
 
 inline QString magnet(const TestTorrent& t, const std::vector<int>& ports)
 {
-    std::string uri = lt::make_magnet_uri(*t.info);
+    lt::add_torrent_params atp;
+    atp.ti = t.info;
+    atp.name = t.info->name();   // the magnet link's dn=
+    std::string uri = lt::make_magnet_uri(atp);
     for (int port : ports)
         uri += "&x.pe=127.0.0.1:" + std::to_string(port);
     return QString::fromStdString(uri);

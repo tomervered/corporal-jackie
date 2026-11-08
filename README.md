@@ -96,6 +96,8 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
+CI builds with `-DCJ_WARNINGS_AS_ERRORS=ON`, so any compiler warning fails the build, and runs the tests a second time on Linux built with `-DCJ_SANITIZE=ON` (AddressSanitizer and UndefinedBehaviorSanitizer). `tst_ui` loads the real window against a fake player and fails on any QML warning; set `CJ_UI_SHOTS` to a folder to get a picture of each page.
+
 ## Downloading a CI build
 
 Every push builds Windows and macOS packages. Open the latest run under **Actions**, and download `CorporalJackie-windows-x64` or `CorporalJackie-macos-arm64` from its Artifacts section.

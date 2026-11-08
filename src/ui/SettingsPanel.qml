@@ -9,12 +9,9 @@ import QtQuick.Dialogs
 Rectangle {
     id: panel
 
-    property color textColor: "#f2f2f5"
-    property color mutedText: "#9a9aa6"
-    property color accent: "#e8b04b"
     signal closeRequested()
 
-    color: "#141418"
+    color: Theme.panel
     border.color: "#30ffffff"
     radius: 12
 
@@ -33,14 +30,14 @@ Rectangle {
     property string result: ""      // what the last export or import did
 
     component Heading: Text {
-        color: panel.textColor
+        color: Theme.text
         font.pixelSize: 16
         font.weight: Font.DemiBold
         topPadding: 8
     }
     component Note: Text {
         width: parent ? parent.width : implicitWidth
-        color: panel.mutedText
+        color: Theme.muted
         font.pixelSize: 12
         wrapMode: Text.WordWrap
     }
@@ -59,8 +56,8 @@ Rectangle {
             id: texts
             anchors { left: parent.left; right: sw.left; rightMargin: 12; verticalCenter: parent.verticalCenter }
             spacing: 2
-            Text { width: parent.width; text: toggle.title; color: panel.textColor; font.pixelSize: 14; wrapMode: Text.WordWrap }
-            Text { width: parent.width; text: toggle.detail; color: panel.mutedText; font.pixelSize: 12; wrapMode: Text.WordWrap; visible: text !== "" }
+            Text { width: parent.width; text: toggle.title; color: Theme.text; font.pixelSize: 14; wrapMode: Text.WordWrap }
+            Text { width: parent.width; text: toggle.detail; color: Theme.muted; font.pixelSize: 12; wrapMode: Text.WordWrap; visible: text !== "" }
         }
         Switch {
             id: sw
@@ -83,8 +80,8 @@ Rectangle {
             id: actionTexts
             anchors { left: parent.left; right: buttonRow.left; rightMargin: 12; verticalCenter: parent.verticalCenter }
             spacing: 2
-            Text { width: parent.width; text: actionRow.title; color: panel.textColor; font.pixelSize: 14; wrapMode: Text.WordWrap }
-            Text { width: parent.width; text: actionRow.detail; color: panel.mutedText; font.pixelSize: 12; wrapMode: Text.WordWrap; visible: text !== "" }
+            Text { width: parent.width; text: actionRow.title; color: Theme.text; font.pixelSize: 14; wrapMode: Text.WordWrap }
+            Text { width: parent.width; text: actionRow.detail; color: Theme.muted; font.pixelSize: 12; wrapMode: Text.WordWrap; visible: text !== "" }
         }
         Row {
             id: buttonRow
@@ -103,7 +100,7 @@ Rectangle {
         spacing: 6
         Text {
             text: choice.title
-            color: panel.textColor
+            color: Theme.text
             font.pixelSize: 14
         }
         Row {
@@ -126,7 +123,7 @@ Rectangle {
         id: title
         anchors { left: parent.left; top: parent.top; margins: 16 }
         text: "Settings"
-        color: panel.textColor
+        color: Theme.text
         font.pixelSize: 20
         font.weight: Font.DemiBold
     }
@@ -193,7 +190,7 @@ Rectangle {
                 Text {
                     anchors { left: parent.left; verticalCenter: parent.verticalCenter }
                     text: "Font"
-                    color: panel.textColor
+                    color: Theme.text
                     font.pixelSize: 14
                 }
                 ComboBox {
@@ -272,11 +269,11 @@ Rectangle {
                     id: folderColumn
                     anchors { left: parent.left; right: folderButtons.left; rightMargin: 12; verticalCenter: parent.verticalCenter }
                     spacing: 2
-                    Text { text: "Cache folder"; color: panel.textColor; font.pixelSize: 14 }
+                    Text { text: "Cache folder"; color: Theme.text; font.pixelSize: 14 }
                     Text {
                         width: parent.width
                         text: preferences.cacheFolder
-                        color: panel.mutedText
+                        color: Theme.muted
                         font.pixelSize: 12
                         elide: Text.ElideMiddle
                     }
@@ -304,12 +301,12 @@ Rectangle {
                 height: restartNote.implicitHeight + 16
                 radius: 8
                 color: "#33e8b04b"
-                border.color: panel.accent
+                border.color: Theme.accent
                 Text {
                     id: restartNote
                     anchors { fill: parent; margins: 8 }
                     text: "Torrent storage changes apply the next time you open Corporal Jackie."
-                    color: panel.textColor
+                    color: Theme.text
                     font.pixelSize: 13
                     wrapMode: Text.WordWrap
                 }

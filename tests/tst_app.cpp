@@ -35,18 +35,25 @@ namespace {
 struct Run
 {
     explicit Run(const QString& root)
-        : core(QDir(root).filePath(QStringLiteral("data")), QDir(root).filePath(QStringLiteral("cache")))
+        : owned(std::make_unique<AppCore>(QDir(root).filePath(QStringLiteral("data")),
+                                          QDir(root).filePath(QStringLiteral("cache"))))
+        , core(*owned)
     {
         BrokerSettings s = core.brokerSettings();
         s.loopbackOnly = true;
         torrents = std::make_unique<TorrentTransport>(s);
         core.start(&target, *torrents, false);
     }
-    ~Run() { core.storage().flush(); }
+    ~Run()
+    {
+        core.storage().flush();
+        owned.reset();   // before the target and transport it uses
+    }
 
-    AppCore core;
     FakeTarget target;
     std::unique_ptr<TorrentTransport> torrents;
+    std::unique_ptr<AppCore> owned;
+    AppCore& core;
 };
 
 QStringList addonUrls(const StremioAdapter& addons)

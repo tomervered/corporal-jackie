@@ -3,6 +3,7 @@ import QtQuick.Window
 import QtQuick.Controls.Basic
 import QtQuick.Dialogs
 import CorporalJackie
+import "Format.js" as Format
 
 // The main window. It binds only to `session` (the Playback Session) and never
 // to the player behind it, so a Cast target can replace it later.
@@ -16,10 +17,6 @@ Window {
     color: "black"
     title: (session.hasMedia || session.loading) && session.title !== "" ? session.title + " — Corporal Jackie" : "Corporal Jackie"
 
-    readonly property color textColor: "#f2f2f5"
-    readonly property color mutedText: "#9a9aa6"
-    readonly property color accent: "#e8b04b"
-    readonly property color panel: "#e01a1a20"
     property bool controlsVisible: true
     property bool statsVisible: false
     property bool helpVisible: false
@@ -29,20 +26,11 @@ Window {
     property bool settingsVisible: false
     property string errorText: ""
     property string osdText: ""
+    // When the pages close by themselves (a video started from them), the
+    // keys go to the player again.
+    onPagesVisibleChanged: if (!pagesVisible && !settingsVisible) inputLayer.forceActiveFocus()
 
     // --- Helpers -----------------------------------------------------------
-
-    function formatTime(seconds) {
-        if (!isFinite(seconds) || seconds < 0) seconds = 0
-        const s = Math.floor(seconds % 60), m = Math.floor(seconds / 60) % 60, h = Math.floor(seconds / 3600)
-        const pad = n => (n < 10 ? "0" : "") + n
-        return h > 0 ? h + ":" + pad(m) + ":" + pad(s) : m + ":" + pad(s)
-    }
-
-    function formatRate(bytesPerSecond) {
-        const mb = bytesPerSecond / (1024 * 1024)
-        return mb >= 1 ? mb.toFixed(1) + " MB/s" : Math.round(bytesPerSecond / 1024) + " KB/s"
-    }
 
     // What a torrent is doing, in words, while the player waits for it.
     readonly property bool streaming: session.streamPhase !== Playback.Inactive
@@ -53,11 +41,11 @@ Window {
         case Playback.FetchingMetadata: return "Getting the file list from " + peers + "…"
         case Playback.Stalled:
             return session.streamPeers === 0 ? "Waiting for peers… still trying"
-                 : "Waiting for the next part… " + peers + " connected, " + formatRate(session.streamRate)
+                 : "Waiting for the next part… " + peers + " connected, " + Format.rate(session.streamRate)
         case Playback.Buffering:
-            return "Buffering " + session.streamPercent + "% · " + peers + " · " + formatRate(session.streamRate)
+            return "Buffering " + session.streamPercent + "% · " + peers + " · " + Format.rate(session.streamRate)
         default:
-            return "Buffering " + session.bufferPercent + "% · " + peers + " · " + formatRate(session.streamRate)
+            return "Buffering " + session.bufferPercent + "% · " + peers + " · " + Format.rate(session.streamRate)
         }
     }
 
@@ -68,11 +56,6 @@ Window {
         if (text === "") return false
         session.openPath(text)
         return true
-    }
-
-    function signedMs(seconds) {
-        const ms = Math.round(seconds * 1000)
-        return (ms > 0 ? "+" : "") + ms + " ms"
     }
 
     function osd(text) {
@@ -145,20 +128,6 @@ Window {
         osd(name.charAt(0).toUpperCase() + name.slice(1) + " " + session[name])
     }
 
-    component BarButton: ToolButton {
-        id: barButton
-        // Never takes keyboard focus: Space must pause, not press the button again.
-        focusPolicy: Qt.NoFocus
-        palette.buttonText: root.textColor
-        font.pixelSize: 13
-        implicitWidth: Math.max(36, implicitContentWidth + 16)
-        implicitHeight: 36
-        background: Rectangle {
-            radius: 6
-            color: barButton.down ? "#40ffffff" : barButton.hovered ? "#26ffffff" : "transparent"
-        }
-    }
-
     // --- Session events ---------------------------------------------------
 
     Connections {
@@ -187,7 +156,7 @@ Window {
     Timer {
         id: hideTimer
         interval: 2500
-        onTriggered: if (session.hasMedia && !session.paused && !controlBar.hovered && !moreMenu.visible) root.controlsVisible = false
+        onTriggered: if (session.hasMedia && !session.paused && !controlBar.inUse) root.controlsVisible = false
     }
 
     // --- Video --------------------------------------------------------------
@@ -204,46 +173,12 @@ Window {
         onAccepted: session.open(selectedFile)
     }
 
-    // "Open a link": a magnet link, an info hash or a web address
-    Popup {
+    LinkPopup {
         id: linkPopup
         anchors.centerIn: parent
         width: Math.min(560, root.width - 48)
-        modal: true
-        focus: true
-        padding: 20
-        background: Rectangle { radius: 12; color: root.panel; border.color: "#30ffffff" }
-        onOpened: { linkField.text = ""; linkField.paste(); linkField.selectAll(); linkField.forceActiveFocus() }
+        onOpenRequested: text => { if (root.openText(text)) linkPopup.close() }
         onClosed: inputLayer.forceActiveFocus()
-        Column {
-            width: parent.width
-            spacing: 12
-            Text {
-                text: "Open a link"
-                color: root.textColor
-                font.pixelSize: 18
-                font.weight: Font.DemiBold
-            }
-            Text {
-                width: parent.width
-                wrapMode: Text.WordWrap
-                text: "A magnet link, a torrent info hash, or a web address of a video."
-                color: root.mutedText
-                font.pixelSize: 13
-            }
-            TextField {
-                id: linkField
-                width: parent.width
-                placeholderText: "magnet:?xt=urn:btih:…"
-                onAccepted: if (root.openText(text)) linkPopup.close()
-            }
-            Row {
-                anchors.right: parent.right
-                spacing: 8
-                Button { text: "Cancel"; onClicked: linkPopup.close() }
-                Button { text: "Open"; enabled: linkField.text.trim() !== ""; onClicked: if (root.openText(linkField.text)) linkPopup.close() }
-            }
-        }
     }
 
     // Reads the clipboard: QML has no clipboard API, but a text field can paste.
@@ -315,12 +250,12 @@ Window {
             }
             // Subtitle and audio sync (Shift = audio)
             case Qt.Key_Z:
-                if (shift) { session.audioDelay = session.audioDelay - 0.1; root.osd("Audio delay " + root.signedMs(session.audioDelay)) }
-                else { session.subtitleDelay = session.subtitleDelay - 0.1; root.osd("Subtitle delay " + root.signedMs(session.subtitleDelay)) }
+                if (shift) { session.audioDelay = session.audioDelay - 0.1; root.osd("Audio delay " + Format.signedMs(session.audioDelay)) }
+                else { session.subtitleDelay = session.subtitleDelay - 0.1; root.osd("Subtitle delay " + Format.signedMs(session.subtitleDelay)) }
                 break
             case Qt.Key_X:
-                if (shift) { session.audioDelay = session.audioDelay + 0.1; root.osd("Audio delay " + root.signedMs(session.audioDelay)) }
-                else { session.subtitleDelay = session.subtitleDelay + 0.1; root.osd("Subtitle delay " + root.signedMs(session.subtitleDelay)) }
+                if (shift) { session.audioDelay = session.audioDelay + 0.1; root.osd("Audio delay " + Format.signedMs(session.audioDelay)) }
+                else { session.subtitleDelay = session.subtitleDelay + 0.1; root.osd("Subtitle delay " + Format.signedMs(session.subtitleDelay)) }
                 break
             case Qt.Key_G:
                 session.subtitleScale = session.subtitleScale + (shift ? -0.1 : 0.1)
@@ -335,8 +270,8 @@ Window {
             case Qt.Key_L:
                 session.toggleAbLoop()
                 root.osd(session.abLoopA < 0 ? "A-B repeat off"
-                         : session.abLoopB < 0 ? "A-B repeat: start set at " + root.formatTime(session.abLoopA)
-                         : "A-B repeat " + root.formatTime(session.abLoopA) + " – " + root.formatTime(session.abLoopB))
+                         : session.abLoopB < 0 ? "A-B repeat: start set at " + Format.time(session.abLoopA)
+                         : "A-B repeat " + Format.time(session.abLoopA) + " – " + Format.time(session.abLoopB))
                 break
             // Picture
             case Qt.Key_A: session.cycleAspectRatio(); root.osd("Aspect: " + (session.aspectRatio || "automatic")); break
@@ -390,33 +325,21 @@ Window {
         visible: session.loading && !session.hasMedia
         color: "#c0000000"
     }
-    Rectangle {
+    Toast {
         anchors.centerIn: parent
         visible: session.loading && !session.hasMedia
-        width: loadingLabel.implicitWidth + 32
-        height: loadingLabel.implicitHeight + 18
-        radius: 10
-        color: "#a0000000"
-        Text {
-            id: loadingLabel
-            anchors.centerIn: parent
-            text: root.streaming ? root.streamText : "Opening…"
-            color: root.textColor
-            font.pixelSize: 18
-        }
+        text: root.streaming ? root.streamText : "Opening…"
     }
 
     // --- Pages: home, discover, details, library... (press B while playing) -----
 
     Pages {
         id: pagesView
+        objectName: "pages"
         visible: root.pagesVisible
         anchors.fill: parent
         // Above the control bar, which stays usable while they are open.
         anchors.bottomMargin: session.hasMedia ? 64 : 0
-        textColor: root.textColor
-        mutedText: root.mutedText
-        accent: root.accent
         onCloseRequested: { root.browseVisible = false; inputLayer.forceActiveFocus() }
         onSettingsRequested: root.toggleSettings()
         onOpenFileRequested: openDialog.open()
@@ -433,67 +356,35 @@ Window {
         // Above the control bar, which stays usable while it is open.
         anchors.bottomMargin: session.hasMedia ? 72 : 16
         width: Math.min(520, parent.width - 32)
-        textColor: root.textColor
-        mutedText: root.mutedText
-        accent: root.accent
         onCloseRequested: { root.settingsVisible = false; inputLayer.forceActiveFocus() }
     }
 
     // --- Overlays ------------------------------------------------------------
 
     // Seek indicator, e.g. "+40 s", while tapping or holding an arrow key
-    Rectangle {
+    Toast {
         anchors.centerIn: parent
         visible: root.seekTotal !== 0
-        width: seekLabel.implicitWidth + 40
-        height: seekLabel.implicitHeight + 20
-        radius: 10
-        color: "#a0000000"
-        Text {
-            id: seekLabel
-            anchors.centerIn: parent
-            text: (root.seekTotal > 0 ? "» +" : "« −") + root.formatTime(Math.abs(root.seekTotal))
-            color: root.textColor
-            font.pixelSize: 28
-            font.weight: Font.DemiBold
-        }
+        text: (root.seekTotal > 0 ? "» +" : "« −") + Format.time(Math.abs(root.seekTotal))
+        fontSize: 28
+        bold: true
     }
 
     // Short messages for shortcuts, top centre
-    Rectangle {
+    Toast {
         anchors { top: parent.top; horizontalCenter: parent.horizontalCenter; topMargin: 24 }
         visible: root.osdText !== "" && root.errorText === ""
-        width: osdLabel.implicitWidth + 28
-        height: osdLabel.implicitHeight + 14
-        radius: 8
-        color: "#b0000000"
-        Text {
-            id: osdLabel
-            anchors.centerIn: parent
-            text: root.osdText
-            color: root.textColor
-            font.pixelSize: 16
-        }
+        text: root.osdText
+        fontSize: 16
     }
 
-    // Buffering
-    Rectangle {
+    // Buffering. A torrent that stalls mid-play shows here too, even before
+    // mpv's own buffer runs out.
+    Toast {
         anchors.centerIn: parent
-        // A torrent that stalls mid-play shows here too, even before mpv's own
-        // buffer runs out.
         visible: root.seekTotal === 0 && session.hasMedia
                  && (session.buffering || session.streamPhase === Playback.Stalled)
-        width: bufferLabel.implicitWidth + 32
-        height: bufferLabel.implicitHeight + 18
-        radius: 10
-        color: "#a0000000"
-        Text {
-            id: bufferLabel
-            anchors.centerIn: parent
-            text: root.streaming ? root.streamText : "Buffering… " + session.bufferPercent + "%"
-            color: root.textColor
-            font.pixelSize: 18
-        }
+        text: root.streaming ? root.streamText : "Buffering… " + session.bufferPercent + "%"
     }
 
     // Error banner
@@ -511,261 +402,35 @@ Window {
             width: Math.min(implicitWidth, root.width - 64)
             wrapMode: Text.WordWrap
             text: root.errorText
-            color: root.textColor
+            color: Theme.text
             font.pixelSize: 14
         }
     }
 
-    // Debug overlay (press I)
-    Rectangle {
+    StatsOverlay {
         anchors { top: parent.top; left: parent.left; margins: 12 }
         visible: root.statsVisible
-        width: stats.implicitWidth + 24
-        height: stats.implicitHeight + 16
-        radius: 6
-        color: "#b0000000"
-        Text {
-            id: stats
-            anchors.centerIn: parent
-            color: root.textColor
-            font.family: "monospace"
-            font.pixelSize: 13
-            text: {
-                let lines = ["Playing on: " + session.targetName]
-                for (const key in session.stats)
-                    lines.push(key + ": " + session.stats[key])
-                lines.push("Speed: " + session.speed + "×")
-                if (root.streaming) lines.push("Torrent: " + session.streamPeers + " peers, " + root.formatRate(session.streamRate)
-                                               + ", " + session.streamBufferedSeconds.toFixed(1) + " s buffered ahead")
-                if (session.subtitleDelay !== 0) lines.push("Subtitle delay: " + root.signedMs(session.subtitleDelay))
-                if (session.audioDelay !== 0) lines.push("Audio delay: " + root.signedMs(session.audioDelay))
-                return lines.join("\n")
-            }
-        }
+        streaming: root.streaming
     }
 
-    // Keyboard shortcuts (press ?)
-    Rectangle {
+    ShortcutsOverlay {
         anchors.centerIn: parent
         visible: root.helpVisible
-        width: helpGrid.implicitWidth + 48
-        height: helpGrid.implicitHeight + 48
-        radius: 12
-        color: root.panel
-        border.color: "#30ffffff"
-        Grid {
-            id: helpGrid
-            anchors.centerIn: parent
-            columns: 4
-            columnSpacing: 16
-            rowSpacing: 6
-            Repeater {
-                model: [
-                    "Space", "Play / pause",               "← →", "Seek (hold to go faster)",
-                    "↑ ↓", "Volume",                        "M", "Mute",
-                    "F", "Full screen",                     "O", "Open a file",
-                    "U", "Open a link (magnet, web)",       "Ctrl+V", "Open the copied link",
-                    "[ ]", "Slower / faster",               "Backspace", "Normal speed",
-                    "J", "Next subtitle track",             "Y", "Next audio track",
-                    "Z X", "Subtitle delay −/+",            "Shift+Z X", "Audio delay −/+",
-                    "G", "Bigger subtitles (Shift: smaller)", "PgUp PgDn", "Previous / next chapter",
-                    ", .", "Frame back / forward",          "S", "Screenshot",
-                    "L", "A-B repeat",                      "A", "Aspect ratio",
-                    "C", "Crop",                            "1–0", "Contrast, brightness, gamma, saturation, hue",
-                    "R", "Reset picture",                   "I", "Debug overlay",
-                    "H", "Hardware decoding on/off",        "Esc", "Close / leave full screen",
-                    "B", "Browse add-ons and your folders", "P", "Settings",
-                ]
-                Text {
-                    text: modelData
-                    color: index % 2 === 0 ? root.accent : root.textColor
-                    font.pixelSize: 14
-                    font.weight: index % 2 === 0 ? Font.DemiBold : Font.Normal
-                }
-            }
-        }
     }
 
     // --- Controls bar ---------------------------------------------------------
 
-    Rectangle {
+    ControlBar {
         id: controlBar
-        property bool hovered: barHover.hovered
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-        height: 64
         visible: session.hasMedia
-        opacity: root.controlsVisible ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 200 } }
-        gradient: Gradient {
-            GradientStop { position: 0; color: "#00000000" }
-            GradientStop { position: 1; color: "#d0000000" }
-        }
-        HoverHandler { id: barHover }
-
-        Row {
-            id: leftGroup
-            anchors { left: parent.left; leftMargin: 12; verticalCenter: parent.verticalCenter }
-            spacing: 8
-            BarButton {
-                text: session.paused || session.state === Playback.Ended ? "▶" : "❚❚"
-                font.pixelSize: 16
-                onClicked: session.togglePause()
-            }
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                text: root.formatTime(seek.pressed ? seek.value : session.position) + " / " + root.formatTime(session.duration)
-                color: root.textColor
-                font.pixelSize: 13
-            }
-        }
-
-        Slider {
-            id: seek
-            anchors { left: leftGroup.right; right: rightGroup.left; leftMargin: 12; rightMargin: 12; verticalCenter: parent.verticalCenter }
-            from: 0
-            to: Math.max(1, session.duration)
-            value: pressed ? value : session.position
-            onMoved: session.seek(value)
-
-            // Chapter marks
-            Repeater {
-                model: session.chapters
-                Rectangle {
-                    visible: modelData.start > 0 && session.duration > 0
-                    x: seek.leftPadding + (modelData.start / session.duration) * seek.availableWidth - 1
-                    y: seek.topPadding + seek.availableHeight / 2 - 5
-                    width: 2; height: 10
-                    color: root.accent
-                }
-            }
-            // A-B repeat range
-            Rectangle {
-                visible: session.abLoopA >= 0 && session.duration > 0
-                x: seek.leftPadding + (session.abLoopA / Math.max(1, session.duration)) * seek.availableWidth
-                width: session.abLoopB >= 0 ? ((session.abLoopB - session.abLoopA) / Math.max(1, session.duration)) * seek.availableWidth : 2
-                y: seek.topPadding + seek.availableHeight / 2 + 6
-                height: 3
-                color: root.accent
-            }
-        }
-
-        Row {
-            id: rightGroup
-            anchors { right: parent.right; rightMargin: 12; verticalCenter: parent.verticalCenter }
-            spacing: 4
-            BarButton {
-                text: session.muted || session.volume === 0 ? "Muted" : "Vol"
-                onClicked: session.muted = !session.muted
-            }
-            Slider {
-                width: 100
-                anchors.verticalCenter: parent.verticalCenter
-                from: 0; to: 100
-                value: session.volume
-                onMoved: { session.volume = value; if (session.muted) session.muted = false }
-            }
-            BarButton {
-                id: moreButton
-                text: "Options"
-                onClicked: moreMenu.open()
-
-                Menu {
-                    id: moreMenu
-                    y: -height
-
-                    Menu {
-                        id: audioMenu
-                        title: "Audio track"
-                        enabled: session.audioTracks.length > 0
-                        Instantiator {
-                            model: session.audioTracks
-                            delegate: MenuItem {
-                                text: modelData.label
-                                checkable: true
-                                checked: modelData.selected
-                                onTriggered: session.setAudioTrack(modelData.id)
-                            }
-                            onObjectAdded: (index, object) => audioMenu.insertItem(index, object)
-                            onObjectRemoved: (index, object) => audioMenu.removeItem(object)
-                        }
-                    }
-
-                    Menu {
-                        id: subtitleMenu
-                        title: "Subtitles"
-                        MenuItem {
-                            text: "Off"
-                            checkable: true
-                            checked: session.subtitleTrack < 0
-                            onTriggered: session.setSubtitleTrack(-1)
-                        }
-                        Instantiator {
-                            model: session.subtitleTracks
-                            delegate: MenuItem {
-                                text: modelData.label
-                                checkable: true
-                                checked: modelData.selected
-                                onTriggered: session.setSubtitleTrack(modelData.id)
-                            }
-                            onObjectAdded: (index, object) => subtitleMenu.insertItem(index + 1, object)
-                            onObjectRemoved: (index, object) => subtitleMenu.removeItem(object)
-                        }
-                        MenuSeparator {}
-                        MenuItem { text: "Load subtitle file…"; onTriggered: subtitleDialog.open() }
-                    }
-
-                    Menu {
-                        title: "Speed (" + session.speed + "×)"
-                        Repeater {
-                            model: [0.5, 0.75, 1, 1.25, 1.5, 2]
-                            MenuItem {
-                                text: modelData + "×"
-                                checkable: true
-                                checked: session.speed === modelData
-                                onTriggered: session.speed = modelData
-                            }
-                        }
-                    }
-
-                    MenuSeparator {}
-                    MenuItem {
-                        text: "Aspect ratio: " + (session.aspectRatio || "automatic")
-                        enabled: session.supports("AspectRatio")
-                        onTriggered: session.cycleAspectRatio()
-                    }
-                    MenuItem {
-                        text: "Crop: " + (session.crop || "none")
-                        enabled: session.supports("Crop")
-                        onTriggered: session.cycleCrop()
-                    }
-                    MenuItem {
-                        text: "Reset picture"
-                        enabled: session.supports("VideoEqualizer")
-                        onTriggered: session.resetEqualizer()
-                    }
-                    MenuItem {
-                        text: "Take screenshot"
-                        enabled: session.supports("Screenshot")
-                        onTriggered: session.screenshot()
-                    }
-                    MenuSeparator {}
-                    MenuItem { text: "Settings…"; onTriggered: root.toggleSettings() }
-                    MenuItem { text: "Keyboard shortcuts"; onTriggered: root.helpVisible = true }
-                }
-            }
-            BarButton {
-                text: "Browse"
-                onClicked: root.toggleBrowse()
-            }
-            BarButton {
-                text: "Open"
-                onClicked: openDialog.open()
-            }
-            BarButton {
-                text: root.visibility === Window.FullScreen ? "Exit full screen" : "Full screen"
-                onClicked: root.toggleFullscreen()
-            }
-        }
+        shown: root.controlsVisible
+        fullScreen: root.visibility === Window.FullScreen
+        onOpenRequested: openDialog.open()
+        onSubtitleFileRequested: subtitleDialog.open()
+        onBrowseRequested: root.toggleBrowse()
+        onSettingsRequested: root.toggleSettings()
+        onShortcutsRequested: root.helpVisible = true
+        onFullScreenRequested: root.toggleFullscreen()
     }
-
 }
