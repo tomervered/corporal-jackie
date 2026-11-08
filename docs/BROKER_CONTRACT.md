@@ -6,7 +6,7 @@ The broker turns one file inside a torrent into bytes that a reader can read at 
 
 `open(request)` takes a magnet link, a 40-character info hash or a path to a `.torrent` file, plus an optional file index and the video's duration if known.
 
-- If the torrent is new, it is added. If it is already loaded, the same torrent is reused and any peers and trackers in the new magnet link are added to it. A torrent that had an error (a full disk, say) clears it and tries again.
+- If the torrent is new, it is added. If it is already loaded, the same torrent is reused and any peers and trackers in the new magnet link are added to it. A .torrent file for a torrent still waiting for metadata hands its metadata over. A torrent that had an error (a full disk, say) clears it and tries again.
 - Torrents are named by their v1 info hash when they have one (the hash in a magnet link's `btih`), so callers can find them by it.
 - The call blocks until the file list (metadata) arrives, the metadata timeout passes (60 s by default), or the caller's cancel check returns true. The file list is saved in the cache, so a torrent watched before opens without waiting for peers.
 - File index -1 picks the largest file.
@@ -57,7 +57,7 @@ libtorrent cannot forget a piece it has verified. So when a reader needs a dropp
 
 `stats()` on a handle gives the state (finding peers, fetching the file list, buffering, stalled, ready), peers, seeds, download and upload speed, how many bytes and seconds are verified in a row from the reader's position, and while buffering, how much of the piece the reader waits for has arrived.
 
-Stalled means the piece the reader waits for got no new data for 10 seconds; data arriving for other pieces does not count. The first time a reader stalls, the log says which piece, how many blocks of it arrived, and how many connected peers have it. Every torrent also announces to a short list of open trackers (`kPublicTrackers`), to every tracker in every tier. The broker keeps trying: when a torrent someone is reading has had no peers for 15 seconds, it asks the trackers and the DHT again.
+Stalled means the piece the reader waits for got no new data for 10 seconds; data arriving for other pieces does not count. The first time a reader stalls, the log says which piece, how many blocks of it arrived, and how many connected peers have it. Every public torrent also announces to a short list of open trackers (`kPublicTrackers`), to every tracker in every tier. They are added only once the torrent's metadata says it is public, so a private torrent (BEP 27) is never announced to them, not even while its metadata is on its way. The broker keeps trying: when a torrent someone is reading has had no peers for 15 seconds, it asks the trackers and the DHT again.
 
 `torrentStats(infoHash)` gives the same for a torrent that is still opening, before there is a handle.
 

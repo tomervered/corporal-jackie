@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <random>
+#include <future>
 #include <thread>
 
 using namespace cj;
@@ -38,6 +39,28 @@ BrokerSettings testSettings(const QString& cacheDir)
     s.loopbackOnly = true;
     s.metadataTimeoutMs = 15000;
     return s;
+}
+
+// Settings for the tracker tests: `openTracker` stands in for the built-in
+// open trackers, and the DHT setting is on, as in the app.
+BrokerSettings trackerSettings(const QString& cacheDir, const FakeHttpServer& openTracker)
+{
+    BrokerSettings s = testSettings(cacheDir);
+    s.extraTrackers = {openTracker.base() + QStringLiteral("/announce")};
+    s.dht = true;
+    return s;
+}
+
+// Opens on another thread: open() waits for metadata, and the fake trackers
+// answer on this one.
+std::future<std::shared_ptr<StreamHandle>> openLater(StreamBroker& broker, const QString& uri)
+{
+    return std::async(std::launch::async, [&broker, uri] { return broker.open({uri}); });
+}
+
+bool ready(const std::future<std::shared_ptr<StreamHandle>>& f)
+{
+    return f.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
 }
 
 // Reads [offset, offset + length) through the handle, in 64 KiB chunks.
@@ -411,45 +434,91 @@ private slots:
         QVERIFY(readRange(*h, 0, 2 * MiB) == t.data[0].left(int(2 * MiB)));
     }
 
-    // The open trackers hear of public torrents only: a private one (BEP 27)
-    // is announced to its own tracker and nowhere else.
-    void openTrackersOnlyForPublicTorrents()
+    // The open trackers hear of a torrent only once its metadata says it is
+    // public (BEP 27: a private one is announced to its own trackers only).
+    // The DHT setting is on, as in the app; the harness keeps real DHT
+    // networking off, so all of this stays on this computer.
+    void openTrackersWaitForPublicMetadata()
     {
         QTemporaryDir dir;
         FakeHttpServer openTracker;  // stands in for the well-known open trackers
-        FakeHttpServer ownTracker;   // the private torrent's own
+        openTracker.setTracker(1);
+        BrokerSettings s = trackerSettings(dir.filePath("cache"), openTracker);
+        const TestTorrent t = harness::makeTorrent(dir.filePath("seed"), "public.mkv", {2 * MiB}, kPiece, 3);
+        {
+            StreamBroker broker(s);
+            // A magnet link with no peers: its metadata cannot come yet.
+            auto waiting = openLater(broker, harness::magnet(t, {}));
+            QTest::qWait(1500);
+            QVERIFY2(openTracker.requests.isEmpty(), qPrintable(openTracker.paths().join(' ')));
+
+            // A peer turns up (a second link to the same torrent names it).
+            Seeder seeder(t, t.root);
+            auto withPeer = openLater(broker, harness::magnet(t, {seeder.port()}));
+            QTRY_VERIFY_WITH_TIMEOUT(ready(waiting) && ready(withPeer), 15000);
+            QVERIFY(waiting.get());
+            QVERIFY(withPeer.get());
+            // Public: the open trackers are asked now.
+            QTRY_VERIFY_WITH_TIMEOUT(!openTracker.requests.isEmpty(), 10000);
+        }
+
+        // Next run: the metadata comes from the cache, already public.
+        openTracker.requests.clear();
+        StreamBroker broker(s);
+        QVERIFY(broker.open({harness::infoHash(t)}));
+        QTRY_VERIFY_WITH_TIMEOUT(!openTracker.requests.isEmpty(), 10000);
+    }
+
+    void privateTorrentNeverMeetsTheOpenTrackers()
+    {
+        QTemporaryDir dir;
+        FakeHttpServer openTracker;
+        FakeHttpServer ownTracker;  // the private torrent's own
         openTracker.setTracker(1);
         ownTracker.setTracker(1);
-        BrokerSettings s = testSettings(dir.filePath("cache"));
-        s.extraTrackers = {openTracker.base() + QStringLiteral("/announce")};
-        // With the DHT on, a magnet link gets them at once (the DHT shows its
-        // hash to strangers anyway). Off, as here, they wait for metadata.
-        s.dht = false;
-        StreamBroker broker(s);
+        const BrokerSettings s = trackerSettings(dir.filePath("cache"), openTracker);
 
-        const QString root = dir.filePath("private");
-        harness::writeFile(QDir(root).filePath("private.mkv"), harness::testBytes(2 * MiB, 9));
+        TestTorrent t;
+        t.root = dir.filePath("private");
+        harness::writeFile(QDir(t.root).filePath("private.mkv"), harness::testBytes(2 * MiB, 9));
         const std::vector<char> torrent = harness::createTorrentFile(
-            QDir(root).filePath("private.mkv"), root, kPiece, true, (ownTracker.base() + QStringLiteral("/announce")).toStdString());
+            QDir(t.root).filePath("private.mkv"), t.root, kPiece, true, (ownTracker.base() + "/announce").toStdString());
+        t.info = lt::load_torrent_buffer(torrent).ti;
+        QVERIFY(t.info->priv());
         const QString file = dir.filePath("private.torrent");
         {
             QFile f(file);
             QVERIFY(f.open(QIODevice::WriteOnly));
             QCOMPARE(f.write(torrent.data(), qint64(torrent.size())), qint64(torrent.size()));
         }
-        auto privateHandle = broker.open({file});
-        QVERIFY(privateHandle);
-        QTRY_VERIFY_WITH_TIMEOUT(!ownTracker.requests.isEmpty(), 10000);
-        QTest::qWait(1500);
-        QVERIFY2(openTracker.requests.isEmpty(), qPrintable(openTracker.paths().join(QLatin1Char(' '))));
+        const QString cache = QDir(s.cacheDir).filePath(harness::infoHash(t));
 
-        // A public one from a magnet link: once its metadata comes, the open
-        // trackers are asked too.
-        const TestTorrent t = harness::makeTorrent(dir.filePath("seed"), "public.mkv", {2 * MiB}, kPiece, 3);
-        Seeder seeder(t, t.root);
-        auto publicHandle = broker.open({harness::magnet(t, {seeder.port()})});
-        QVERIFY(publicHandle);
-        QTRY_VERIFY_WITH_TIMEOUT(!openTracker.requests.isEmpty(), 10000);
+        {
+            StreamBroker broker(s);
+            // A bare magnet link: nobody knows yet that it is private.
+            auto waiting = openLater(broker, harness::magnet(t, {}));
+            QTest::qWait(1500);
+            QVERIFY2(openTracker.requests.isEmpty(), qPrintable(openTracker.paths().join(' ')));
+
+            // Its metadata arrives (the .torrent file of the same torrent), private.
+            auto fromFile = openLater(broker, file);
+            QTRY_VERIFY_WITH_TIMEOUT(ready(waiting) && ready(fromFile), 15000);
+            QVERIFY(waiting.get());
+            QVERIFY(fromFile.get());
+            // Its own tracker is asked; give the open ones every chance too.
+            QTRY_VERIFY_WITH_TIMEOUT(!ownTracker.requests.isEmpty(), 10000);
+            QTest::qWait(1500);
+            QVERIFY2(openTracker.requests.isEmpty(), qPrintable(openTracker.paths().join(' ')));
+        }
+        // Closing saved the file list and the resume data.
+        QVERIFY(QFileInfo::exists(QDir(cache).filePath("metadata.torrent")));
+        QVERIFY(QFileInfo::exists(QDir(cache).filePath("resume.dat")));
+
+        // Next run: reopened from the cached metadata and resume data.
+        StreamBroker broker(s);
+        QVERIFY(broker.open({harness::magnet(t, {})}));
+        QTest::qWait(2000);
+        QVERIFY2(openTracker.requests.isEmpty(), qPrintable(openTracker.paths().join(' ')));
     }
 
     // Resume data saved on close means a reopened torrent knows its verified
