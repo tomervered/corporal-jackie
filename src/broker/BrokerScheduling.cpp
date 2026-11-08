@@ -6,26 +6,38 @@
 namespace cj {
 namespace broker_detail {
 
+// Only the next few pieces of each reader get deadlines. libtorrent works on
+// every piece with a deadline at once, so with a long list the one the
+// player needs next finishes late, behind pieces it needs later (the
+// benchmark stalled 5 s that way). The rest of the read-ahead is wanted at
+// normal priority and, with sequential downloading, arrives in order; beyond
+// it, spare bandwidth fills a buffer at low priority. Never top priority:
+// libtorrent picks those first and in no set order, even in sequential mode.
 void Engine::schedule(Torrent& t, bool force)
 {
     if (t.removed || !t.hasMetadata || !t.handle.is_valid())
         return;
 
     const qint64 pieceLen = t.pieceLength();
-    std::map<int, int> desired;  // piece -> deadline ms
-    auto want = [&](int p, int ms) {
-        if (p < 0 || p >= int(t.have.size()) || t.have[p])
-            return;
+    std::map<int, int> deadlines;                 // piece -> ms
+    std::map<int, lt::download_priority_t> wanted;  // every piece to fetch
+    auto missing = [&](int p) {
+        if (p < 0 || p >= int(t.have.size()) || t.have[std::size_t(p)])
+            return false;
         // Dropped from memory: libtorrent will not fetch it again until the
         // torrent is reloaded without it.
         if (t.evicted.count(p))
             t.reloadWanted = true;
-        auto it = desired.find(p);
-        if (it == desired.end() || ms < it->second)
-            desired[p] = ms;
+        return true;
+    };
+    auto want = [&](int p, lt::download_priority_t prio) {
+        if (!missing(p))
+            return;
+        auto it = wanted.find(p);
+        if (it == wanted.end() || it->second < prio)
+            wanted[p] = prio;
     };
 
-    std::set<int> background;  // after the urgent window, at low priority
     bool anyChange = force;
     t.readers.erase(std::remove_if(t.readers.begin(), t.readers.end(),
                                    [](const std::weak_ptr<Reader>& w) {
@@ -42,60 +54,65 @@ void Engine::schedule(Torrent& t, bool force)
             anyChange = true;
         }
         const double bitrate = r->bitrate();
+        const qint64 fileEnd = r->fileOffset + r->fileSize - 1;
+        const int fileLast = t.pieceAt(fileEnd);
+
+        // Due when the player will reach them at the file's bitrate.
+        for (int p = first, n = 0; p <= fileLast && n < kUrgentPieces; ++p, ++n) {
+            if (!missing(p))
+                continue;
+            const int ms = int(double(qint64(p - first) * pieceLen) * 1000.0 / bitrate);
+            auto it = deadlines.find(p);
+            if (it == deadlines.end() || ms < it->second)
+                deadlines[p] = ms;
+            want(p, lt::top_priority);
+        }
         const qint64 window = qMin(readAheadBytes(bitrate, double(t.downloadRate), pieceLen),
                                    qMax(aheadCap(), 4 * pieceLen));
-        const qint64 fileEnd = r->fileOffset + r->fileSize - 1;
         const int last = t.pieceAt(qMin(pos + window, fileEnd));
-        // Each piece is due when the player will reach it at the file's bitrate.
         for (int p = first; p <= last; ++p)
-            want(p, int(double(qint64(p - first) * pieceLen) * 1000.0 / bitrate));
+            want(p, lt::default_priority);
         const qint64 ahead = std::min({qint64(bitrate * kBackgroundSeconds), kBackgroundMaxBytes, aheadCap()});
         const int bgLast = t.pieceAt(qMin(pos + qMax(window, ahead), fileEnd));
         for (int p = last + 1; p <= bgLast; ++p)
-            if (!t.have[p] && !t.evicted.count(p))
-                background.insert(p);
+            if (!t.evicted.count(p))
+                want(p, lt::low_priority);
 
         // The start and the end of the file hold the container's headers and
-        // index; players read both before the first frame.
+        // index, which players read first. Fetched early, without deadlines:
+        // when the player reads them, its position makes them urgent.
         for (int p = t.pieceAt(r->fileOffset); p <= t.pieceAt(qMin(r->fileOffset + kHeadBytes, fileEnd)); ++p)
-            want(p, 0);
-        for (int p = t.pieceAt(qMax(r->fileOffset, fileEnd - kTailBytes)); p <= t.pieceAt(fileEnd); ++p)
-            want(p, 100);
+            want(p, lt::default_priority);
+        for (int p = t.pieceAt(qMax(r->fileOffset, fileEnd - kTailBytes)); p <= fileLast; ++p)
+            want(p, lt::default_priority);
     }
     if (!anyChange)
         return;
 
     try {
-        for (auto it = background.begin(); it != background.end();)
-            it = desired.count(*it) ? background.erase(it) : std::next(it);
         std::vector<std::pair<lt::piece_index_t, lt::download_priority_t>> priorities;
-        for (const auto& [p, ms] : desired)
-            if (!t.scheduled.count(p))
-                priorities.emplace_back(lt::piece_index_t(p), lt::top_priority);
-        for (int p : background)
-            if (!t.background.count(p) || t.scheduled.count(p))
-                priorities.emplace_back(lt::piece_index_t(p), lt::low_priority);
-        for (const auto& [p, ms] : t.scheduled) {
-            if (!desired.count(p) && !t.have[p]) {
-                t.handle.reset_piece_deadline(lt::piece_index_t(p));
-                if (!background.count(p))
-                    priorities.emplace_back(lt::piece_index_t(p), lt::dont_download);
-            }
+        for (const auto& [p, prio] : wanted) {
+            auto old = t.wanted.find(p);
+            if (old == t.wanted.end() || old->second != prio)
+                priorities.emplace_back(lt::piece_index_t(p), prio);
         }
-        for (int p : t.background)
-            if (!background.count(p) && !desired.count(p) && !t.have[p])
+        for (const auto& [p, prio] : t.wanted)
+            if (!wanted.count(p) && !t.have[std::size_t(p)])
                 priorities.emplace_back(lt::piece_index_t(p), lt::dont_download);
         if (!priorities.empty())
             t.handle.prioritize_pieces(priorities);
-        for (const auto& [p, ms] : desired)
+        for (const auto& [p, ms] : t.scheduled)
+            if (!deadlines.count(p) && !t.have[std::size_t(p)])
+                t.handle.reset_piece_deadline(lt::piece_index_t(p));
+        for (const auto& [p, ms] : deadlines)
             t.handle.set_piece_deadline(lt::piece_index_t(p), ms);
     } catch (const std::exception& e) {
         // The torrent went away under us (removed from the cache).
         qCDebug(lcBroker) << "Scheduling failed:" << e.what();
         return;
     }
-    t.background = std::move(background);
-    t.scheduled = std::move(desired);
+    t.wanted = std::move(wanted);
+    t.scheduled = std::move(deadlines);
 }
 
 bool Engine::holds(Torrent& t, int piece)

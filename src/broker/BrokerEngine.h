@@ -63,6 +63,9 @@ constexpr qint64 kTailBytes = 4 * 1024 * 1024;   // and the index at the end
 constexpr qint64 kPieceCacheBytes = 64 * 1024 * 1024;  // piece copies kept in memory per torrent
 constexpr qint64 kDiskReserve = 2LL * 1024 * 1024 * 1024; // free disk space the cache always leaves
 constexpr auto kStallAfter = std::chrono::seconds(10);    // no new data for the awaited piece
+// Pieces ahead of each reader, its own included, that get deadlines (see
+// Engine::schedule). The rest of the read-ahead comes in order.
+constexpr int kUrgentPieces = 3;
 // Beyond the urgent window, keep downloading at low priority, so spare
 // bandwidth builds a buffer: up to this many seconds of video ahead...
 constexpr double kBackgroundSeconds = 600;
@@ -168,7 +171,7 @@ struct Torrent
     std::set<int> readsPending;
     std::map<int, int> readErrors;
     std::map<int, int> scheduled;  // piece -> deadline in ms, as last sent
-    std::set<int> background;      // pieces wanted at low priority, as last sent
+    std::map<int, lt::download_priority_t> wanted;  // piece -> priority, as last sent
     // RAM only: verified pieces dropped from memory that libtorrent still
     // counts as had. A reader needing one makes the torrent reload.
     std::set<int> evicted;

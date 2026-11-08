@@ -26,14 +26,16 @@ A seek is just a read at a new offset. There is no separate seek call.
 
 Nothing downloads unless a reader needs it. When a torrent's file list arrives, every piece is set to "don't download". Then, for every open handle:
 
-1. The first 4 MB and the last 4 MB of its file get a deadline of now. Players read the container's header and index (MP4 moov, MKV cues) before the first frame.
-2. The pieces from the reader's position to the end of its read-ahead window get deadlines spaced by the file's bitrate: the piece the player needs in 10 seconds is due in 10 seconds.
-3. After the window, the rest of the next ten minutes of video (at most 2 GB, and at most half the cache cap) downloads at low priority with no deadline, so spare bandwidth builds a buffer that rides out a slow patch.
+1. The next 3 pieces from the reader's position, its own included, get deadlines spaced by the file's bitrate. Only these few: libtorrent works on every piece with a deadline at the same time, so with deadlines across the whole window the piece the player needs next finished late, behind pieces it needed later. In the benchmark that cost 5.5 s of stalls per run on disk and 1.2 s in RAM; with 3 deadlines it is 0.
+2. The rest of the read-ahead window, and the first and last 4 MB of the file (the container's header and index: MP4 moov, MKV cues), download at normal priority. The torrent is in sequential mode, so they arrive in order. When the player reads the header or the index, its position makes those pieces urgent like any other.
+3. After the window, the rest of the next ten minutes of video (at most 2 GB, and at most half the cache cap) downloads at low priority, so spare bandwidth builds a buffer that rides out a slow patch.
 4. Pieces that leave every window (after a seek, or when a handle closes) lose their deadline and go back to "don't download".
+
+Top priority is not used: in sequential mode libtorrent picks top-priority pieces before the others and in no set order, which brought the stalls back.
 
 The read-ahead window is `readAheadBytes()` in `src/broker/BrokerTypes.h`: 30 seconds of video at the file's bitrate (size divided by duration, about 12 Mbit/s until the duration is known). It grows to 60 seconds when the swarm is more than 3 times faster than the video, and shrinks to 20 seconds when the swarm is slower than the video. It is never less than 4 pieces or more than 512 MB.
 
-Deadlines are refreshed every second, since libtorrent counts them from the moment they are set. Sequential download mode is never used.
+Deadlines are refreshed every second, since libtorrent counts them from the moment they are set.
 
 ## Cache
 

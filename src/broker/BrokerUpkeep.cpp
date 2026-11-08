@@ -53,6 +53,8 @@ void Engine::reload(const std::shared_ptr<Torrent>& tp)
     }
     atp.save_path = QFile::encodeName(t.dir).toStdString();
     atp.flags &= ~(lt::torrent_flags::auto_managed | lt::torrent_flags::paused);
+    // In order: see Engine::schedule.
+    atp.flags |= lt::torrent_flags::sequential_download;
     atp.piece_priorities.assign(std::size_t(n), lt::dont_download);
 
     const std::size_t refetch = t.evicted.size();
@@ -70,7 +72,7 @@ void Engine::reload(const std::shared_ptr<Torrent>& tp)
     t.handle = fresh;
     t.evicted.clear();
     t.scheduled.clear();
-    t.background.clear();
+    t.wanted.clear();
     t.readsPending.clear();
     t.readErrors.clear();
     t.peersSeenAt = Clock::now();

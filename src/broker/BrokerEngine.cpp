@@ -287,6 +287,8 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
 
     atp.save_path = QFile::encodeName(t->dir).toStdString();
     atp.flags &= ~(lt::torrent_flags::auto_managed | lt::torrent_flags::paused);
+    // In order: see Engine::schedule.
+    atp.flags |= lt::torrent_flags::sequential_download;
     if (atp.ti) {
         // Nothing is wanted until a reader asks for it.
         atp.piece_priorities.assign(std::size_t(atp.ti->num_pieces()), lt::dont_download);
