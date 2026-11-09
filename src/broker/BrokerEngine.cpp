@@ -371,6 +371,7 @@ void Engine::onMetadata(Torrent& t)
 {
     if (t.hasMetadata)
         return;
+    qCDebug(lcBroker) << "TMPDBG onMetadata";
     t.info = t.handle.torrent_file();
     if (!t.info)
         return;
@@ -400,6 +401,7 @@ void Engine::onMetadata(Torrent& t)
                 }
             }
         };
+        qCDebug(lcBroker) << "TMPDBG early want file" << f << "opening" << t.openingFile << "pieces" << t.pieceAt(start) << t.pieceAt(end);
         want(t.pieceAt(start), t.pieceAt(qMin(start + kHeadBytes, end)));
         want(t.pieceAt(qMax(start, end - kTailBytes)), t.pieceAt(end));
     }
@@ -563,6 +565,7 @@ void Engine::handleAlert(lt::alert* a)
             const int p = int(static_cast<int>(pf->piece_index));
             if (p >= 0 && p < int(t->have.size()))
                 t->have[p] = true;
+            qCDebug(lcBroker) << "TMPDBG finished" << p;
             t->evicted.erase(p);
             t->scheduled.erase(p);
             t->lastPieceAt = Clock::now();
