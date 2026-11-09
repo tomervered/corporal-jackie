@@ -338,6 +338,28 @@ private slots:
         ScopedHttp::setStallTimeoutMs(30000);
     }
 
+    // A subtitle file the user picks on this computer still works, through
+    // its own entry point, while a stream with credentials is playing.
+    void userPickedLocalSubtitlePlays()
+    {
+        QTemporaryDir dir;
+        QFile srt(dir.filePath("mine.srt"));
+        QVERIFY(srt.open(QIODevice::WriteOnly));
+        srt.write(srtAnswer().body);
+        srt.close();
+        FakeHttpServer server;
+        server.set("/clip.mkv", clipAnswer());
+        auto source = PlayableSource::fromUrl(QUrl(server.base() + "/clip.mkv"), "Clip");
+        source.headers.insert("Authorization", "Bearer x");
+        MpvTarget target(MpvTarget::Mode::Headless);
+        Session session(&target);
+        session.playSource(source);
+        QTRY_VERIFY_WITH_TIMEOUT(session.hasMedia(), 10000);
+        session.addExternalSubtitle(QUrl::fromLocalFile(srt.fileName()));
+        QTRY_COMPARE_WITH_TIMEOUT(subtitleTracks(session), 1, 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(session.subtitleTrack() > 0, 5000);
+    }
+
     // Only web links and local files become subtitle tracks.
     void subtitleSchemesAreChecked()
     {
