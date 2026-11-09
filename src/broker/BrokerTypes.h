@@ -22,7 +22,7 @@ struct BrokerSettings
     bool dht = true;                         // distributed hash table
     bool localDiscovery = true;              // find peers on the LAN
     bool portMapping = true;                 // UPnP and NAT-PMP
-    bool utp = true;                         // uTP as well as TCP
+    bool utp = true;                         // accept peers calling over uTP (we call over TCP)
     int connectionsLimit = 200;
     int downloadLimit = 0;                   // bytes/s, 0 = unlimited
     int uploadLimit = 0;                     // bytes/s, 0 = unlimited

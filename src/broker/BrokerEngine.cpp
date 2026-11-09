@@ -25,7 +25,10 @@ Engine::Engine(const BrokerSettings& s)
     pack.set_bool(lt::settings_pack::enable_lsd, open && settings.localDiscovery);
     pack.set_bool(lt::settings_pack::enable_upnp, open && settings.portMapping);
     pack.set_bool(lt::settings_pack::enable_natpmp, open && settings.portMapping);
-    pack.set_bool(lt::settings_pack::enable_outgoing_utp, settings.utp);
+    // We call peers over TCP only. In the benchmark's slow swarm, outgoing
+    // uTP connections timed out or crawled, and playback stalled 3-7 s where
+    // TCP stalled 1 s. Peers may still call us over uTP.
+    pack.set_bool(lt::settings_pack::enable_outgoing_utp, false);
     pack.set_bool(lt::settings_pack::enable_incoming_utp, settings.utp);
     pack.set_int(lt::settings_pack::connections_limit, settings.connectionsLimit);
     pack.set_int(lt::settings_pack::download_rate_limit, settings.downloadLimit);
@@ -377,8 +380,30 @@ void Engine::onMetadata(Torrent& t)
     const lt::torrent_status st = t.handle.status(lt::torrent_handle::query_pieces);
     for (int i = 0; i < int(st.pieces.size()) && i < int(t.have.size()); ++i)
         t.have[i] = st.pieces.get_bit(lt::piece_index_t(i));
-    t.handle.prioritize_pieces(
-        std::vector<lt::download_priority_t>(std::size_t(t.info->num_pieces()), lt::dont_download));
+    // Nothing is wanted until a reader asks, except when an open is waiting
+    // for this list: then the start and end of the largest file, its likely
+    // pick, are wanted at once. With nothing wanted even for a moment, we
+    // would tell peers we are no longer interested, they would choke us, and
+    // unchoking again takes them a second (the benchmark's first byte came
+    // 1 s late that way).
+    std::vector<lt::download_priority_t> priorities(std::size_t(t.info->num_pieces()), lt::dont_download);
+    t.wanted.clear();
+    const lt::file_storage& files = fileLayout(*t.info);
+    if (const int f = largestFile(files); t.pendingOpens > 0 && f >= 0 && files.file_size(lt::file_index_t(f)) > 0) {
+        const qint64 start = files.file_offset(lt::file_index_t(f));
+        const qint64 end = start + files.file_size(lt::file_index_t(f)) - 1;
+        auto want = [&](int first, int last) {
+            for (int p = first; p <= last; ++p) {
+                if (!t.have[std::size_t(p)]) {
+                    priorities[std::size_t(p)] = lt::default_priority;
+                    t.wanted[p] = lt::default_priority;
+                }
+            }
+        };
+        want(t.pieceAt(start), t.pieceAt(qMin(start + kHeadBytes, end)));
+        want(t.pieceAt(qMax(start, end - kTailBytes)), t.pieceAt(end));
+    }
+    t.handle.prioritize_pieces(priorities);
     // Now it is known whether the open trackers may hear of it. libtorrent
     // stops its DHT and peer exchange for a private torrent by itself. The
     // private branch only cleans up after older versions: nothing adds them

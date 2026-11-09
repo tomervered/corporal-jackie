@@ -112,6 +112,20 @@ inline const lt::file_storage& fileLayout(const lt::torrent_info& info)
 #endif
 }
 
+// The file an open without a file index plays.
+inline int largestFile(const lt::file_storage& files)
+{
+    int index = -1;
+    qint64 biggest = -1;
+    for (int i = 0; i < files.num_files(); ++i) {
+        if (const qint64 size = files.file_size(lt::file_index_t(i)); size > biggest) {
+            biggest = size;
+            index = i;
+        }
+    }
+    return index;
+}
+
 inline std::string hexOf(const lt::sha1_hash& h)
 {
     std::ostringstream s;

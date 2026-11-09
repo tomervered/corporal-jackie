@@ -69,7 +69,7 @@ Piece data handed to readers is kept in memory up to 64 MB per torrent, so piece
 
 ## Settings
 
-`BrokerSettings`: cache folder and cap, RAM only and its cap, listen port, DHT, local peer discovery, UPnP/NAT-PMP, uTP, connection limit, download and upload limits, metadata timeout. Peer exchange is always on. The app's Settings panel (P) sets the storage options: RAM only and its cap, or the disk cap and cache folder. They apply the next time the app opens, since the engine reads them once.
+`BrokerSettings`: cache folder and cap, RAM only and its cap, listen port, DHT, local peer discovery, UPnP/NAT-PMP, incoming uTP (the broker calls peers over TCP), connection limit, download and upload limits, metadata timeout. Peer exchange is always on. The app's Settings panel (P) sets the storage options: RAM only and its cap, or the disk cap and cache folder. They apply the next time the app opens, since the engine reads them once.
 
 ## Testing
 
