@@ -64,15 +64,13 @@ jobs:
       - name: Test
         env:
           QT_QPA_PLATFORM: offscreen
-          # Temporary files on the runner's fast drive, not C: where the
-          # runner's own MSYS2 keeps /tmp.
-          TMP: ${{ runner.temp }}
-          TEMP: ${{ runner.temp }}
           # Qt's per-function watchdog fires before ctest's 300 s limit and
           # names the hung test function (ctest shows nothing on a timeout).
           QTEST_FUNCTION_TIMEOUT: "150000"
         run: |
           export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
+          # Temporary files on the runner's fast drive (the runner's MSYS2 keeps /tmp on C:).
+          export TMP="$(cygpath -w "$RUNNER_TEMP")" TEMP="$(cygpath -w "$RUNNER_TEMP")"
           ctest --test-dir build -LE bench --output-on-failure
 
       # The console output of a hung test is lost on Windows; the logs keep it.
@@ -86,14 +84,13 @@ jobs:
         if: failure()
         env:
           QT_QPA_PLATFORM: offscreen
-          TMP: ${{ runner.temp }}
-          TEMP: ${{ runner.temp }}
         run: |
           export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
+          # Temporary files on the runner's fast drive (the runner's MSYS2 keeps /tmp on C:).
+          export TMP="$(cygpath -w "$RUNNER_TEMP")" TEMP="$(cygpath -w "$RUNNER_TEMP")"
           pacman -S --noconfirm --needed mingw-w64-ucrt-x86_64-gdb >/dev/null
-          # libtorrent catches access violations in memory-mapped reads on
-          # purpose; gdb stops at each one. Continue past them and show the
-          # last stop, which is the crash if there is one.
+          # gdb stops at every access violation, including any libtorrent
+          # handles itself. Continue past them and show the last stop.
           cont=""; for i in $(seq 200); do cont="$cont -ex bt -ex continue"; done
           gdb -batch -ex "set pagination off" -ex run $cont --args build/tests/tst_broker.exe > gdb.txt 2>&1 || true
           grep -c "received signal" gdb.txt || true
@@ -104,10 +101,10 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
           CJ_BENCH_RUNS: "3"
-          TMP: ${{ runner.temp }}
-          TEMP: ${{ runner.temp }}
         run: |
           export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
+          # Temporary files on the runner's fast drive (the runner's MSYS2 keeps /tmp on C:).
+          export TMP="$(cygpath -w "$RUNNER_TEMP")" TEMP="$(cygpath -w "$RUNNER_TEMP")"
           ctest --test-dir build -L bench -V
 
       - name: Smoke test

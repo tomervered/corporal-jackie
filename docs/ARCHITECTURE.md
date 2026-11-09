@@ -37,7 +37,7 @@ An arrow means "links to and calls". Nothing calls upward, and the rules below a
 
 ## How a byte gets from a peer to mpv
 
-1. libtorrent downloads blocks on its network thread and verifies each piece. On disk, the piece goes into the cache folder through memory-mapped files. In RAM-only mode, `MemoryStorage` keeps it in a map instead, so nothing touches the SSD.
+1. libtorrent downloads blocks on its network thread and verifies each piece. On disk, the piece goes into the cache folder. In RAM-only mode, `MemoryStorage` keeps it in a map instead, so nothing touches the SSD.
 2. libtorrent posts a `piece_finished_alert`. The broker's alert thread marks the piece as had and wakes every reader waiting on the torrent.
 3. The waiting reader asks for the piece's bytes (`read_piece`). libtorrent answers with a `read_piece_alert`; the alert thread keeps a copy for readers (at most 64 MB per torrent) and wakes the reader again.
 4. The reader copies its range into mpv's buffer and returns. mpv demuxes and decodes it (on the GPU where it can) and draws the frame into `MpvVideoItem`.

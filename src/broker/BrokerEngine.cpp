@@ -67,15 +67,12 @@ Engine::Engine(const BrokerSettings& s)
     if (settings.memoryOnly) {
         m_memory = std::make_shared<MemoryRegistry>();
         params.disk_io_constructor = m_memory->constructor(m_memory);
-    } else {
-#if TORRENT_HAVE_MMAP || TORRENT_HAVE_MAP_VIEW_OF_FILE
-        // Memory-mapped files on every system. libtorrent 2.1 (Windows and
-        // macOS builds) defaults to its newer pread backend; with it the
-        // benchmark stalled 0-2 s on disk where 2.0's mmap stalled 0, and
-        // Windows CI crashed and hung now and then inside libtorrent.
-        params.disk_io_constructor = lt::mmap_disk_io_constructor;
-#endif
     }
+    // On disk, libtorrent's own default: pread files with 2.1 (Windows,
+    // macOS), memory-mapped with 2.0 (Linux). Memory-mapped files everywhere
+    // were tried, and Windows CI still crashed inside libtorrent now and
+    // then (built with MinGW, it handles faults in mapped reads by jumping
+    // out of an exception handler).
     m_session = std::make_unique<lt::session>(std::move(params));
     m_thread = std::thread([this] { alertLoop(); });
     if (m_memory)
