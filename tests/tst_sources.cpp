@@ -196,6 +196,10 @@ private slots:
         QCOMPARE(ranking::sizeOf("💾 1,5 GB"), qint64(1.5 * 1024 * 1024 * 1024));
         QCOMPARE(ranking::sizeOf("700 MB"), qint64(700) * 1024 * 1024);
         QCOMPARE(ranking::sizeOf("no size"), qint64(-1));
+        // Found by tests/fuzz: a huge number overflowed qint64.
+        QCOMPARE(ranking::sizeOf(QStringLiteral("%1 MB").arg(QString(80, QLatin1Char('9')))), qint64(-1));
+        QCOMPARE(ranking::sizeOf("1025 TB"), qint64(-1));
+        QCOMPARE(ranking::sizeOf("1024 TB"), qint64(1024) * 1024 * 1024 * 1024 * 1024);
         QCOMPARE(ranking::seedersOf("👤 12 💾 3 GB"), 12);
         QCOMPARE(ranking::seedersOf("Seeders: 7"), 7);
         QCOMPARE(ranking::seedersOf("nothing"), -1);
@@ -575,6 +579,21 @@ private slots:
         QVERIFY(!parse("Bad Name", "v").contains("Bad Name"));
         QCOMPARE(parse("X-Token", "a\tb").value("X-Token"), "a\tb");  // tab is allowed in values
         QCOMPARE(parse("X-Token", "abc\r\nX-Evil: 1").value("Referer"), "https://ok.example/");
+    }
+
+    // An add-on's videoSize is a number of any size; beyond qint64 the
+    // conversion would be undefined.
+    void streamSizesAreBounded()
+    {
+        const auto size = [](const QJsonValue& v) {
+            const QJsonObject json{{"streams", QJsonArray{QJsonObject{{"url", "https://example.com/v.mkv"},
+                                                                       {"behaviorHints", QJsonObject{{"videoSize", v}}}}}}};
+            return stremio::parseStreams(json, "a", "A").value(0).sizeBytes;
+        };
+        QCOMPARE(size(1048576), qint64(1048576));
+        QCOMPARE(size(1e300), qint64(-1));
+        QCOMPARE(size(-5), qint64(-1));
+        QCOMPARE(size("12"), qint64(-1));
     }
 
     // A local video's id is its path. Add-ons, even ones that take any id,
