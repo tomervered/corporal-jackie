@@ -190,6 +190,7 @@ struct Torrent
     // rest stay at priority 0, so libtorrent never creates or sizes them
     // (macOS CI found a whole unread file allocated). Turned on, never off.
     std::vector<lt::download_priority_t> files;
+    int savesWaitingForFlush = 0;  // see Engine::saveResume
     // RAM only: verified pieces dropped from memory that libtorrent still
     // counts as had. A reader needing one makes the torrent reload.
     std::set<int> evicted;
@@ -319,6 +320,7 @@ private:
     void onReadPiece(Torrent& t, const lt::read_piece_alert& rp);  // t.mutex must be held
     void onResumeData(const lt::save_resume_data_alert& rd);
     void saveResume(Torrent& t);
+    void onCacheFlushed(const lt::torrent_handle& h);
     void trimMemory();
     void reload(const std::shared_ptr<Torrent>& t);
     std::shared_ptr<Torrent> find(const lt::torrent_handle& h);

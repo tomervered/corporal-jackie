@@ -90,9 +90,8 @@ void Engine::shutdown()
         return;
     // Save every torrent's resume data while the alert thread still runs to
     // write it, so the next start skips re-checking the files. Paused first,
-    // as libtorrent advises: pausing writes out what is still in memory, so
-    // the saved list of pieces matches the files. Saved unpaused, it could
-    // miss pieces already on disk (Windows CI listed 0 of 8).
+    // so no piece arrives between writing out the cache and the save (see
+    // saveResume()).
     if (m_session && !memoryOnly())
         m_session->pause();
     {
@@ -603,6 +602,8 @@ void Engine::handleAlert(lt::alert* a)
     } else if (auto* rd = lt::alert_cast<lt::save_resume_data_alert>(a)) {
         onResumeData(*rd);
         --m_pendingSaves;
+    } else if (auto* cf = lt::alert_cast<lt::cache_flushed_alert>(a)) {
+        onCacheFlushed(cf->handle);
     } else if (auto* rf = lt::alert_cast<lt::save_resume_data_failed_alert>(a)) {
         qCWarning(lcBroker).noquote() << "Saving resume data failed:" << QString::fromStdString(rf->error.message());
         --m_pendingSaves;

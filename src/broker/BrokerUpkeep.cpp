@@ -90,26 +90,50 @@ void Engine::reload(const std::shared_ptr<Torrent>& tp)
                                << "dropped pieces again";
 }
 
+// In two steps. libtorrent 2.1 hashes a piece before writing it, and its
+// resume data lists only pieces already written (2.0 listed every verified
+// one). Saved at once, it could miss pieces still in memory: Windows CI saved
+// 0 of 8, and a reopen without peers then waited for them. The save's own
+// flush_disk_cache flag does not wait for the writes (libtorrent issue 5121).
+// So the torrent's cache is written out first, and the save follows when
+// libtorrent says it is done (onCacheFlushed).
 void Engine::saveResume(Torrent& t)
 {
     if (memoryOnly())
         return;  // nothing is kept for a later run
+    std::lock_guard tl(t.mutex);
+    if (t.removed || !t.hasMetadata)
+        return;
+    try {
+        t.handle.flush_cache();
+        ++t.savesWaitingForFlush;
+        ++m_pendingSaves;
+    } catch (const std::exception&) {
+        // removed a moment ago: nothing to save
+    }
+}
+
+void Engine::onCacheFlushed(const lt::torrent_handle& h)
+{
+    const auto t = find(h);
+    if (!t)
+        return;
     {
-        std::lock_guard tl(t.mutex);
-        if (t.removed || !t.hasMetadata)
+        // Only flushes asked for by saveResume() lead to a save.
+        std::lock_guard tl(t->mutex);
+        if (t->savesWaitingForFlush == 0)
             return;
+        --t->savesWaitingForFlush;
     }
     try {
         if (lcBroker().isDebugEnabled()) {
-            const lt::torrent_status st = t.handle.status({});
-            qCDebug(lcBroker).noquote() << "Saving resume data of" << QString::fromStdString(t.id) << ": libtorrent has"
-                                        << st.num_pieces << "pieces, state" << int(st.state) << "paused"
-                                        << bool(st.flags & lt::torrent_flags::paused);
+            const lt::torrent_status st = h.status({});
+            qCDebug(lcBroker).noquote() << "Saving resume data of" << QString::fromStdString(t->id) << ": libtorrent has"
+                                        << st.num_pieces << "pieces";
         }
-        ++m_pendingSaves;
-        t.handle.save_resume_data(lt::torrent_handle::save_info_dict | lt::torrent_handle::flush_disk_cache);
+        h.save_resume_data(lt::torrent_handle::save_info_dict);
     } catch (const std::exception&) {
-        --m_pendingSaves;  // removed a moment ago: no alert will come
+        --m_pendingSaves;  // removed a moment ago: no save will come
     }
 }
 
@@ -175,6 +199,8 @@ void Engine::enforceCacheCap(const std::string& keep, qint64 capOverride)
                     continue;  // never delete what someone is watching or opening
                 t->removed = true;
                 t->cv.notify_all();
+                m_pendingSaves -= t->savesWaitingForFlush;  // they will not come
+                t->savesWaitingForFlush = 0;
             }
             m_pendingDeletes.insert(QString::fromStdString(e.id), e.dir);
             m_session->remove_torrent(t->handle, lt::session::delete_files);
