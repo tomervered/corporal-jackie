@@ -345,7 +345,6 @@ Rectangle {
                 Button {
                     text: panel.confirmClear ? "Clear all history?" : "Clear"
                     focusPolicy: Qt.NoFocus
-                    enabled: library.historyCount > 0
                     onClicked: {
                         if (!panel.confirmClear) { panel.confirmClear = true; return }
                         library.clearHistory()

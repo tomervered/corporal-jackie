@@ -49,7 +49,7 @@ Copies the app does not manage are out of its reach: export files, the operating
 
 ### Exports
 
-The default export is meant to be shareable. It leaves out request headers, add-on stream links, signed links (any link with a query or a login), magnet trackers, and the install links of add-ons that hold settings, which it lists by name instead. History entries keep their item ids, so Continue Watching still resumes after an import: the add-on is asked for a stream again. "Everything" keeps all of it, for a private backup. `src/storage/README.md` has the details.
+The default export is meant to be shareable. It leaves out request headers, add-on stream links, signed links (any link with a query or a login), magnet trackers, and the install links of add-ons that hold settings, which it lists by name instead. History entries keep their item ids, so Continue Watching still resumes after an import: the add-on is asked for a stream again. Export in Settings always writes this shareable form. The storage code also has a full mode that keeps all of it (`ExportMode::Full`), but the app does not offer it. `src/storage/README.md` has the details.
 
 ## What is not covered
 
