@@ -334,6 +334,7 @@ private:
     std::unordered_map<std::string, std::shared_ptr<Torrent>> m_torrents;
     QHash<QString, QString> m_pendingDeletes;  // info hash -> folder, until libtorrent is done
     std::condition_variable m_deletesDone;     // an entry left m_pendingDeletes
+    QSet<QString> m_deletesRunning;            // finishDelete is removing these folders now
     std::thread m_thread;
     std::atomic<int> m_pendingSaves{0};
     std::atomic<bool> m_shutdownStarted{false};

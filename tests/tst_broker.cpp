@@ -654,6 +654,38 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(QDir(folder).filePath("resume.dat")), 5000);
     }
 
+    // The same, but the old folder's removal outlasts the open's wait. The
+    // open must not go ahead while the removal runs, or it removes the new
+    // copy's files: it waits for the removal instead of giving up on it.
+    void reopenWhileItsFolderIsBeingRemoved()
+    {
+        QTemporaryDir dir;
+        BrokerSettings s = testSettings(dir.filePath("cache"));
+        s.deleteDelayMsForTests = 1500;  // the removal takes 1.5 s
+        s.deleteWaitMsForTests = 300;    // the open gives up waiting after 0.3 s
+        StreamBroker broker(s);
+        const TestTorrent t = harness::makeTorrent(dir.filePath("seed"), "movie.mkv", {4 * MiB}, kPiece, 22);
+        Seeder seeder(t, t.root);
+        const QString folder = QDir(s.cacheDir).filePath(harness::infoHash(t));
+        {
+            auto h = broker.open({harness::magnet(t, {seeder.port()})});
+            QVERIFY(h);
+            QVERIFY(readRange(*h, 0, 4 * MiB) == t.data[0]);
+        }
+        broker.clearCache();
+        QTest::qWait(200);  // libtorrent's "deleted" alert arrives; the removal starts
+
+        QElapsedTimer opening;
+        opening.start();
+        auto again = broker.open({harness::magnet(t, {seeder.port()})});
+        QVERIFY(again);
+        QVERIFY2(opening.elapsed() >= 1000, "the open went ahead while the old folder was being removed");
+        QVERIFY(readRange(*again, 0, 4 * MiB) == t.data[0]);
+        QTest::qWait(500);
+        QVERIFY2(QDir(folder).exists(), "the old removal took the reopened torrent's folder");
+        QVERIFY(readRange(*again, 0, 4 * MiB) == t.data[0]);
+    }
+
     // Many things at once, as a user switching sources fast would cause:
     // opens, reads, cancels, closes and cache clears on two torrents from
     // several threads, then shutdown with reads still waiting. Nothing may

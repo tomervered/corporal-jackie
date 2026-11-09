@@ -39,6 +39,8 @@ struct BrokerSettings
     // Tests only: finishing a cache deletion waits this long, so a test can
     // reopen the torrent while its old copy is still being deleted.
     int deleteDelayMsForTests = 0;
+    // Tests only: an open waits this long for such a deletion (0: kDeleteWait).
+    int deleteWaitMsForTests = 0;
 };
 
 enum class BrokerError {

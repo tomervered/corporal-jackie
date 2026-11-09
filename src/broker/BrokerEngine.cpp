@@ -211,11 +211,21 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
     // deletion takes the new one's files with it.
     if (const QString qid = QString::fromStdString(id); m_pendingDeletes.contains(qid)) {
         qCInfo(lcBroker).noquote() << "Waiting for the cached copy of" << qid << "to be deleted";
-        if (!m_deletesDone.wait_for(lock, kDeleteWait, [&] { return !m_pendingDeletes.contains(qid) || closing; })) {
-            // libtorrent never said: forget the deletion, so a late alert
-            // cannot remove the new copy's folder.
-            qCWarning(lcBroker).noquote() << "The deletion of" << qid << "did not finish; opening anyway";
-            m_pendingDeletes.remove(qid);
+        const auto wait = settings.deleteWaitMsForTests > 0
+            ? std::chrono::milliseconds(settings.deleteWaitMsForTests)
+            : std::chrono::duration_cast<std::chrono::milliseconds>(kDeleteWait);
+        if (!m_deletesDone.wait_for(lock, wait, [&] { return !m_pendingDeletes.contains(qid) || closing; })) {
+            if (m_deletesRunning.contains(qid)) {
+                // The folder is being removed right now: opening would put
+                // the new copy's files under that removal. It ends on its own.
+                qCWarning(lcBroker).noquote() << "Still deleting the cached copy of" << qid << "; waiting for it";
+                m_deletesDone.wait(lock, [&] { return !m_pendingDeletes.contains(qid) || closing; });
+            } else {
+                // libtorrent never said: forget the deletion, so a late alert
+                // cannot remove the new copy's folder.
+                qCWarning(lcBroker).noquote() << "The deletion of" << qid << "did not finish; opening anyway";
+                m_pendingDeletes.remove(qid);
+            }
         }
     }
     if (auto it = m_torrents.find(id); it != m_torrents.end()) {
@@ -645,6 +655,8 @@ void Engine::finishDelete(const QString& id)
     {
         std::lock_guard lock(m_mutex);
         dir = m_pendingDeletes.value(id);
+        if (!dir.isEmpty())
+            m_deletesRunning.insert(id);
     }
     if (!dir.isEmpty()) {
         if (settings.deleteDelayMsForTests > 0)
@@ -654,6 +666,7 @@ void Engine::finishDelete(const QString& id)
     {
         std::lock_guard lock(m_mutex);
         m_pendingDeletes.remove(id);
+        m_deletesRunning.remove(id);
     }
     m_deletesDone.notify_all();
 }
