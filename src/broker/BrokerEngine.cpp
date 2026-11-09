@@ -205,7 +205,19 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
     }
 
     const std::string id = idOf(atp.info_hashes);
-    std::lock_guard lock(m_mutex);
+    std::unique_lock lock(m_mutex);
+    // Evicted a moment ago and still being deleted: the old copy's files and
+    // folder must be gone before a new copy goes into the same folder, or the
+    // deletion takes the new one's files with it.
+    if (const QString qid = QString::fromStdString(id); m_pendingDeletes.contains(qid)) {
+        qCInfo(lcBroker).noquote() << "Waiting for the cached copy of" << qid << "to be deleted";
+        if (!m_deletesDone.wait_for(lock, kDeleteWait, [&] { return !m_pendingDeletes.contains(qid) || closing; })) {
+            // libtorrent never said: forget the deletion, so a late alert
+            // cannot remove the new copy's folder.
+            qCWarning(lcBroker).noquote() << "The deletion of" << qid << "did not finish; opening anyway";
+            m_pendingDeletes.remove(qid);
+        }
+    }
     if (auto it = m_torrents.find(id); it != m_torrents.end()) {
         reopen(*it->second, atp, req.fileIndex);
         return it->second;
@@ -608,14 +620,10 @@ void Engine::handleAlert(lt::alert* a)
         qCWarning(lcBroker).noquote() << "Saving resume data failed:" << QString::fromStdString(rf->error.message());
         --m_pendingSaves;
     } else if (auto* td = lt::alert_cast<lt::torrent_deleted_alert>(a)) {
-        // libtorrent has deleted the data files: remove what is left.
-        QString dir;
-        {
-            std::lock_guard lock(m_mutex);
-            dir = m_pendingDeletes.take(QString::fromStdString(idOf(td->info_hashes)));
-        }
-        if (!dir.isEmpty())
-            QDir(dir).removeRecursively();
+        finishDelete(QString::fromStdString(idOf(td->info_hashes)));
+    } else if (auto* tf = lt::alert_cast<lt::torrent_delete_failed_alert>(a)) {
+        qCWarning(lcBroker).noquote() << "Deleting a cached torrent's files failed:" << QString::fromStdString(tf->error.message());
+        finishDelete(QString::fromStdString(idOf(tf->info_hashes)));
     } else if (auto* te = lt::alert_cast<lt::torrent_error_alert>(a)) {
         if (auto t = find(te->handle)) {
             std::lock_guard tl(t->mutex);
@@ -625,6 +633,27 @@ void Engine::handleAlert(lt::alert* a)
             t->cv.notify_all();
         }
     }
+}
+
+// libtorrent has deleted an evicted torrent's data files: remove the rest of
+// its folder (resume data, metadata), then let an open waiting for it go on.
+void Engine::finishDelete(const QString& id)
+{
+    QString dir;
+    {
+        std::lock_guard lock(m_mutex);
+        dir = m_pendingDeletes.value(id);
+    }
+    if (!dir.isEmpty()) {
+        if (settings.deleteDelayMsForTests > 0)
+            std::this_thread::sleep_for(std::chrono::milliseconds(settings.deleteDelayMsForTests));
+        QDir(dir).removeRecursively();
+    }
+    {
+        std::lock_guard lock(m_mutex);
+        m_pendingDeletes.remove(id);
+    }
+    m_deletesDone.notify_all();
 }
 
 // The bytes of a piece a reader asked for, or why there are none.
