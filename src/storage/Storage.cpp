@@ -1024,7 +1024,12 @@ QString Storage::importJson(const QByteArray& json)
 QString Storage::sourceKey(const PlayableSource& source)
 {
     const QString opened = source.origin.isEmpty() ? source.url.toString() : source.origin;
-    return isMagnet(opened) ? stableMagnet(opened) : opened;
+    if (!isMagnet(opened))
+        return opened;
+    // Without a v1 hash (a v2-only magnet), the xt and so parts still name
+    // the video; the trackers, which may hold a passkey, never key it.
+    const QString reduced = shareableMagnet(opened);
+    return reduced.isEmpty() ? opened : reduced;
 }
 
 QJsonObject Storage::sourceToJson(const PlayableSource& s)
