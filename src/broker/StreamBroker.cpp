@@ -219,20 +219,29 @@ enum class Wait { Done, Dropped, Stopped, Failed };
 
 // Step 1 of a read: until the piece is downloaded and verified. Alerts can be
 // dropped when libtorrent's queue overflows (many pieces finishing at once),
-// so every 2 s it asks libtorrent directly instead of waiting on one.
+// so every 2 s it asks libtorrent directly instead of waiting on one. (Times,
+// not wake-ups: other pieces finishing wake every reader.)
 template <typename Stopped>
 Wait waitUntilVerified(Engine& engine, Torrent& t, std::unique_lock<std::mutex>& lock, int piece, Stopped stopped)
 {
-    for (int waits = 1; !t.have[std::size_t(piece)]; ++waits) {
+    const auto since = Clock::now();
+    auto askedAt = since;
+    auto loggedAt = since;
+    while (!t.have[std::size_t(piece)]) {
         if (stopped())
             return Wait::Stopped;
         if (t.failed)
             return Wait::Failed;
         t.cv.wait_for(lock, std::chrono::milliseconds(250));
-        if (waits % 40 == 0)
+        const auto now = Clock::now();
+        if (now - loggedAt >= std::chrono::seconds(10)) {
+            loggedAt = now;
             qCDebug(lcBroker).noquote() << "Read of piece" << piece << "of" << QString::fromStdString(t.id)
-                                        << "still waits for the download after" << waits / 4 << "s";
-        if (waits % 8 == 0 && !t.have[std::size_t(piece)]) {
+                                        << "still waits for the download after"
+                                        << std::chrono::duration_cast<std::chrono::seconds>(now - since).count() << "s";
+        }
+        if (now - askedAt >= std::chrono::seconds(2) && !t.have[std::size_t(piece)]) {
+            askedAt = now;
             try {
                 if (engine.holds(t, piece)) {
                     qCInfo(lcBroker) << "Piece" << piece << "was done without an alert";
@@ -252,17 +261,18 @@ template <typename Stopped>
 Wait waitForBytes(Torrent& t, std::unique_lock<std::mutex>& lock, int piece, Stopped stopped)
 {
     bool rested = false;
-    for (int waits = 1; !t.pieces.count(piece); ++waits) {
+    auto askedAt = Clock::now();
+    while (!t.pieces.count(piece)) {
         if (stopped())
             return Wait::Stopped;
         if (!t.have[std::size_t(piece)])
             return Wait::Dropped;
         if (t.readErrors[piece] > 10)
             return Wait::Failed;
-        if (waits % 20 == 0) {
+        if (t.readsPending.count(piece) && Clock::now() - askedAt >= std::chrono::seconds(5)) {
             qCDebug(lcBroker).noquote() << "Read of piece" << piece << "of" << QString::fromStdString(t.id)
-                                        << "has no bytes after" << waits / 4 << "s; errors" << t.readErrors[piece];
-            t.readsPending.erase(piece);  // 5 s without an answer: ask again
+                                        << "has no bytes after 5 s; errors" << t.readErrors[piece];
+            t.readsPending.erase(piece);  // no answer: ask again
         }
         if (!t.readsPending.count(piece)) {
             // A failed read is asked again after a pause, so a passing state
@@ -278,6 +288,7 @@ Wait waitForBytes(Torrent& t, std::unique_lock<std::mutex>& lock, int piece, Sto
             try {
                 t.handle.read_piece(lt::piece_index_t(piece));
                 t.readsPending.insert(piece);
+                askedAt = Clock::now();
             } catch (const std::exception&) {
                 return t.removed ? Wait::Stopped : Wait::Failed;
             }

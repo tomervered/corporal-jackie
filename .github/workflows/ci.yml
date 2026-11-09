@@ -73,6 +73,21 @@ jobs:
         if: failure()
         run: for f in build/tests/*.log; do echo "== $f"; tail -n 400 "$f"; done
 
+      # A crash inside libtorrent shows only "SegFault"; run the broker test
+      # under gdb, up to three times, for a stack trace.
+      - name: Crash trace
+        if: failure()
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
+          pacman -S --noconfirm --needed mingw-w64-ucrt-x86_64-gdb >/dev/null
+          for i in 1 2 3; do
+            gdb -batch -ex run -ex bt -ex "info registers rip" --args build/tests/tst_broker.exe > gdb.txt 2>&1
+            if grep -q "received signal" gdb.txt; then grep -A40 "received signal" gdb.txt; break; fi
+            echo "run $i: no crash"
+          done
+
       - name: Benchmark
         env:
           QT_QPA_PLATFORM: offscreen
