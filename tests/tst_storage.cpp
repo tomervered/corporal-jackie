@@ -229,16 +229,37 @@ private slots:
             QUrl("magnet:?xt=urn:btih:ABC&tr=https%3A%2F%2Ftracker.example%2Fpasskey000%2Fannounce"), "In the link");
         trackerUrl.kind = PlayableSource::Kind::Torrent;
         record(trackerUrl, {}, 4);
+        // A magnet whose hash is empty still loses its trackers.
+        PlayableSource noHash = PlayableSource::fromUrl(QUrl("torrent://none/0"), "No hash");
+        noHash.origin = "magnet:?xt=urn:btih:&tr=https%3A%2F%2Ftracker.example%2Fpasskey111%2Fannounce";
+        record(noHash, {}, 5);
+        // An imported add-on entry keyed by its signed link, with no link left
+        // in the source: the key is the only place the token is.
+        {
+            HistoryEntry e;
+            e.adapter = "addon.example";
+            e.itemId = "tt2";
+            e.videoId = "tt2";
+            e.key = "url:https://site.example/file.torrent?token=keyToken222";
+            e.source.title = "Keyed by link";
+            e.source.origin = "https://site.example/file.torrent?token=keyToken222";
+            e.position = 100;
+            e.duration = 600;
+            e.updatedAt = 6;
+            from.record(e);
+        }
 
         const QByteArray json = from.exportJson();
-        for (const char* secret : {"passkey456", "signedKey789", "pw0rdXYZ", "passkey000"})
+        for (const char* secret : {"passkey456", "signedKey789", "pw0rdXYZ", "passkey000", "passkey111", "keyToken222"})
             QVERIFY2(!json.contains(secret), secret);
         QVERIFY(json.contains("urn:btmh:1220abcd"));  // still names its video
         Storage to({});
         QCOMPARE(to.importJson(json), QString());
         // The signed direct link has nothing left to find it by; the rest stay.
-        QCOMPARE(to.history().size(), 3);
-        QVERIFY(from.exportJson(Storage::ExportMode::Full).contains("signedKey789"));
+        QCOMPARE(to.history().size(), 5);
+        const QByteArray full = from.exportJson(Storage::ExportMode::Full);
+        for (const char* secret : {"signedKey789", "passkey111", "keyToken222"})
+            QVERIFY2(full.contains(secret), secret);
     }
 
     // Keys written before magnets were keyed by info hash move over once.
