@@ -172,8 +172,10 @@ bool isMagnet(const QString& text) { return text.startsWith(QLatin1String("magne
 // may hold a passkey), peers and the name go either way.
 QString shareableMagnet(const QString& magnet)
 {
+    // stableMagnet() hands back its input when it finds no hash (an empty
+    // btih counts as none); trackers and all.
     const QString stable = stableMagnet(magnet);
-    if (stable.startsWith(QLatin1String("magnet:?xt=urn:btih:")))
+    if (stable != magnet)
         return stable;
     const QUrlQuery query(magnet.mid(magnet.indexOf(QLatin1Char('?')) + 1));
     QUrlQuery kept;
@@ -228,8 +230,16 @@ std::optional<HistoryEntry> shareable(const HistoryEntry& e)
             return std::nullopt;  // a pasted signed link: nothing to find it again by
         }
     }
-    if (out.key.startsWith(QLatin1String("url:")) && !s.url.isEmpty())
-        out.key = QStringLiteral("url:") + Storage::sourceKey(s);
+    // A link key is rebuilt from what is left of the source. With nothing
+    // left (an add-on entry), the add-on's own key names the video.
+    if (out.key.startsWith(QLatin1String("url:"))) {
+        if (!s.url.isEmpty() || !s.origin.isEmpty())
+            out.key = QStringLiteral("url:") + Storage::sourceKey(s);
+        else if (!e.adapter.isEmpty() && !e.itemId.isEmpty())
+            out.key = e.adapter + QLatin1Char(':') + e.itemId + QLatin1Char(':') + e.videoId;
+        else
+            return std::nullopt;
+    }
     return out;
 }
 
