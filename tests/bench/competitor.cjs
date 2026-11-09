@@ -65,13 +65,27 @@ async function main() {
     const playStarted = performance.now();
     let stalls = 0, stallMs = 0, longest = 0;
     const played = Math.min(file.length / 2, 48 * MiB);
+    // Playback reads one stream from the start, as a player reading over
+    // HTTP does (Stremio's server hands torrent-stream's stream to the
+    // player). A new stream per chunk would throw away each client's
+    // read-ahead: torrent-stream then fetched only the chunk being read and
+    // stalled about 2 s on a plain loopback seeder.
+    const stream = file.createReadStream({ start: 0, end: played - 1 });
+    const pull = stream[Symbol.asyncIterator]();
+    let got = 0;
     for (let at = 0; at < played; at += chunk) {
         await sleep(at / (8 * MiB) * 1000 + playStarted - performance.now());
         const start = performance.now();
-        await read(at, chunk);
+        while (got < Math.min(at + chunk, played)) {
+            const { value, done } = await pull.next();
+            if (done)
+                throw new Error('Short read');
+            got += value.length;
+        }
         const elapsed = performance.now() - start;
         if (elapsed > 50) { stalls++; stallMs += elapsed; longest = Math.max(longest, elapsed); }
     }
+    stream.destroy();
     Object.assign(result, { playedBytes: played, playStalls: stalls, playStallMs: Math.round(stallMs), longestStallMs: Math.round(longest) });
     result.seeks = [];
     for (const fraction of [.02, .45, .10, .55, .30, .90, .05, .60, .20, .75, .40, .95, .15, .65, .35, .85, .25, .70, .48, .80]) {
