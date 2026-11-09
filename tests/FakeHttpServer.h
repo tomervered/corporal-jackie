@@ -26,6 +26,8 @@ public:
         int delayMs = 0;    // < 0: never answer
         QString filePath;   // serve this file instead of body
         QByteArray location;
+        QByteArray headers;  // extra header lines, each ending in \r\n
+        int trickleMs = 0;   // > 0: send the body one byte at a time, this far apart
     };
     struct Request
     {
@@ -94,7 +96,9 @@ private:
             // Exact path first, then decoded, then without the query.
             const QString path = QUrl::fromPercentEncoding(req.path.toLatin1());
             const QString noQuery = req.path.section(QLatin1Char('?'), 0, 0);
-            const Answer missing{404, "{}", "application/json", 0, {}, {}};
+            Answer missing;
+            missing.status = 404;
+            missing.body = "{}";
             const Answer a = m_answers.value(req.path, m_answers.value(path, m_answers.value(noQuery, missing)));
             if (a.delayMs < 0)
                 return;  // hang: the client has to give up
@@ -129,9 +133,25 @@ private:
             }
             extra += "Accept-Ranges: bytes\r\n";
         }
+        extra += a.headers;
         QByteArray head = "HTTP/1.1 " + QByteArray::number(status) + (status < 300 ? " OK" : " Error") + "\r\n";
         head += "Content-Type: " + a.contentType + "\r\nContent-Length: " + QByteArray::number(body.size())
               + "\r\nConnection: close\r\n" + extra + "\r\n";
+        if (a.trickleMs > 0) {
+            socket->write(head);
+            auto* timer = new QTimer(socket);
+            auto sent = std::make_shared<qsizetype>(0);
+            QObject::connect(timer, &QTimer::timeout, socket, [socket, timer, body, sent] {
+                if (*sent >= body.size()) {
+                    timer->stop();
+                    socket->disconnectFromHost();
+                    return;
+                }
+                socket->write(body.mid((*sent)++, 1));
+            });
+            timer->start(a.trickleMs);
+            return;
+        }
         socket->write(head + body);
         socket->disconnectFromHost();
     }

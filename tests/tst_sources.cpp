@@ -463,7 +463,11 @@ private slots:
             {"name":"Fast 720p","infoHash":"0123456789abcdef0123456789abcdef01234567","fileIdx":0},
             {"name":"Fast 1080p","url":"http:\/\/127.0.0.1:1/v.mkv"}]})");
         server.setJson("/slow/stream/series/tt1%3A1%3A1.json", R"({"streams":[]})", /*delay*/ -1);
-        server.set("/broken/stream/series/tt1%3A1%3A1.json", {500, "oops", "text/plain", 0, {}});
+        FakeHttpServer::Answer broken;
+        broken.status = 500;
+        broken.body = "oops";
+        broken.contentType = "text/plain";
+        server.set("/broken/stream/series/tt1%3A1%3A1.json", broken);
         server.setJson("/subs/subtitles/series/tt1%3A1%3A1.json", R"({"subtitles":[{"url":"http:\/\/127.0.0.1:1/en.srt","lang":"eng"}]})");
 
         QTemporaryDir data;
@@ -525,6 +529,52 @@ private slots:
         browser.play(1);  // the torrent
         QVERIFY(target.sent("load magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"));
         QTRY_VERIFY(target.sent("subtitleTrack+ http://127.0.0.1:1/en.srt eng"));
+    }
+
+    // An add-on's subtitle must be a web link: not a file on this computer,
+    // not a relative path, not another protocol mpv would try.
+    void remoteSubtitleSchemesAreRestricted_data()
+    {
+        QTest::addColumn<QString>("url");
+        QTest::addColumn<bool>("kept");
+        QTest::newRow("local-file") << "file:///tmp/private.srt" << false;
+        QTest::newRow("relative") << "private.srt" << false;
+        QTest::newRow("absolute-path") << "/etc/passwd" << false;
+        QTest::newRow("unsupported") << "ftp://example.com/private.srt" << false;
+        QTest::newRow("mpv-protocol") << "memory://hello" << false;
+        QTest::newRow("no-host") << "https:///x.srt" << false;
+        QTest::newRow("https-control") << "https://example.com/en.srt" << true;
+        QTest::newRow("http") << "http://example.com/en.srt" << true;
+    }
+
+    void remoteSubtitleSchemesAreRestricted()
+    {
+        QFETCH(QString, url);
+        QFETCH(bool, kept);
+        const QJsonObject json{{"subtitles", QJsonArray{QJsonObject{{"url", url}, {"lang", "en"}}}}};
+        QCOMPARE(stremio::parseSubtitles(json).size(), kept ? 1 : 0);
+        // The same rule for subtitles that come with a stream.
+        const QJsonObject stream{{"streams", QJsonArray{QJsonObject{{"url", "https://example.com/v.mkv"},
+                                                                    {"subtitles", json.value("subtitles")}}}}};
+        QCOMPARE(stremio::parseStreams(stream, "a", "A").value(0).source.subtitles.size(), kept ? 1 : 0);
+    }
+
+    // Header values from an add-on cannot carry a line break (a header or a
+    // request of the add-on's choosing) or any other control character.
+    void streamHeadersRejectControlCharacters()
+    {
+        const auto parse = [](const QString& name, const QString& value) {
+            const QJsonObject hints{{"proxyHeaders", QJsonObject{{"request", QJsonObject{{name, value}, {"Referer", "https://ok.example/"}}}}}};
+            const QJsonObject json{{"streams", QJsonArray{QJsonObject{{"url", "https://example.com/v.mkv"}, {"behaviorHints", hints}}}}};
+            return stremio::parseStreams(json, "a", "A").value(0).source.headers;
+        };
+        QCOMPARE(parse("X-Token", "abc").value("X-Token"), "abc");
+        QVERIFY(!parse("X-Token", "abc\r\nX-Evil: 1").contains("X-Token"));
+        QVERIFY(!parse("X-Token", QString("a") + QChar(0) + "b").contains("X-Token"));
+        QVERIFY(!parse("X-Bad\r\nName", "v").contains("X-Bad\r\nName"));
+        QVERIFY(!parse("Bad Name", "v").contains("Bad Name"));
+        QCOMPARE(parse("X-Token", "a\tb").value("X-Token"), "a\tb");  // tab is allowed in values
+        QCOMPARE(parse("X-Token", "abc\r\nX-Evil: 1").value("Referer"), "https://ok.example/");
     }
 
     // A local video's id is its path. Add-ons, even ones that take any id,
@@ -683,6 +733,126 @@ private slots:
         fetcher.get(QUrl(server.base() + "/big.json"), [&](const QJsonObject&, const QString& e) { w.value = e; });
         QVERIFY(w.wait());
         QCOMPARE(*w.value, QStringLiteral("the answer was too large"));
+    }
+
+    // A small gzip that inflates past the cap is caught on the inflated size.
+    void boundsDecompressedSize()
+    {
+        FakeHttpServer server;
+        const QByteArray inflated = "{\"x\":\"" + QByteArray(4 * 1024 * 1024, 'a') + "\"}";
+        FakeHttpServer::Answer bomb;
+        bomb.body = gzip(inflated);
+        QVERIFY(bomb.body.size() < 64 * 1024);
+        bomb.headers = "Content-Encoding: gzip\r\n";
+        server.set("/bomb.json", bomb);
+        JsonFetcher fetcher;
+        fetcher.setMaxBytes(1024 * 1024);
+        Waiter<QString> w;
+        fetcher.get(QUrl(server.base() + "/bomb.json"), [&](const QJsonObject&, const QString& e) { w.value = e; });
+        QVERIFY(w.wait());
+        QCOMPARE(*w.value, QStringLiteral("the answer was too large"));
+    }
+
+    // A server that never goes quiet but never finishes still ends.
+    void boundsTotalDuration()
+    {
+        FakeHttpServer server;
+        FakeHttpServer::Answer slow;
+        slow.body = "{\"streams\":[]}";
+        slow.trickleMs = 200;
+        server.set("/slow.json", slow);
+        JsonFetcher fetcher;
+        fetcher.setTimeout(1000);
+        fetcher.setDeadline(1500);
+        Waiter<QString> w;
+        QElapsedTimer clock;
+        clock.start();
+        fetcher.get(QUrl(server.base() + "/slow.json"), [&](const QJsonObject&, const QString& e) { w.value = e; });
+        QVERIFY(w.wait());
+        QCOMPARE(*w.value, QStringLiteral("timed out"));
+        QVERIFY(clock.elapsed() < 2900);
+    }
+
+    void redirectLoopsEnd()
+    {
+        FakeHttpServer server;
+        FakeHttpServer::Answer loop;
+        loop.status = 302;
+        loop.location = "/loop.json";
+        server.set("/loop.json", loop);
+        JsonFetcher fetcher;
+        Waiter<QString> w;
+        fetcher.get(QUrl(server.base() + "/loop.json"), [&](const QJsonObject&, const QString& e) { w.value = e; });
+        QVERIFY(w.wait());
+        QVERIFY(!w.value->isEmpty());
+        QVERIFY(server.requests.size() <= JsonFetcher::kMaxRedirects + 1);
+    }
+
+    void malformedAnswersAreErrors_data()
+    {
+        QTest::addColumn<QByteArray>("body");
+        QTest::newRow("empty") << QByteArray();
+        QTest::newRow("array") << QByteArray("[1,2]");
+        QTest::newRow("truncated") << QByteArray("{\"streams\":[{\"url\":");
+        QTest::newRow("binary") << QByteArray("\x00\xff\xfe{", 4);
+    }
+
+    void malformedAnswersAreErrors()
+    {
+        QFETCH(QByteArray, body);
+        FakeHttpServer server;
+        server.setJson("/bad.json", body);
+        JsonFetcher fetcher;
+        Waiter<QString> w;
+        fetcher.get(QUrl(server.base() + "/bad.json"), [&](const QJsonObject&, const QString& e) { w.value = e; });
+        QVERIFY(w.wait());
+        QCOMPARE(*w.value, QStringLiteral("the answer was not JSON"));
+    }
+
+    // Past the cap, requests fail at once instead of piling up.
+    void boundsRequestsInFlight()
+    {
+        FakeHttpServer server;
+        server.setJson("/hang.json", "{}", -1);
+        JsonFetcher fetcher;
+        int refused = 0;
+        for (int i = 0; i < JsonFetcher::kMaxInFlight + 3; ++i)
+            fetcher.get(QUrl(server.base() + "/hang.json"), [&](const QJsonObject&, const QString& e) {
+                refused += e == QStringLiteral("too many requests");
+            });
+        QTRY_COMPARE(refused, 3);
+        QCOMPARE(fetcher.inFlight(), JsonFetcher::kMaxInFlight);
+        fetcher.abortAll();
+        QTRY_COMPARE(fetcher.inFlight(), 0);
+    }
+
+private:
+    // gzip framing around zlib's deflate stream, as a web server sends it.
+    static QByteArray gzip(const QByteArray& data)
+    {
+        QByteArray z = qCompress(data, 9);
+        z = z.mid(4);  // qCompress puts the length first
+        // zlib stream: 2-byte header, deflate data, 4-byte Adler-32.
+        const QByteArray deflate = z.mid(2, z.size() - 6);
+        QByteArray out("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03", 10);
+        out += deflate;
+        const quint32 crc = crc32(data);
+        const quint32 size = quint32(data.size());
+        for (int i = 0; i < 4; ++i)
+            out += char((crc >> (8 * i)) & 0xff);
+        for (int i = 0; i < 4; ++i)
+            out += char((size >> (8 * i)) & 0xff);
+        return out;
+    }
+    static quint32 crc32(const QByteArray& data)
+    {
+        quint32 crc = 0xffffffffu;
+        for (char ch : data) {
+            crc ^= quint8(ch);
+            for (int k = 0; k < 8; ++k)
+                crc = (crc >> 1) ^ (0xedb88320u & (0u - (crc & 1u)));
+        }
+        return ~crc;
     }
 };
 
