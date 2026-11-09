@@ -100,7 +100,10 @@ void Engine::saveResume(Torrent& t)
     }
     try {
         ++m_pendingSaves;
-        t.handle.save_resume_data(lt::torrent_handle::save_info_dict);
+        // Flushed first: a piece still being written is otherwise left out,
+        // and a reopen without peers waits for it although it is on disk
+        // (Windows CI, reopensFromCacheWithoutPeers: 3 of 8 pieces saved).
+        t.handle.save_resume_data(lt::torrent_handle::save_info_dict | lt::torrent_handle::flush_disk_cache);
     } catch (const std::exception&) {
         --m_pendingSaves;  // removed a moment ago: no alert will come
     }

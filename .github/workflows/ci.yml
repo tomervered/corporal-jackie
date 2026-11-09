@@ -64,6 +64,10 @@ jobs:
       - name: Test
         env:
           QT_QPA_PLATFORM: offscreen
+          # Temporary files on the runner's fast drive, not C: where the
+          # runner's own MSYS2 keeps /tmp.
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
           # Qt's per-function watchdog fires before ctest's 300 s limit and
           # names the hung test function (ctest shows nothing on a timeout).
           QTEST_FUNCTION_TIMEOUT: "150000"
@@ -77,24 +81,31 @@ jobs:
         run: for f in build/tests/*.log; do echo "== $f"; tail -n 400 "$f"; done
 
       # A crash inside libtorrent shows only "SegFault"; run the broker test
-      # under gdb, up to three times, for a stack trace.
+      # under gdb for a stack trace.
       - name: Crash trace
         if: failure()
         env:
           QT_QPA_PLATFORM: offscreen
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
         run: |
           export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
           pacman -S --noconfirm --needed mingw-w64-ucrt-x86_64-gdb >/dev/null
-          for i in 1 2 3; do
-            gdb -batch -ex run -ex bt -ex "info registers rip" --args build/tests/tst_broker.exe > gdb.txt 2>&1
-            if grep -q "received signal" gdb.txt; then grep -A40 "received signal" gdb.txt; break; fi
-            echo "run $i: no crash"
-          done
+          # libtorrent catches access violations in memory-mapped reads on
+          # purpose; gdb stops at each one. Continue past them and show the
+          # last stop, which is the crash if there is one.
+          cont=""; for i in $(seq 200); do cont="$cont -ex bt -ex continue"; done
+          gdb -batch -ex "set pagination off" -ex run $cont --args build/tests/tst_broker.exe > gdb.txt 2>&1 || true
+          grep -c "received signal" gdb.txt || true
+          grep -E "received signal|exited" gdb.txt | tail -3
+          awk '/received signal/{buf=""} {buf=buf $0 "\n"} END{printf "%s", buf}' gdb.txt | head -40
 
       - name: Benchmark
         env:
           QT_QPA_PLATFORM: offscreen
           CJ_BENCH_RUNS: "3"
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
         run: |
           export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
           ctest --test-dir build -L bench -V
