@@ -93,6 +93,7 @@ constexpr const char* kLastUsedFile = ".last-used";
 // reopens at once instead of hashing everything on disk again first.
 constexpr const char* kResumeFile = "resume.dat";
 constexpr auto kResumeSaveWait = std::chrono::seconds(5);  // at shutdown, at most
+constexpr auto kDeleteWait = std::chrono::seconds(10);     // an open waits this long for an evicted copy to go
 // RAM only: what is kept behind each reader for
 // short seeks back, how far under the cap a trim goes, and the least time
 // between two reloads of one torrent.
@@ -321,6 +322,7 @@ private:
     void onResumeData(const lt::save_resume_data_alert& rd);
     void saveResume(Torrent& t);
     void onCacheFlushed(const lt::torrent_handle& h);
+    void finishDelete(const QString& id);
     void trimMemory();
     void reload(const std::shared_ptr<Torrent>& t);
     std::shared_ptr<Torrent> find(const lt::torrent_handle& h);
@@ -330,6 +332,7 @@ private:
     std::mutex m_mutex;  // guards m_torrents
     std::unordered_map<std::string, std::shared_ptr<Torrent>> m_torrents;
     QHash<QString, QString> m_pendingDeletes;  // info hash -> folder, until libtorrent is done
+    std::condition_variable m_deletesDone;     // an entry left m_pendingDeletes
     std::thread m_thread;
     std::atomic<int> m_pendingSaves{0};
     std::atomic<bool> m_shutdownStarted{false};

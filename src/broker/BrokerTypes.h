@@ -36,6 +36,9 @@ struct BrokerSettings
     // Open trackers asked as well as a torrent's own, for public torrents
     // only. Empty: the built-in list (none with loopbackOnly). Tests set it.
     QStringList extraTrackers;
+    // Tests only: finishing a cache deletion waits this long, so a test can
+    // reopen the torrent while its old copy is still being deleted.
+    int deleteDelayMsForTests = 0;
 };
 
 enum class BrokerError {
