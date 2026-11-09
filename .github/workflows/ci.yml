@@ -255,6 +255,64 @@ jobs:
           Write-Host "Exit code: $($p.ExitCode)"
           exit $p.ExitCode
 
+      # The update flow on the real package: the test copy above as the
+      # install, a next build made from this one (a changed file, a new file,
+      # a higher build number), signed with a key made here and thrown away,
+      # packaged by make-update.sh, applied by the installed updater, and
+      # the updated app played again.
+      - name: Make a key for the update test
+        shell: pwsh
+        run: |
+          $rsa = New-Object Security.Cryptography.RSACryptoServiceProvider 2048
+          [IO.File]::WriteAllText("$env:RUNNER_TEMP\update-test-private.xml", $rsa.ToXmlString($true))
+          [IO.File]::WriteAllText("$env:RUNNER_TEMP\update-test-public.xml", $rsa.ToXmlString($false))
+
+      - name: Make the next build for the update test
+        run: |
+          key="$(cygpath -u "$RUNNER_TEMP")/update-test-public.xml"
+          rm -rf upd-old upd-new upd-pkg
+          cp -r dist-test upd-old
+          cp -r dist upd-new
+          cp "$key" upd-old/app/updater/update-key.xml
+          cp "$key" upd-new/app/updater/update-key.xml
+          echo "Changed by the update test." >> upd-new/LICENSE.txt
+          echo "Added by the update test." > upd-new/app/updater/update-test.txt
+          echo "build $(( ${{ github.run_number }} + 1 )) (update test)" > upd-new/build.txt
+          (cd upd-new && find . -type f ! -name manifest.txt ! -name manifest.sig | sed 's|^\./||' | LC_ALL=C sort \
+            | while IFS= read -r f; do printf '%s\t%s\n' "$(sha256sum "$f" | cut -d' ' -f1)" "$f"; done > manifest.txt)
+
+      - name: Sign the next build with the test key
+        shell: pwsh
+        run: packaging/windows/updater/sign-manifest.ps1 -Folder upd-new -KeyXml ([IO.File]::ReadAllText("$env:RUNNER_TEMP\update-test-private.xml"))
+
+      - name: Package the update
+        run: packaging/windows/make-update.sh upd-new upd-old upd-pkg
+
+      - name: Apply the update and play the updated app
+        timeout-minutes: 5
+        shell: pwsh
+        env:
+          GALLIUM_DRIVER: llvmpipe
+          CJ_MPV_OPTS: gpu-dumb-mode=yes
+        run: |
+          & upd-old\app\updater\apply-update.ps1 -Package upd-pkg -Root upd-old -NoPause
+          if ($LASTEXITCODE -ne 0) { throw "The updater exited with $LASTEXITCODE" }
+          $build = (Get-Content upd-old\build.txt -Raw).Trim()
+          if ($build -ne "build $(${{ github.run_number }} + 1) (update test)") { throw "build.txt says '$build'" }
+          if (-not (Test-Path upd-old\app\updater\update-test.txt)) { throw "the new file is missing" }
+          if ((Get-FileHash upd-old\LICENSE.txt).Hash -ne (Get-FileHash upd-new\LICENSE.txt).Hash) { throw "LICENSE.txt was not replaced" }
+          if (Test-Path upd-old\.update-journal) { throw "a journal was left" }
+          # The same package again is refused: it is not newer.
+          & upd-old\app\updater\apply-update.ps1 -Package upd-pkg -Root upd-old -NoPause
+          if ($LASTEXITCODE -eq 0) { throw "a replayed update was applied" }
+          $env:PATH = "$env:SystemRoot\system32;$env:SystemRoot"
+          $clip = Resolve-Path tests\data\testsrc-10s.mkv
+          $p = Start-Process -FilePath upd-old\CorporalJackie.exe -ArgumentList '--smoke-test', "`"$clip`"" -PassThru
+          $null = $p.Handle
+          if (-not $p.WaitForExit(60000)) { Stop-Process -Id $p.Id -Force; throw "The updated app did not exit within 60 s" }
+          Write-Host "Updated app exit code: $($p.ExitCode)"
+          exit $p.ExitCode
+
   # The Windows updater on real folders: valid update, damaged file, forged
   # signature, path traversal, links, a file in use, an interrupted update.
   updater:
