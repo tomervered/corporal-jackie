@@ -47,6 +47,6 @@ The export from Settings is shareable (`"contents": "shareable"`). It leaves out
 - poster links with a query;
 - add-ons whose link has anything before `/manifest.json` or a query, which is where add-ons keep their settings and API keys. They are listed by id and name under `addonsWithSettings`, so they can be set up again.
 
-`Storage::ExportMode::Full` keeps everything, for a private backup. A secret written into a link's path (some debrid links) cannot be told apart from an ordinary path; add-on stream links are left out for that reason, and a pasted link without a query is kept.
+`Storage::ExportMode::Full` keeps everything, for a private backup; Settings does not offer it, so the app only writes the shareable form. A secret written into a link's path (some debrid links) cannot be told apart from an ordinary path; add-on stream links are left out for that reason, and a pasted link without a query is kept.
 
 Import checks the whole file first (types, finite positions, link schemes: web, file, torrent, magnet) and refuses a damaged file before writing anything. It then writes every change in one transaction and waits for it: if it fails, nothing changes on disk or in memory, and the error says so.
