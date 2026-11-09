@@ -519,3 +519,63 @@ jobs:
         with:
           name: fuzz-findings
           path: findings/
+
+  # The torrent benchmark against other clients on the same seeders and read
+  # pattern (tests/bench/competitor.cjs), on plain loopback and on a link
+  # with 40 ms round trips and 0.5 % loss (netem on lo). Clients run in a
+  # shuffled order, three runs each, after tst_bench's warm-up run. Every
+  # run, failed ones included, goes into the summary and the artifact.
+  bench-compare:
+    name: Linux (benchmark against other clients)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build pkg-config iproute2 \
+            qt6-base-dev qt6-declarative-dev libmpv-dev libtorrent-rasterbar-dev libsqlite3-dev
+          npm install --prefix "$RUNNER_TEMP/contenders" --ignore-scripts --no-audit --no-fund \
+            webtorrent@3.0.21 webtorrent1@npm:webtorrent@1.9.7 torrent-stream@1.2.1
+          # WebTorrent 3 loads WebRTC at start; only this package's install
+          # script runs, to fetch its prebuilt binary.
+          npm rebuild --prefix "$RUNNER_TEMP/contenders" node-datachannel
+
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target tst_bench bench_player
+
+      - name: Benchmark
+        env:
+          QT_QPA_PLATFORM: offscreen
+          CJ_BENCH_RUNS: "3"
+          CJ_BENCH_OUT: ${{ runner.temp }}/bench.jsonl
+          CJ_COMPETITOR_MODULES: ${{ runner.temp }}/contenders/node_modules
+        run: |
+          run_all() {
+            for engine in $(printf '%s\n' jackie webtorrent webtorrent1 torrent-stream | shuf); do
+              echo "::group::$CJ_BENCH_LINK: $engine"
+              if [ "$engine" = jackie ]; then
+                (unset CJ_COMPETITOR CJ_BENCH_EXTERNAL; ./build/tests/tst_bench) || echo "jackie: some runs failed"
+              else
+                # The other clients keep everything on disk: no RAM rows.
+                CJ_COMPETITOR=$engine CJ_BENCH_EXTERNAL=tests/bench/competitor.cjs ./build/tests/tst_bench \
+                  "run:disk 1" "run:swarm disk 1" "run:disk 2" "run:swarm disk 2" "run:disk 3" "run:swarm disk 3" \
+                  || echo "$engine: some runs failed"
+              fi
+              echo "::endgroup::"
+            done
+          }
+          CJ_BENCH_LINK=loopback run_all
+          sudo tc qdisc add dev lo root netem delay 20ms loss 0.5%
+          CJ_BENCH_LINK="40ms RTT, 0.5% loss" run_all
+          sudo tc qdisc del dev lo root
+          python3 tests/bench/summarize.py "$CJ_BENCH_OUT" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results
+          path: ${{ runner.temp }}/bench.jsonl
