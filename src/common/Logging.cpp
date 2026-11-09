@@ -3,8 +3,10 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QMutex>
 #include <QMutexLocker>
+#include <QRegularExpression>
 #include <cstdio>
 
 Q_LOGGING_CATEGORY(lcApp,        "cj.app")
@@ -37,8 +39,10 @@ const char* levelName(QtMsgType type)
 
 void handler(QtMsgType type, const QMessageLogContext& ctx, const QString& msg)
 {
+    // Call sites already log links through redactUrl; this catches any that
+    // slip through, so the file never keeps a token.
     const QByteArray line =
-        formatLine(type, ctx.category ? ctx.category : "default", msg).toUtf8() + '\n';
+        formatLine(type, ctx.category ? ctx.category : "default", redactText(msg)).toUtf8() + '\n';
 
     QMutexLocker lock(&g_mutex);
     std::fwrite(line.constData(), 1, size_t(line.size()), stderr);
@@ -57,6 +61,46 @@ QString formatLine(QtMsgType type, const char* category, const QString& message)
              QString::fromLatin1(levelName(type)),
              QString::fromLatin1(category),
              message);
+}
+
+QString redactUrl(const QUrl& url)
+{
+    if (url.isLocalFile())
+        return QStringLiteral("file:…/") + QFileInfo(url.toLocalFile()).fileName();
+    const QString scheme = url.scheme().toLower();
+    if (scheme == QLatin1String("magnet")) {
+        // Trackers (tr=) of private sites carry a personal passkey.
+        static const QRegularExpression hash(QStringLiteral("xt=urn:btih:([0-9A-Za-z]+)"));
+        const auto m = hash.match(url.toString());
+        return QStringLiteral("magnet:?xt=urn:btih:") + (m.hasMatch() ? m.captured(1) : QStringLiteral("…"));
+    }
+    if (scheme == QLatin1String("torrent"))
+        return url.toString(QUrl::RemoveUserInfo | QUrl::RemoveQuery | QUrl::RemoveFragment);
+    if (scheme.isEmpty() || url.host().isEmpty())
+        return QStringLiteral("(link)");
+    QString out = scheme + QStringLiteral("://") + url.host().toLower();
+    if (url.port() >= 0)
+        out += QLatin1Char(':') + QString::number(url.port());
+    if ((!url.path().isEmpty() && url.path() != QLatin1String("/")) || url.hasQuery())
+        out += QStringLiteral("/…");
+    return out;
+}
+
+QString redactText(const QString& text)
+{
+    // scheme://anything up to whitespace or a quote.
+    static const QRegularExpression link(
+        QStringLiteral(R"(\b(?:[A-Za-z][A-Za-z0-9+.-]*://|magnet:\?)[^\s'"<>]+)"));
+    QString out;
+    qsizetype last = 0;
+    auto it = link.globalMatch(text);
+    while (it.hasNext()) {
+        const auto m = it.next();
+        out += text.mid(last, m.capturedStart() - last);
+        out += redactUrl(QUrl(m.captured()));
+        last = m.capturedEnd();
+    }
+    return last == 0 ? text : out + text.mid(last);
 }
 
 bool init(const QString& logDir)

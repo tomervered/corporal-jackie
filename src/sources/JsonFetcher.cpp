@@ -64,7 +64,7 @@ void JsonFetcher::get(const QUrl& url, Done done)
         else if (reply->error() != QNetworkReply::NoError)
             error = reply->errorString();
         if (!error.isEmpty()) {
-            qCInfo(lcSources).noquote() << "GET" << url.toDisplayString() << "failed:" << error;
+            qCInfo(lcSources).noquote() << "GET" << logging::redactUrl(url) << "failed:" << error;
             done({}, error);
             return;
         }
@@ -78,7 +78,7 @@ void JsonFetcher::get(const QUrl& url, Done done)
             },
             [url, done = std::move(done)](std::pair<QJsonObject, bool> parsed) {
                 if (!parsed.second) {
-                    qCInfo(lcSources).noquote() << "GET" << url.toDisplayString() << "did not return a JSON object";
+                    qCInfo(lcSources).noquote() << "GET" << logging::redactUrl(url) << "did not return a JSON object";
                     done({}, QStringLiteral("the answer was not JSON"));
                     return;
                 }

@@ -228,7 +228,7 @@ void Session::load(const PlayableSource& source, double startSeconds)
     const bool streamWasSet = m_stream.phase != StreamPhase::Inactive;
     m_stream = {};
 
-    qCInfo(lcSession).noquote() << "Loading" << source.url.toDisplayString() << "at" << startSeconds;
+    qCInfo(lcSession).noquote() << "Loading" << logging::redactUrl(source.url) << "at" << startSeconds;
     setState(PlaybackState::Loading);
     m_target->load(source, startSeconds);
     applyItemSettings();

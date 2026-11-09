@@ -178,7 +178,7 @@ bool parseRequest(const QString& uri, lt::add_torrent_params& atp)
         ec = lt::errors::make_error_code(lt::errors::unsupported_url_protocol);
     }
     if (ec)
-        qCWarning(lcBroker).noquote() << "Cannot open" << uri << ":" << QString::fromStdString(ec.message());
+        qCWarning(lcBroker).noquote() << "Cannot open" << logging::redactText(uri) << ":" << QString::fromStdString(ec.message());
     return !ec;
 }
 
