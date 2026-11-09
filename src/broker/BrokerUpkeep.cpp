@@ -100,6 +100,12 @@ void Engine::saveResume(Torrent& t)
             return;
     }
     try {
+        if (lcBroker().isDebugEnabled()) {
+            const lt::torrent_status st = t.handle.status({});
+            qCDebug(lcBroker).noquote() << "Saving resume data of" << QString::fromStdString(t.id) << ": libtorrent has"
+                                        << st.num_pieces << "pieces, state" << int(st.state) << "paused"
+                                        << bool(st.flags & lt::torrent_flags::paused);
+        }
         ++m_pendingSaves;
         t.handle.save_resume_data(lt::torrent_handle::save_info_dict | lt::torrent_handle::flush_disk_cache);
     } catch (const std::exception&) {

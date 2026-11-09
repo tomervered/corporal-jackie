@@ -439,6 +439,13 @@ private slots:
             QVERIFY(h);
             QVERIFY(readRange(*h, 0, 2 * MiB) == t.data[0].left(int(2 * MiB)));
         }
+        // What the first run left, for when this fails on one system only.
+        QDirIterator files(cache, QDir::Files | QDir::Hidden, QDirIterator::Subdirectories);
+        while (files.hasNext()) {
+            const QFileInfo f(files.next());
+            qInfo("Left in the cache: %s, %lld bytes, %lld on disk", qPrintable(f.fileName()), f.size(),
+                  StreamBroker::diskUsage(f.filePath()));
+        }
         StreamBroker broker(testSettings(cache));
         auto h = broker.open({harness::infoHash(t)});
         QVERIFY(h);

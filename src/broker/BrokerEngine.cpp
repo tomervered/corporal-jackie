@@ -603,7 +603,8 @@ void Engine::handleAlert(lt::alert* a)
     } else if (auto* rd = lt::alert_cast<lt::save_resume_data_alert>(a)) {
         onResumeData(*rd);
         --m_pendingSaves;
-    } else if (lt::alert_cast<lt::save_resume_data_failed_alert>(a)) {
+    } else if (auto* rf = lt::alert_cast<lt::save_resume_data_failed_alert>(a)) {
+        qCWarning(lcBroker).noquote() << "Saving resume data failed:" << QString::fromStdString(rf->error.message());
         --m_pendingSaves;
     } else if (auto* td = lt::alert_cast<lt::torrent_deleted_alert>(a)) {
         // libtorrent has deleted the data files: remove what is left.
@@ -661,6 +662,8 @@ void Engine::onResumeData(const lt::save_resume_data_alert& rd)
     const auto t = find(rd.handle);
     if (!t || !QFileInfo(t->dir).isDir())
         return;
+    qCDebug(lcBroker).noquote() << "Saved resume data of" << QString::fromStdString(t->id) << ":"
+                                << rd.params.have_pieces.count() << "pieces";
     const std::vector<char> buffer = lt::write_resume_data_buf(rd.params);
     QSaveFile f(QDir(t->dir).filePath(QString::fromLatin1(kResumeFile)));
     if (f.open(QIODevice::WriteOnly)) {
