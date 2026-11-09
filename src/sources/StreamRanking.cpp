@@ -35,7 +35,13 @@ qint64 sizeOf(const QString& text)
                        : unit == 'G' ? 1024.0 * 1024 * 1024
                        : unit == 'M' ? 1024.0 * 1024
                                      : 1024.0;
-    return qint64(n * scale);
+    // An add-on writes these labels. A number too big for a file (or for
+    // qint64, where the conversion would be undefined) means no size.
+    const double bytes = n * scale;
+    constexpr double kLargest = 1024.0 * 1024 * 1024 * 1024 * 1024;  // 1 PiB
+    if (!(bytes >= 0 && bytes <= kLargest))
+        return -1;
+    return qint64(bytes);
 }
 
 int seedersOf(const QString& text)

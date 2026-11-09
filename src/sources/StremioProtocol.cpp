@@ -217,8 +217,10 @@ QList<StreamOption> parseStreams(const QJsonObject& json, const QString& addonId
             s.description = o.value("title").toString();  // the older field
         s.bingeGroup = hints.value("bingeGroup").toString();
         const QString filename = hints.value("filename").toString();
-        if (hints.contains("videoSize"))
-            s.sizeBytes = qint64(hints.value("videoSize").toDouble());
+        // Converting a double past qint64 is undefined: a size beyond 1 PiB
+        // (or not a number) is ignored.
+        if (const double size = hints.value("videoSize").toDouble(-1); size >= 0 && size <= 1125899906842624.0)
+            s.sizeBytes = qint64(size);
         s.source.adapter = QStringLiteral("stremio:") + addonId;
 
         const QString infoHash = o.value("infoHash").toString();
