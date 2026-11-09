@@ -13,4 +13,6 @@ called_from_lib:libQt6Network.so.6
 called_from_lib:libQt6Test.so.6
 called_from_lib:libglib-2.0.so.0
 race:libtorrent-rasterbar.so
-race:tzset_internal
+# libc's own allocations inside tzset(), which Qt's mktime calls under its
+# own lock; CI's libc has no symbols, so match the library.
+called_from_lib:libc.so.6
