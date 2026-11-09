@@ -520,51 +520,72 @@ jobs:
           name: fuzz-findings
           path: findings/
 
-  # The torrent benchmark against other clients on the same seeders and read
-  # pattern (tests/bench/competitor.cjs), on plain loopback and on a link
-  # with 40 ms round trips and 0.5 % loss (netem on lo). Clients run in a
-  # shuffled order, three runs each, after tst_bench's warm-up run. Every
+  # The torrent benchmark against other clients and against the release
+  # before the audit, on the same seeders and read pattern
+  # (tests/bench/competitor.cjs), on plain loopback and on a link with 40 ms
+  # round trips and 0.5 % loss (netem on lo). Clients run in a shuffled
+  # order, five runs per row, each tst_bench call after a warm-up run. Every
   # run, failed ones included, goes into the summary and the artifact.
   bench-compare:
     name: Linux (benchmark against other clients)
     runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      # The release before the audit fixes, built with the measurement
+      # counters of 6948b5f and nothing else.
+      BASELINE: c6557a3a345f20d7a38b6cbd4562b246e5c18122
+      BASELINE_COUNTERS: 6948b5f1f23d11299d692b9befd6c4ceb69c1b26
+      STREMIO_IMAGE: stremio/server:v4.22.5
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build pkg-config iproute2 \
+          sudo apt-get install -y ninja-build pkg-config iproute2 qbittorrent-nox \
             qt6-base-dev qt6-declarative-dev libmpv-dev libtorrent-rasterbar-dev libsqlite3-dev
           npm install --prefix "$RUNNER_TEMP/contenders" --ignore-scripts --no-audit --no-fund \
             webtorrent@3.0.21 webtorrent1@npm:webtorrent@1.9.7 torrent-stream@1.2.1
           # WebTorrent 3 loads WebRTC at start; only this package's install
           # script runs, to fetch its prebuilt binary.
           npm rebuild --prefix "$RUNNER_TEMP/contenders" node-datachannel
+          docker pull "$STREMIO_IMAGE"
 
       - name: Build
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build --target tst_bench bench_player
+          git worktree add --detach "$RUNNER_TEMP/baseline" "$BASELINE"
+          git show "$BASELINE_COUNTERS" -- src/broker tests/bench/bench_player.cpp | git -C "$RUNNER_TEMP/baseline" apply
+          cmake -S "$RUNNER_TEMP/baseline" -B "$RUNNER_TEMP/baseline/build" -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/baseline/build" --target bench_player
 
       - name: Benchmark
         env:
           QT_QPA_PLATFORM: offscreen
-          CJ_BENCH_RUNS: "3"
+          CJ_BENCH_RUNS: "5"
           CJ_BENCH_OUT: ${{ runner.temp }}/bench.jsonl
           CJ_COMPETITOR_MODULES: ${{ runner.temp }}/contenders/node_modules
+          CJ_STREMIO_IMAGE: ${{ env.STREMIO_IMAGE }}
         run: |
+          disk_rows=()
+          for i in 1 2 3 4 5; do disk_rows+=("run:disk $i" "run:swarm disk $i"); done
           run_all() {
-            for engine in $(printf '%s\n' jackie webtorrent webtorrent1 torrent-stream | shuf); do
+            for engine in $(printf '%s\n' jackie jackie-c6557a3 webtorrent webtorrent1 torrent-stream qbittorrent stremio | shuf); do
               echo "::group::$CJ_BENCH_LINK: $engine"
-              if [ "$engine" = jackie ]; then
-                (unset CJ_COMPETITOR CJ_BENCH_EXTERNAL; ./build/tests/tst_bench) || echo "jackie: some runs failed"
-              else
-                # The other clients keep everything on disk: no RAM rows.
-                CJ_COMPETITOR=$engine CJ_BENCH_EXTERNAL=tests/bench/competitor.cjs ./build/tests/tst_bench \
-                  "run:disk 1" "run:swarm disk 1" "run:disk 2" "run:swarm disk 2" "run:disk 3" "run:swarm disk 3" \
-                  || echo "$engine: some runs failed"
-              fi
+              case $engine in
+                jackie)
+                  ./build/tests/tst_bench || echo "$engine: some runs failed" ;;
+                jackie-c6557a3)
+                  CJ_BENCH_PLAYER_PATH="$RUNNER_TEMP/baseline/build/tests/bench_player" CJ_BENCH_LABEL=$engine \
+                    ./build/tests/tst_bench || echo "$engine: some runs failed" ;;
+                *)
+                  # The other clients keep everything on disk: no RAM rows.
+                  CJ_COMPETITOR=$engine CJ_BENCH_EXTERNAL=tests/bench/competitor.cjs ./build/tests/tst_bench \
+                    "${disk_rows[@]}" || echo "$engine: some runs failed" ;;
+              esac
               echo "::endgroup::"
             done
           }
