@@ -31,6 +31,48 @@ void Engine::schedule(Torrent& t, bool force)
     } timer{t, started};
 
     const qint64 pieceLen = t.pieceLength();
+    t.readers.erase(std::remove_if(t.readers.begin(), t.readers.end(),
+                                   [](const std::weak_ptr<Reader>& w) {
+                                       auto r = w.lock();
+                                       return !r || r->closed || r->cancelled;
+                                   }),
+                    t.readers.end());
+
+    // A new schedule is sent when a reader moves to another piece. That is
+    // cheap to check and false for most reads (a player reads a piece in
+    // many small steps), so check it before building the piece maps, which
+    // cover up to 600 s of video. Pieces that arrive in the meantime need no
+    // new schedule; a dropped one the reader waits for comes back through
+    // the forced call in StreamHandle::read.
+    struct Plan
+    {
+        std::shared_ptr<Reader> r;
+        qint64 pos;
+        int first;
+        double bitrate;
+        qint64 window;
+        qint64 ahead;
+    };
+    std::vector<Plan> plans;
+    plans.reserve(t.readers.size());
+    bool anyChange = force;
+    for (const auto& weak : t.readers) {
+        auto r = weak.lock();
+        const qint64 pos = r->fileOffset + qMin(r->position.load(), qMax<qint64>(0, r->fileSize - 1));
+        const double bitrate = r->bitrate();
+        const qint64 window = qMin(readAheadBytes(bitrate, double(t.downloadRate), pieceLen),
+                                   qMax(aheadCap(), 4 * pieceLen));
+        const qint64 ahead = std::min({qint64(bitrate * kBackgroundSeconds), kBackgroundMaxBytes, aheadCap()});
+        const int first = t.pieceAt(pos);
+        if (first != r->scheduledPiece) {
+            r->scheduledPiece = first;
+            anyChange = true;
+        }
+        plans.push_back({std::move(r), pos, first, bitrate, window, ahead});
+    }
+    if (!anyChange)
+        return;
+
     std::map<int, int> deadlines;                 // piece -> ms
     std::map<int, lt::download_priority_t> wanted;  // every piece to fetch
     auto missing = [&](int p) {
@@ -50,42 +92,26 @@ void Engine::schedule(Torrent& t, bool force)
             wanted[p] = prio;
     };
 
-    bool anyChange = force;
-    t.readers.erase(std::remove_if(t.readers.begin(), t.readers.end(),
-                                   [](const std::weak_ptr<Reader>& w) {
-                                       auto r = w.lock();
-                                       return !r || r->closed || r->cancelled;
-                                   }),
-                    t.readers.end());
-    for (const auto& weak : t.readers) {
-        auto r = weak.lock();
-        const qint64 pos = r->fileOffset + qMin(r->position.load(), qMax<qint64>(0, r->fileSize - 1));
-        const int first = t.pieceAt(pos);
-        if (first != r->scheduledPiece) {
-            r->scheduledPiece = first;
-            anyChange = true;
-        }
-        const double bitrate = r->bitrate();
-        const qint64 fileEnd = r->fileOffset + r->fileSize - 1;
+    for (const Plan& plan : plans) {
+        const Reader& r = *plan.r;
+        const int first = plan.first;
+        const qint64 fileEnd = r.fileOffset + r.fileSize - 1;
         const int fileLast = t.pieceAt(fileEnd);
 
         // Due when the player will reach them at the file's bitrate.
         for (int p = first, n = 0; p <= fileLast && n < kUrgentPieces; ++p, ++n) {
             if (!missing(p))
                 continue;
-            const int ms = int(double(qint64(p - first) * pieceLen) * 1000.0 / bitrate);
+            const int ms = int(double(qint64(p - first) * pieceLen) * 1000.0 / plan.bitrate);
             auto it = deadlines.find(p);
             if (it == deadlines.end() || ms < it->second)
                 deadlines[p] = ms;
             want(p, lt::top_priority);
         }
-        const qint64 window = qMin(readAheadBytes(bitrate, double(t.downloadRate), pieceLen),
-                                   qMax(aheadCap(), 4 * pieceLen));
-        const int last = t.pieceAt(qMin(pos + window, fileEnd));
+        const int last = t.pieceAt(qMin(plan.pos + plan.window, fileEnd));
         for (int p = first; p <= last; ++p)
             want(p, lt::default_priority);
-        const qint64 ahead = std::min({qint64(bitrate * kBackgroundSeconds), kBackgroundMaxBytes, aheadCap()});
-        const int bgLast = t.pieceAt(qMin(pos + qMax(window, ahead), fileEnd));
+        const int bgLast = t.pieceAt(qMin(plan.pos + qMax(plan.window, plan.ahead), fileEnd));
         for (int p = last + 1; p <= bgLast; ++p)
             if (!t.evicted.count(p))
                 want(p, lt::low_priority);
@@ -93,13 +119,11 @@ void Engine::schedule(Torrent& t, bool force)
         // The start and the end of the file hold the container's headers and
         // index, which players read first. Fetched early, without deadlines:
         // when the player reads them, its position makes them urgent.
-        for (int p = t.pieceAt(r->fileOffset); p <= t.pieceAt(qMin(r->fileOffset + kHeadBytes, fileEnd)); ++p)
+        for (int p = t.pieceAt(r.fileOffset); p <= t.pieceAt(qMin(r.fileOffset + kHeadBytes, fileEnd)); ++p)
             want(p, lt::default_priority);
-        for (int p = t.pieceAt(qMax(r->fileOffset, fileEnd - kTailBytes)); p <= fileLast; ++p)
+        for (int p = t.pieceAt(qMax(r.fileOffset, fileEnd - kTailBytes)); p <= fileLast; ++p)
             want(p, lt::default_priority);
     }
-    if (!anyChange)
-        return;
     ++t.counters.scheduleSent;
 
     try {
