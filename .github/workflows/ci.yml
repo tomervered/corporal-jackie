@@ -29,6 +29,9 @@ jobs:
       - uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
+          # The runner's own MSYS2, updated: downloading the installer
+          # failed with HTTP 504 in three runs on 2026-11-09.
+          release: false
           update: true
           install: git make diffutils
           # mpv is built by packaging/windows/build-mpv.sh (playback only);
