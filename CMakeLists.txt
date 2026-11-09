@@ -42,6 +42,11 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     if(CJ_SANITIZE_THREAD)
         add_compile_options(-fsanitize=thread -fno-omit-frame-pointer)
         add_link_options(-fsanitize=thread)
+        # GCC warns that TSan does not model the fences in Boost.Asio's
+        # headers; that is a limit of the tool, not a fault here.
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+            add_compile_options(-Wno-tsan)
+        endif()
     endif()
     if(CJ_FUZZ)
         if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
