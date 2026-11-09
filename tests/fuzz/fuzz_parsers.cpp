@@ -21,15 +21,16 @@
 
 #include <cstdint>
 #include <cstdio>
-#include <memory>
 
 using namespace cj;
 
 namespace {
 
-std::unique_ptr<QCoreApplication> g_app;
-std::unique_ptr<QTemporaryDir> g_dir;
-std::unique_ptr<Storage> g_storage;
+// Never deleted. libFuzzer ends with exit(), and by then Qt's own globals,
+// created after these, are already gone: deleting the app there crashed.
+QCoreApplication* g_app = nullptr;
+QTemporaryDir* g_dir = nullptr;
+Storage* g_storage = nullptr;
 
 void quiet(QtMsgType, const QMessageLogContext&, const QString&) {}
 
@@ -73,9 +74,9 @@ void parseText(const QString& text)
 extern "C" int LLVMFuzzerInitialize(int* argc, char*** argv)
 {
     qInstallMessageHandler(quiet);
-    g_app = std::make_unique<QCoreApplication>(*argc, *argv);
-    g_dir = std::make_unique<QTemporaryDir>();
-    g_storage = std::make_unique<Storage>(g_dir->filePath(QStringLiteral("fuzz.sqlite")));
+    g_app = new QCoreApplication(*argc, *argv);
+    g_dir = new QTemporaryDir();
+    g_storage = new Storage(g_dir->filePath(QStringLiteral("fuzz.sqlite")));
     return 0;
 }
 
