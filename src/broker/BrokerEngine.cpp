@@ -89,7 +89,12 @@ void Engine::shutdown()
     if (m_shutdownStarted.exchange(true))
         return;
     // Save every torrent's resume data while the alert thread still runs to
-    // write it, so the next start skips re-checking the files.
+    // write it, so the next start skips re-checking the files. Paused first,
+    // as libtorrent advises: pausing writes out what is still in memory, so
+    // the saved list of pieces matches the files. Saved unpaused, it could
+    // miss pieces already on disk (Windows CI listed 0 of 8).
+    if (m_session && !memoryOnly())
+        m_session->pause();
     {
         std::vector<std::shared_ptr<Torrent>> torrents;
         {
@@ -102,6 +107,8 @@ void Engine::shutdown()
         const auto until = Clock::now() + kResumeSaveWait;
         while (m_pendingSaves > 0 && Clock::now() < until)
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        if (m_pendingSaves > 0)
+            qCWarning(lcBroker) << "Resume data of" << m_pendingSaves.load() << "torrents was not saved in time";
     }
     closing = true;
     if (m_thread.joinable())
@@ -371,7 +378,6 @@ void Engine::onMetadata(Torrent& t)
 {
     if (t.hasMetadata)
         return;
-    qCDebug(lcBroker) << "TMPDBG onMetadata";
     t.info = t.handle.torrent_file();
     if (!t.info)
         return;
@@ -388,6 +394,7 @@ void Engine::onMetadata(Torrent& t)
     // 1 s late that way).
     std::vector<lt::download_priority_t> priorities(std::size_t(t.info->num_pieces()), lt::dont_download);
     t.wanted.clear();
+    t.files.clear();
     const lt::file_storage& files = fileLayout(*t.info);
     const int f = t.openingFile >= 0 ? t.openingFile : largestFile(files);
     if (t.pendingOpens > 0 && f >= 0 && f < files.num_files() && files.file_size(lt::file_index_t(f)) > 0) {
@@ -401,10 +408,10 @@ void Engine::onMetadata(Torrent& t)
                 }
             }
         };
-        qCDebug(lcBroker) << "TMPDBG early want file" << f << "opening" << t.openingFile << "pieces" << t.pieceAt(start) << t.pieceAt(end);
         want(t.pieceAt(start), t.pieceAt(qMin(start + kHeadBytes, end)));
         want(t.pieceAt(qMax(start, end - kTailBytes)), t.pieceAt(end));
     }
+    openFiles(t, t.wanted.empty() ? std::set<int>{} : std::set<int>{f});
     t.handle.prioritize_pieces(priorities);
     // Now it is known whether the open trackers may hear of it. libtorrent
     // stops its DHT and peer exchange for a private torrent by itself. The
@@ -565,7 +572,6 @@ void Engine::handleAlert(lt::alert* a)
             const int p = int(static_cast<int>(pf->piece_index));
             if (p >= 0 && p < int(t->have.size()))
                 t->have[p] = true;
-            qCDebug(lcBroker) << "TMPDBG finished" << p;
             t->evicted.erase(p);
             t->scheduled.erase(p);
             t->lastPieceAt = Clock::now();

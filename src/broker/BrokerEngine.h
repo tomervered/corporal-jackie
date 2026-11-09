@@ -92,7 +92,7 @@ constexpr const char* kLastUsedFile = ".last-used";
 // libtorrent's record of which pieces are verified. With it, a torrent
 // reopens at once instead of hashing everything on disk again first.
 constexpr const char* kResumeFile = "resume.dat";
-constexpr auto kResumeSaveWait = std::chrono::seconds(3);  // at shutdown, at most
+constexpr auto kResumeSaveWait = std::chrono::seconds(5);  // at shutdown, at most
 // RAM only: what is kept behind each reader for
 // short seeks back, how far under the cap a trim goes, and the least time
 // between two reloads of one torrent.
@@ -186,6 +186,10 @@ struct Torrent
     std::map<int, int> readErrors;
     std::map<int, int> scheduled;  // piece -> deadline in ms, as last sent
     std::map<int, lt::download_priority_t> wanted;  // piece -> priority, as last sent
+    // Files that may be written, as last sent: those a reader opened. The
+    // rest stay at priority 0, so libtorrent never creates or sizes them
+    // (macOS CI found a whole unread file allocated). Turned on, never off.
+    std::vector<lt::download_priority_t> files;
     // RAM only: verified pieces dropped from memory that libtorrent still
     // counts as had. A reader needing one makes the torrent reload.
     std::set<int> evicted;
@@ -279,6 +283,10 @@ public:
     void endPendingOpen(Torrent& t);
     void releaseHandle(Torrent& t);
     void schedule(Torrent& t, bool force);  // t.mutex must be held
+    // Turns on the files of `fileIndexes` (see Torrent::files). True if any
+    // changed: libtorrent then reset those files' pieces, and the caller
+    // must send every piece's priority again. t.mutex must be held.
+    bool openFiles(Torrent& t, const std::set<int>& fileIndexes);
     // cap < 0: the configured cap. 0 empties the cache of everything not open.
     void enforceCacheCap(const std::string& keep = {}, qint64 cap = -1);
     StreamStats stats(Torrent& t, const Reader& r);

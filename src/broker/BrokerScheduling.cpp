@@ -90,7 +90,18 @@ void Engine::schedule(Torrent& t, bool force)
         return;
 
     try {
+        std::set<int> readerFiles;
+        for (const auto& weak : t.readers)
+            if (auto r = weak.lock())
+                readerFiles.insert(r->fileIndex);
+        if (openFiles(t, readerFiles))
+            t.wanted.clear();  // send every piece again
         std::vector<std::pair<lt::piece_index_t, lt::download_priority_t>> priorities;
+        if (t.wanted.empty()) {
+            for (int p = 0; p < int(t.have.size()); ++p)
+                if (!wanted.count(p))
+                    priorities.emplace_back(lt::piece_index_t(p), lt::dont_download);
+        }
         for (const auto& [p, prio] : wanted) {
             auto old = t.wanted.find(p);
             if (old == t.wanted.end() || old->second != prio)
@@ -113,6 +124,24 @@ void Engine::schedule(Torrent& t, bool force)
     }
     t.wanted = std::move(wanted);
     t.scheduled = std::move(deadlines);
+}
+
+bool Engine::openFiles(Torrent& t, const std::set<int>& fileIndexes)
+{
+    const int count = fileLayout(*t.info).num_files();
+    // Fresh (new metadata, a reload): every file starts off.
+    bool changed = int(t.files.size()) != count;
+    if (changed)
+        t.files.assign(std::size_t(count), lt::dont_download);
+    for (int f : fileIndexes) {
+        if (f >= 0 && f < count && t.files[std::size_t(f)] == lt::dont_download) {
+            t.files[std::size_t(f)] = lt::default_priority;
+            changed = true;
+        }
+    }
+    if (changed)
+        t.handle.prioritize_files(t.files);
+    return changed;
 }
 
 bool Engine::holds(Torrent& t, int piece)

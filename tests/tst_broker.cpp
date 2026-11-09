@@ -289,6 +289,10 @@ private slots:
         // Files are piece-aligned here, so nothing of the others is needed.
         QVERIFY(other0 < kPiece);
         QVERIFY(other2 < kPiece);
+        // Nor are they created: libtorrent sizes every file it may write,
+        // and macOS then allocated all of an unread one.
+        QVERIFY(!QFileInfo::exists(content + "/file0.bin"));
+        QVERIFY(!QFileInfo::exists(content + "/file2.bin"));
     }
 
     void largestFileIsTheDefault()

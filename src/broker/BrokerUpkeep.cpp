@@ -73,6 +73,7 @@ void Engine::reload(const std::shared_ptr<Torrent>& tp)
     t.evicted.clear();
     t.scheduled.clear();
     t.wanted.clear();
+    t.files.clear();
     t.readsPending.clear();
     t.readErrors.clear();
     // The seeders may still hold the connection of the torrent just removed
@@ -100,9 +101,6 @@ void Engine::saveResume(Torrent& t)
     }
     try {
         ++m_pendingSaves;
-        // Flushed first: a piece still being written is otherwise left out,
-        // and a reopen without peers waits for it although it is on disk
-        // (Windows CI, reopensFromCacheWithoutPeers: 3 of 8 pieces saved).
         t.handle.save_resume_data(lt::torrent_handle::save_info_dict | lt::torrent_handle::flush_disk_cache);
     } catch (const std::exception&) {
         --m_pendingSaves;  // removed a moment ago: no alert will come

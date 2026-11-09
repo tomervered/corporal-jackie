@@ -91,11 +91,14 @@ jobs:
           pacman -S --noconfirm --needed mingw-w64-ucrt-x86_64-gdb >/dev/null
           # gdb stops at every access violation, including any libtorrent
           # handles itself. Continue past them and show the last stop.
-          cont=""; for i in $(seq 200); do cont="$cont -ex bt -ex continue"; done
-          gdb -batch -ex "set pagination off" -ex run $cont --args build/tests/tst_broker.exe > gdb.txt 2>&1 || true
+          { echo "set pagination off"; echo run
+            for i in $(seq 200); do printf '%s\n' bt 'info symbol $pc' 'x/6i $pc-12' continue; done
+            echo "info sharedlibrary"; } > gdb.cmd
+          gdb -batch -x gdb.cmd --args build/tests/tst_broker.exe > gdb.txt 2>&1 || true
           grep -c "received signal" gdb.txt || true
           grep -E "received signal|exited" gdb.txt | tail -3
-          awk '/received signal/{buf=""} {buf=buf $0 "\n"} END{printf "%s", buf}' gdb.txt | head -40
+          awk '/received signal/{buf=""} {buf=buf $0 "\n"} END{printf "%s", buf}' gdb.txt | head -60
+          grep -i "libtorrent" gdb.txt | grep -i "0x" | head -3
 
       - name: Benchmark
         env:
