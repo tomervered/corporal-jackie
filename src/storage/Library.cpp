@@ -178,7 +178,20 @@ void Library::saveNow()
 
 void Library::forget(const QString& itemKey) { m_storage.forget(itemKey); }
 
-void Library::clearHistory() { m_storage.clearHistory(); }
+void Library::clearHistory()
+{
+    m_storage.clearHistory();
+    logging::clearFiles();
+    qCInfo(lcStorage) << "Watch history and logs cleared";
+}
+
+void Library::setKeepHistory(bool keep)
+{
+    if (keep == keepHistory())
+        return;
+    m_storage.setKeepsHistory(keep);
+    emit keepHistoryChanged();
+}
 
 bool Library::contains(const QString& key) const { return m_storage.inLibrary(key); }
 

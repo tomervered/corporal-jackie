@@ -333,9 +333,15 @@ Rectangle {
 
             // --- History and library -------------------------------------------------
             Heading { text: "History and library" }
+            Toggle {
+                title: "Remember what I watch"
+                detail: "Off: nothing new goes into the history or Continue Watching. What is already there stays until you clear it."
+                checked: library.keepHistory
+                onToggled: on => library.keepHistory = on
+            }
             ActionRow {
                 title: "Watch history"
-                detail: (library.historyCount === 1 ? "1 video" : library.historyCount + " videos") + ". Continue Watching comes from this."
+                detail: (library.historyCount === 1 ? "1 video" : library.historyCount + " videos") + ". Continue Watching comes from this. Clearing it also clears the log files, which name what played."
                 Button {
                     text: panel.confirmClear ? "Clear all history?" : "Clear"
                     focusPolicy: Qt.NoFocus

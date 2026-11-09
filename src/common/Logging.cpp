@@ -137,6 +137,17 @@ void shutdown()
     g_file = nullptr;
 }
 
+void clearFiles()
+{
+    QMutexLocker lock(&g_mutex);
+    if (!g_file)
+        return;
+    const QFileInfo current(g_file->fileName());
+    QFile::remove(current.dir().filePath(QStringLiteral("corporal-jackie.1.log")));
+    g_file->resize(0);
+    g_file->seek(0);
+}
+
 QString currentLogFile()
 {
     QMutexLocker lock(&g_mutex);
