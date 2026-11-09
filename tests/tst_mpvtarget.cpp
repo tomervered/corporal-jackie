@@ -15,6 +15,8 @@ using namespace cj;
 using test::FakeHttpServer;
 
 namespace {
+// Filled from mpv's stream thread (ScopedHttp) and the main thread.
+QMutex capturedMutex;
 QStringList capturedMessages;
 
 // 10 seconds, 160x120, 25 fps, a keyframe every second.
@@ -181,6 +183,7 @@ private slots:
         MpvTarget target(MpvTarget::Mode::Headless);
         capturedMessages.clear();
         const auto previous = qInstallMessageHandler([](QtMsgType, const QMessageLogContext&, const QString& message) {
+            QMutexLocker lock(&capturedMutex);
             capturedMessages << message;
         });
         auto source = PlayableSource::fromUrl(QUrl(server.base() + "/clip.mkv?token=auditDummySigned987"), "Clip");
@@ -189,6 +192,7 @@ private slots:
         target.load(source, 0);
         QTest::qWait(500);  // mpv's own failure messages too
         qInstallMessageHandler(previous);
+        QMutexLocker lock(&capturedMutex);
         const QString all = capturedMessages.join("\n");
         QVERIFY2(!all.contains("auditDummySigned987"), "Playback log contains signed URL credential");
         QVERIFY2(!all.contains("s3cret"), qPrintable(all));
