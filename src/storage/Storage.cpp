@@ -167,6 +167,22 @@ QString stableMagnet(const QString& magnet)
 
 bool isMagnet(const QString& text) { return text.startsWith(QLatin1String("magnet:"), Qt::CaseInsensitive); }
 
+// A magnet as a shareable export keeps it: the stable form when it has a
+// BitTorrent v1 hash, otherwise only its xt and so parts. Trackers (which
+// may hold a passkey), peers and the name go either way.
+QString shareableMagnet(const QString& magnet)
+{
+    const QString stable = stableMagnet(magnet);
+    if (stable.startsWith(QLatin1String("magnet:?xt=urn:btih:")))
+        return stable;
+    const QUrlQuery query(magnet.mid(magnet.indexOf(QLatin1Char('?')) + 1));
+    QUrlQuery kept;
+    for (const auto& [key, value] : query.queryItems(QUrl::FullyDecoded))
+        if (key == QLatin1String("xt") || key == QLatin1String("so"))
+            kept.addQueryItem(key, value);
+    return kept.isEmpty() ? QString() : QStringLiteral("magnet:?") + kept.toString(QUrl::FullyEncoded);
+}
+
 // A link that may let whoever holds it in: a user:password, a query
 // (signed links), a fragment.
 bool carriesSecrets(const QUrl& url)
@@ -189,8 +205,18 @@ std::optional<HistoryEntry> shareable(const HistoryEntry& e)
     s.subtitles.clear();  // add-on subtitle links come back on the next play
     if (carriesSecrets(QUrl(out.poster)))
         out.poster.clear();
-    if (isMagnet(s.origin))
-        s.origin = stableMagnet(s.origin);
+    // What the source was opened from: a magnet loses its trackers; a web
+    // link with a login or a query (a signed .torrent link) is dropped, and
+    // without an add-on to find the video again, so is the entry.
+    if (isMagnet(s.origin)) {
+        s.origin = shareableMagnet(s.origin);
+    } else if (carriesSecrets(QUrl(s.origin))) {
+        if (e.adapter.isEmpty())
+            return std::nullopt;
+        s.origin.clear();
+    }
+    if (isMagnet(s.url.toString()))
+        s.url = QUrl(shareableMagnet(s.url.toString()));
     if (s.kind == PlayableSource::Kind::Http || isWeb(s.url)) {
         if (!e.adapter.isEmpty()) {
             // The add-on finds a stream again from the item's ids; the
@@ -542,9 +568,15 @@ Storage::Storage(const QString& file, QObject* parent)
         }
         if (!renames.isEmpty()) {
             const bool moved = transaction(db, [&] {
-                for (const auto& [from, to] : renames)
-                    if (!Statement(db, "UPDATE OR REPLACE history SET key = ?2 WHERE key = ?1").bind(1, from).bind(2, to).run())
+                // Two old links to one video, or an old link and a new key:
+                // the newest row wins, whatever order the renames come in.
+                for (const auto& [from, to] : renames) {
+                    if (!Statement(db, "DELETE FROM history WHERE key = ?1 AND updated_at <="
+                                       " (SELECT max(updated_at) FROM history WHERE key = ?2)")
+                             .bind(1, from).bind(2, to).run()
+                        || !Statement(db, "UPDATE OR REPLACE history SET key = ?2 WHERE key = ?1").bind(1, from).bind(2, to).run())
                         return false;
+                }
                 return true;
             });
             qCInfo(lcStorage) << "Moved" << renames.size() << "magnet history keys to info hashes" << (moved ? "" : "(failed)");
