@@ -5,7 +5,9 @@
 // spread between runs sets any threshold.
 //
 // CJ_BENCH_RUNS=n repeats each mode n times (default 1). CJ_BENCH_OUT=file
-// saves every run's JSON, one per line.
+// saves every run's JSON, one per line. CJ_BENCH_PLAYER_PATH runs another
+// build of bench_player; CJ_BENCH_EXTERNAL runs another client (see
+// tests/bench/competitor.cjs).
 
 #include "TorrentHarness.h"
 
@@ -68,7 +70,8 @@ private:
         p.setProcessEnvironment(env);
         const QString external = qEnvironmentVariable("CJ_BENCH_EXTERNAL");
         if (external.isEmpty())
-            p.start(QStringLiteral(CJ_BENCH_PLAYER), args);
+            // CJ_BENCH_PLAYER_PATH: another build of bench_player, to compare two versions.
+            p.start(qEnvironmentVariable("CJ_BENCH_PLAYER_PATH", QStringLiteral(CJ_BENCH_PLAYER)), args);
         else {
             args.prepend(external);
             p.start(QStringLiteral("node"), args);
@@ -119,6 +122,14 @@ private:
         for (const char* kind : {"cached", "missing", "evicted"})
             print(QStringLiteral("BENCH %1:   seek to %2: %3")
                                      .arg(QLatin1String(mode), QLatin1String(kind), msLine(byKind[QLatin1String(kind)])));
+        print(QStringLiteral("BENCH %1:   CPU %2 ms; fetched %3 MiB (%4 reloads); schedule %5 passes, %6 sent, %7 ms")
+                  .arg(QLatin1String(mode))
+                  .arg(r[QStringLiteral("cpuMs")].toInteger())
+                  .arg(r[QStringLiteral("fetchedBytes")].toInteger() / MiB)
+                  .arg(r[QStringLiteral("reloads")].toInteger())
+                  .arg(r[QStringLiteral("schedulePasses")].toInteger())
+                  .arg(r[QStringLiteral("scheduleSent")].toInteger())
+                  .arg(r[QStringLiteral("scheduleMs")].toDouble(), 0, 'f', 1));
         print(QStringLiteral("BENCH %1:   peak memory: process %2 MiB, piece store %3 MiB, read cache %4 MiB")
                                  .arg(QLatin1String(mode))
                                  .arg(r[QStringLiteral("peakProcessBytes")].toInteger() / MiB)
@@ -133,8 +144,17 @@ private slots:
         QVERIFY(m_dir.isValid());
         m_torrent = harness::makeTorrent(m_dir.filePath(QStringLiteral("seed")), QStringLiteral("movie.mkv"),
                                          {kFileSize}, kPiece, 77);
-        m_seeder = std::make_unique<Seeder>(m_torrent, m_torrent.root, kSeederRate);
+        // Hashed up front (checkFiles), not in seed mode.
+        m_seeder = std::make_unique<Seeder>(m_torrent, m_torrent.root, kSeederRate, true);
+        QVERIFY(m_seeder->waitUntilSeeding());
         m_magnet = harness::magnet(m_torrent, {m_seeder->port()});
+        // One unrecorded run first. A fresh seeder's rate limiter has no
+        // quota saved, so each message waits for its next 100 ms tick and
+        // libtorrent's request pipeline starts small: the first run against
+        // it reached its first byte about 1 s later than the rest (1085 ms
+        // against 62-77 ms on Linux). Without this, whichever client ran
+        // first paid for it.
+        runPlayer(m_magnet, m_dir.filePath(QStringLiteral("cache-warmup")), 0);
     }
 
     void cleanupTestCase() { m_seeder.reset(); }
@@ -162,9 +182,12 @@ private slots:
         std::vector<std::unique_ptr<Seeder>> seeders;
         std::thread leaver;
         if (swarm) {
+            // New seeders each run, cold as above: the swarm's first byte
+            // includes their start-up, for every client alike.
             std::vector<int> ports;
             for (int i = 0; i < kSwarmSeeders; ++i) {
-                seeders.push_back(std::make_unique<Seeder>(m_torrent, m_torrent.root, kSwarmRate));
+                seeders.push_back(std::make_unique<Seeder>(m_torrent, m_torrent.root, kSwarmRate, true));
+                QVERIFY(seeders.back()->waitUntilSeeding());
                 ports.push_back(seeders.back()->port());
             }
             magnet = harness::magnet(m_torrent, ports);
@@ -194,7 +217,7 @@ private slots:
         if (!save.fileName().isEmpty() && save.open(QIODevice::WriteOnly | QIODevice::Append)) {
             QJsonObject tagged = r;
             tagged.insert("scenario", swarm ? "peer-departure" : "single-seeder");
-            tagged.insert("engine", qEnvironmentVariable("CJ_COMPETITOR", "jackie"));
+            tagged.insert("engine", qEnvironmentVariable("CJ_COMPETITOR", qEnvironmentVariable("CJ_BENCH_LABEL", "jackie")));
             save.write(QJsonDocument(tagged).toJson(QJsonDocument::Compact));
             save.write("\n");
         }

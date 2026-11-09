@@ -80,6 +80,16 @@ struct StreamStats
     bool paused = false;          // nobody has used it for BrokerSettings::idlePauseMs
 };
 
+// What the broker did for one torrent, for the benchmark and the log.
+struct BrokerCounters
+{
+    qint64 fetchedBytes = 0;   // verified piece bytes downloaded, counting a refetch again
+    int reloads = 0;           // RAM only: times the torrent was reloaded to refetch dropped pieces
+    int schedulePasses = 0;    // calls to Engine::schedule
+    int scheduleSent = 0;      // of those, the ones that sent priorities or deadlines
+    qint64 scheduleMicros = 0; // time spent in Engine::schedule
+};
+
 // Bytes per second assumed when the duration is not known yet (about 12 Mbit/s).
 constexpr double kDefaultBitrate = 1.5 * 1024 * 1024;
 

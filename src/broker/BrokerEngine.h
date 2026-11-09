@@ -213,6 +213,7 @@ struct Torrent
     qint64 downloadRate = 0;
     Clock::time_point lastPieceAt = Clock::now();   // last piece finished, or a reader opened
     Clock::time_point peersSeenAt = Clock::now();   // last time it had a peer
+    BrokerCounters counters;
 
     // The libtorrent handle, read under `mutex`: a RAM-only reload replaces
     // it from the alert thread. Use the copy outside the lock.

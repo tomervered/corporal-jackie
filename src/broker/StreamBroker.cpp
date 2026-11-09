@@ -370,6 +370,12 @@ qint64 StreamHandle::read(qint64 offset, char* buffer, qint64 length)
 
 StreamStats StreamHandle::stats() const { return m_engine->stats(*m_torrent, *m_reader); }
 
+BrokerCounters StreamHandle::counters() const
+{
+    std::lock_guard lock(m_torrent->mutex);
+    return m_torrent->counters;
+}
+
 PieceState StreamHandle::stateAt(qint64 offset) const
 {
     Torrent& t = *m_torrent;

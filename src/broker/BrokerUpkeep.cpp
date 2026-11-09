@@ -14,6 +14,7 @@ void Engine::reload(const std::shared_ptr<Torrent>& tp)
     t.reloadedAt = Clock::now();
     if (t.removed || !t.hasMetadata || !t.handle.is_valid() || closing)
         return;
+    ++t.counters.reloads;
 
     const int n = t.info->num_pieces();
     lt::add_torrent_params atp;
