@@ -204,6 +204,10 @@ void onHeaders(const StreamPtr& s, QNetworkReply* reply, quint64 id, const QUrl&
     std::unique_lock lock(s->mutex);
     if (s->request != id || s->reply != reply)
         return;
+    // Once per answer: finished() calls this again, and a second pass over a
+    // 200 would set skip again after pull() has already dropped those bytes.
+    if (s->responded)
+        return;
     if (status >= 300 && status < 400) {
         QUrl target = reply->attribute(QNetworkRequest::RedirectionTargetAttribute).toUrl();
         if (target.isEmpty())
