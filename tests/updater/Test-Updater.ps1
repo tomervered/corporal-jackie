@@ -21,8 +21,9 @@ New-Item -ItemType Directory -Path $work | Out-Null
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 function New-Key {
-    $rsa = [Security.Cryptography.RSA]::Create()
-    $rsa.KeySize = 2048
+    # RSA.Create() gives a fixed-size key on .NET Framework (KeySize is
+    # read-only there), so ask for the size up front, as the docs do.
+    $rsa = New-Object Security.Cryptography.RSACryptoServiceProvider 2048
     $pair = @{ Private = $rsa.ToXmlString($true); Public = $rsa.ToXmlString($false) }
     $rsa.Dispose()
     return $pair
