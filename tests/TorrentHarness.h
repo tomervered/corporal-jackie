@@ -180,6 +180,20 @@ public:
     }
     lt::torrent_status status() const { return m_handle.status(lt::torrent_handle::query_pieces); }
 
+    // For a seeder made with checkFiles: true once every piece is hashed
+    // and it seeds. (Seed mode would hash each piece on its first upload,
+    // inside a measured run.)
+    bool waitUntilSeeding(int timeoutMs = 60000) const
+    {
+        for (int waited = 0; waited < timeoutMs; waited += 20) {
+            const lt::torrent_status s = m_handle.status({});
+            if (s.state == lt::torrent_status::seeding && s.is_seeding)
+                return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        return false;
+    }
+
 private:
     std::unique_ptr<lt::session> m_session;
     lt::torrent_handle m_handle;

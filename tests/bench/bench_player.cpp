@@ -28,6 +28,7 @@
 #  include <sys/resource.h>
 #else
 #  include <QFile>
+#  include <sys/resource.h>
 #endif
 
 using namespace cj;
@@ -57,6 +58,22 @@ qint64 peakProcessMemory()
         if (line.startsWith("VmHWM:"))
             return line.mid(6).trimmed().split(' ').value(0).toLongLong() * 1024;
     return -1;
+#endif
+}
+
+// CPU time this process has used, user and system, in ms.
+qint64 cpuMs()
+{
+#ifdef Q_OS_WIN
+    FILETIME created, exited, kernel, user;
+    if (!GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user))
+        return -1;
+    auto ms = [](const FILETIME& f) { return ((qint64(f.dwHighDateTime) << 32) | f.dwLowDateTime) / 10000; };
+    return ms(kernel) + ms(user);
+#else
+    rusage u{};
+    getrusage(RUSAGE_SELF, &u);
+    return (qint64(u.ru_utime.tv_sec) + u.ru_stime.tv_sec) * 1000 + (u.ru_utime.tv_usec + u.ru_stime.tv_usec) / 1000;
 #endif
 }
 
@@ -251,6 +268,14 @@ int main(int argc, char** argv)
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
     out[QStringLiteral("seeks")] = seeks;
+    // Bytes fetched beyond the file's size: refetches of dropped pieces, and
+    // read-ahead past what was played or sought.
+    const BrokerCounters c = h->counters();
+    out[QStringLiteral("fetchedBytes")] = c.fetchedBytes;
+    out[QStringLiteral("reloads")] = c.reloads;
+    out[QStringLiteral("schedulePasses")] = c.schedulePasses;
+    out[QStringLiteral("scheduleSent")] = c.scheduleSent;
+    out[QStringLiteral("scheduleMs")] = double(c.scheduleMicros) / 1000.0;
 
     done = true;
     sampler.join();
@@ -261,6 +286,7 @@ int main(int argc, char** argv)
     out[QStringLiteral("peakReadCacheBytes")] = peakReadCache.load();
     out[QStringLiteral("peakProcessBytes")] = peakProcessMemory();
     out[QStringLiteral("totalMs")] = clock.elapsed();
+    out[QStringLiteral("cpuMs")] = cpuMs();
     std::fputs(QJsonDocument(out).toJson(QJsonDocument::Compact).constData(), stdout);
     std::fputs("\n", stdout);
     return 0;

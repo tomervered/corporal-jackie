@@ -17,6 +17,18 @@ void Engine::schedule(Torrent& t, bool force)
 {
     if (t.removed || !t.hasMetadata || !t.handle.is_valid())
         return;
+    const auto started = Clock::now();
+    ++t.counters.schedulePasses;
+    struct Timer
+    {
+        Torrent& t;
+        Clock::time_point started;
+        ~Timer()
+        {
+            t.counters.scheduleMicros +=
+                std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - started).count();
+        }
+    } timer{t, started};
 
     const qint64 pieceLen = t.pieceLength();
     std::map<int, int> deadlines;                 // piece -> ms
@@ -88,6 +100,7 @@ void Engine::schedule(Torrent& t, bool force)
     }
     if (!anyChange)
         return;
+    ++t.counters.scheduleSent;
 
     try {
         std::set<int> readerFiles;

@@ -57,6 +57,7 @@ public:
     void setDuration(double seconds);
 
     StreamStats stats() const;
+    BrokerCounters counters() const;
     PieceState stateAt(qint64 offset) const;
 
 private:

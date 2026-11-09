@@ -583,6 +583,8 @@ void Engine::handleAlert(lt::alert* a)
             const int p = int(static_cast<int>(pf->piece_index));
             if (p >= 0 && p < int(t->have.size()))
                 t->have[p] = true;
+            if (t->info && p >= 0 && p < t->info->num_pieces())
+                t->counters.fetchedBytes += t->info->piece_size(lt::piece_index_t(p));
             t->evicted.erase(p);
             t->scheduled.erase(p);
             t->lastPieceAt = Clock::now();
