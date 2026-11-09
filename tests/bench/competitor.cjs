@@ -136,6 +136,8 @@ async function openLibrary() {
         WebTorrent = (await import(pathToFileURL(path.join(dependencies, 'webtorrent', 'index.js')).href)).default;
     else if (engineName === 'webtorrent1')
         WebTorrent = require(path.join(dependencies, 'webtorrent1'));
+    if (!WebTorrent && engineName !== 'torrent-stream')
+        throw new Error(`Unknown CJ_COMPETITOR: ${engineName}`);
     const torrentStream = WebTorrent ? null : require(path.join(dependencies, 'torrent-stream'));
     if (WebTorrent)
         client = new WebTorrent(options);
@@ -241,8 +243,13 @@ async function openQBittorrent() {
         fetchedBytes: async () => (await json(`${api}/torrents/properties?hash=${infoHash}`)).total_downloaded,
         usage: async () => ({ cpuMs: cpuMsOf(daemon.pid), peakProcessBytes: peakBytes(daemon.pid) }),
         close: async () => {
+            if (daemon.exitCode !== null || daemon.signalCode !== null)
+                return;
+            const exited = new Promise(resolve => daemon.once('exit', resolve));
             daemon.kill('SIGTERM');
-            await new Promise(resolve => daemon.once('exit', resolve));
+            const killer = setTimeout(() => daemon.kill('SIGKILL'), 10000);
+            await exited;
+            clearTimeout(killer);
         },
     };
 }
@@ -348,7 +355,7 @@ async function main() {
     Object.assign(result, await client.usage());
     result.totalMs = Math.round(performance.now() - started);
     console.log(JSON.stringify(result));
-    clearTimeout(timeout);
+    // The watchdog stays armed: a close that hangs must not hang the run.
     await client.close();
     cleanUp();
     process.exit(0);
