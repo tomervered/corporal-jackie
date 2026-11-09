@@ -17,6 +17,7 @@
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 
 struct sqlite3;
@@ -81,7 +82,10 @@ public:
     ~Storage() override;  // waits for pending writes
 
     bool isOpen() const { return m_open; }
-    QString error() const { return m_error; }
+    // Why the database could not be opened, or why the last write failed,
+    // in words; empty when all is well. errorChanged() says when it changes.
+    // A failed write leaves the in-memory copy ahead of the file.
+    QString error() const;
 
     // --- Settings ---------------------------------------------------------------
     QVariant setting(const QString& key, const QVariant& fallback = {}) const;
@@ -114,9 +118,18 @@ public:
     void removeFromLibrary(const QString& key);
 
     // --- Export and import: library, history, add-ons and folders -----------------
-    QByteArray exportJson() const;
+    // Shareable (the default) leaves out what lets someone else in: request
+    // headers, signed and add-on stream links (history keeps the item's ids,
+    // and playing it again asks the add-on for a stream), tracker passkeys in
+    // magnets, and add-ons whose link holds settings (named under
+    // "addonsWithSettings", to set up again). Full keeps everything, for a
+    // private backup.
+    enum class ExportMode { Shareable, Full };
+    QByteArray exportJson(ExportMode mode = ExportMode::Shareable) const;
     // Merges: newer history wins, library items and folders are added, add-ons
-    // are added when not installed. Returns an error in words, or empty.
+    // are added when not installed. Checks the whole file first, then writes
+    // it in one transaction and waits for it: either all of it is saved, or
+    // nothing changes. Returns an error in words, or empty.
     QString importJson(const QByteArray& json);
 
     // Waits until every write so far is on disk (tests, shutdown).
@@ -124,7 +137,8 @@ public:
 
     // What identifies a source across runs: what it was opened from (a
     // magnet link, say) when that was resolved to a local stream URL, which
-    // changes from run to run; otherwise its URL.
+    // changes from run to run; otherwise its URL. A magnet counts by its info
+    // hash and file only.
     static QString sourceKey(const PlayableSource& source);
     static QJsonObject sourceToJson(const PlayableSource& source);
     static PlayableSource sourceFromJson(const QJsonObject& json);
@@ -134,14 +148,21 @@ signals:
     void libraryChanged();
     void addonsImported();   // import added add-ons or folders: adapters reload
     void foldersImported();
+    void errorChanged();
 
 private:
     class Worker;
-    void write(std::function<void(sqlite3*)> job);
+    // Queues a change; `job` returns false when it failed, and error() says why.
+    void write(std::function<bool(sqlite3*)> job);
+    void setWriteError(const QString& cause);
     void trimHistory();
+    void trimLibrary();
+    void keepInMemory(const HistoryEntry& e);
+    void keepInMemory(const LibraryItem& i);
 
     std::unique_ptr<Worker> m_worker;
     bool m_open = false;
+    mutable std::mutex m_errorMutex;  // the worker sets m_error too
     QString m_error;
     QVariantMap m_settings;
     std::optional<QJsonArray> m_addons;

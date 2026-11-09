@@ -35,6 +35,7 @@ Library::Library(Storage& storage, Session& session, Browser& browser, QObject* 
 {
     connect(&storage, &Storage::historyChanged, this, &Library::historyChanged);
     connect(&storage, &Storage::libraryChanged, this, &Library::itemsChanged);
+    connect(&storage, &Storage::errorChanged, this, &Library::storageErrorChanged);
 
     // A pick in the browse panel says what the next item is; the Session
     // then asks where to start it, and loads it.
@@ -152,7 +153,15 @@ void Library::resume(const QString& key)
     const auto e = m_storage.find(key);
     if (!e)
         return;
-    qCInfo(lcStorage).noquote() << "Resuming" << e->key << "at" << e->position;
+    qCInfo(lcStorage).noquote() << "Resuming" << logging::redactText(e->key) << "at" << e->position;
+    if (e->source.url.isEmpty()) {
+        // Imported from a shareable export, which keeps the item's ids but
+        // not the stream link: show the item so its add-ons find a stream.
+        // Picking one resumes here, by the same history key.
+        if (!e->adapter.isEmpty())
+            open(e->itemKey());
+        return;
+    }
     if (!e->adapter.isEmpty())
         m_pending = *e;
     // An item finished or barely started plays from the beginning.
@@ -221,10 +230,11 @@ void Library::open(const QString& key)
     emit openRequested();
 }
 
-QString Library::exportTo(const QUrl& file) const
+QString Library::exportTo(const QUrl& file, bool everything) const
 {
     QSaveFile out(pathOf(file));
-    if (!out.open(QIODevice::WriteOnly) || out.write(m_storage.exportJson()) < 0 || !out.commit())
+    const auto mode = everything ? Storage::ExportMode::Full : Storage::ExportMode::Shareable;
+    if (!out.open(QIODevice::WriteOnly) || out.write(m_storage.exportJson(mode)) < 0 || !out.commit())
         return QStringLiteral("Could not save the file (%1).").arg(out.errorString());
     qCInfo(lcStorage).noquote() << "Exported to" << pathOf(file);
     return {};

@@ -49,6 +49,17 @@ HistoryEntry direct(const QString& url, double position, qint64 at)
     return e;
 }
 
+// Makes every insert into `table` fail, as a full or broken disk would.
+void injectFailure(const QString& path, const char* table)
+{
+    sqlite3* db = nullptr;
+    QCOMPARE(sqlite3_open(path.toUtf8().constData(), &db), SQLITE_OK);
+    const QByteArray sql = QByteArray("CREATE TRIGGER fail_") + table + " BEFORE INSERT ON " + table
+                         + " BEGIN SELECT RAISE(FAIL, 'injected failure'); END;";
+    QCOMPARE(sqlite3_exec(db, sql.constData(), nullptr, nullptr, nullptr), SQLITE_OK);
+    sqlite3_close(db);
+}
+
 // The last item the Session told the target to load, and where.
 QString lastLoad(const FakeTarget& target)
 {
@@ -65,6 +76,227 @@ class TestStorage : public QObject
     Q_OBJECT
 
 private slots:
+    void exportOmitsReusableCredentials_data()
+    {
+        QTest::addColumn<QString>("location");
+        for (const char* location : {"header", "url", "addon"})
+            QTest::newRow(location) << QString::fromLatin1(location);
+    }
+
+    void exportOmitsReusableCredentials()
+    {
+        QFETCH(QString, location);
+        Storage storage({});
+        auto entry = episode(1, 600, 1000);
+        const QString marker = "auditDummyCredential987";
+        if (location == "header")
+            entry.source.headers.insert("Authorization", "Bearer " + marker);
+        if (location == "url")
+            entry.source.url = QUrl("https://example.com/video?token=" + marker);
+        if (location == "addon")
+            storage.saveAddons(QJsonArray{QJsonObject{{"transportUrl", "https://example.com/" + marker + "/manifest.json"}}});
+        storage.record(entry);
+        QVERIFY2(!storage.exportJson().contains(marker.toUtf8()), "Default export contains a reusable credential");
+    }
+
+    void failedWriteIsReported()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath("storage.sqlite");
+        Storage storage(path);
+        sqlite3* db = nullptr;
+        QCOMPARE(sqlite3_open(path.toUtf8().constData(), &db), SQLITE_OK);
+        const int result = sqlite3_exec(db, "CREATE TRIGGER reject_history BEFORE INSERT ON history BEGIN SELECT RAISE(FAIL, 'audit injected disk failure'); END;", nullptr, nullptr, nullptr);
+        sqlite3_close(db);
+        QCOMPARE(result, SQLITE_OK);
+        storage.record(episode(1, 600, 1000));
+        storage.flush();
+        Storage reopened(path);
+        QVERIFY(reopened.history().isEmpty());
+        QVERIFY2(!storage.error().isEmpty(), "Failed database write has no observable error");
+    }
+
+    void importReportsFailedPersistence()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath("import.sqlite");
+        Storage destination(path);
+        sqlite3* db = nullptr;
+        QCOMPARE(sqlite3_open(path.toUtf8().constData(), &db), SQLITE_OK);
+        const int result = sqlite3_exec(db, "CREATE TRIGGER reject_history BEFORE INSERT ON history BEGIN SELECT RAISE(FAIL, 'audit injected persistence failure'); END;", nullptr, nullptr, nullptr);
+        sqlite3_close(db);
+        QCOMPARE(result, SQLITE_OK);
+        Storage source({});
+        source.record(episode(1, 600, 1000));
+        const QString error = destination.importJson(source.exportJson());
+        destination.flush();
+        Storage reopened(path);
+        QVERIFY(reopened.history().isEmpty());
+        QVERIFY2(!error.isEmpty(), "Import reported success although persistence failed");
+    }
+
+    // A full export is for the user's own backup, and keeps everything.
+    void fullExportKeepsEverything()
+    {
+        Storage storage({});
+        auto entry = episode(1, 600, 1000);
+        entry.source.headers.insert("Authorization", "Bearer keepme");
+        storage.record(entry);
+        storage.saveAddons(QJsonArray{QJsonObject{{"transportUrl", "https://example.com/cfg/manifest.json"}}});
+        const QByteArray full = storage.exportJson(Storage::ExportMode::Full);
+        QVERIFY(full.contains("keepme"));
+        QVERIFY(full.contains("/cfg/manifest.json"));
+        QVERIFY(!storage.exportJson().contains("/cfg/manifest.json"));
+        QVERIFY(storage.exportJson().contains("addonsWithSettings"));
+    }
+
+    // After a shareable export and import, an add-on item resumes through
+    // its ids: Continue Watching opens the item, and picking a stream starts
+    // at the saved spot.
+    void shareableExportStillResumes()
+    {
+        Storage from({});
+        auto entry = episode(1, 600, 1000);
+        entry.source.url = QUrl("https://debrid.example/dl/s3cret/1.mkv?sig=s3cret");
+        entry.source.headers.insert("Cookie", "s=s3cret");
+        from.record(entry);
+        const QByteArray json = from.exportJson();
+        QVERIFY(!json.contains("s3cret"));
+
+        Storage to({});
+        QCOMPARE(to.importJson(json), QString());
+        FakeTarget target;
+        Session session(&target);
+        Browser browser(&session);
+        Library library(to, session, browser);
+        QSignalSpy opened(&library, &Library::openRequested);
+        library.resume(entry.key);
+        QCOMPARE(opened.count(), 1);
+        QVERIFY(lastLoad(target).isEmpty());
+        QCOMPARE(to.find(entry.key)->position, 600.0);
+    }
+
+    // A private tracker's announce link carries a passkey: the export keeps
+    // the magnet's info hash and file only, and the key still matches.
+    void exportDropsMagnetTrackers()
+    {
+        Storage from({});
+        PlayableSource magnet = PlayableSource::fromUrl(QUrl("torrent://abc/0"), "Film");
+        magnet.origin = "magnet:?xt=urn:btih:ABC&dn=Film&tr=https%3A%2F%2Ftracker.example%2Fpasskey123%2Fannounce&so=0";
+        HistoryEntry e;
+        e.source = magnet;
+        e.key = "url:" + Storage::sourceKey(magnet);
+        e.position = 300;
+        e.duration = 600;
+        e.updatedAt = 1000;
+        from.record(e);
+        QVERIFY(!e.key.contains("passkey123"));
+        const QByteArray json = from.exportJson();
+        QVERIFY(!json.contains("passkey123"));
+        Storage to({});
+        QCOMPARE(to.importJson(json), QString());
+        QCOMPARE(to.resumePosition(magnet), 300.0);
+    }
+
+    // Keys written before magnets were keyed by info hash move over once.
+    void oldMagnetKeysMoveToInfoHashes()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath("old.sqlite");
+        const QString old = "magnet:?xt=urn:btih:abc&tr=udp%3A%2F%2Ft.example%3A1";
+        {
+            Storage storage(path);
+            storage.flush();
+        }
+        sqlite3* db = nullptr;
+        QCOMPARE(sqlite3_open(path.toUtf8().constData(), &db), SQLITE_OK);
+        const QByteArray sql = "INSERT INTO history(key, source, position, duration, updated_at, finished) VALUES('url:"
+                             + old.toUtf8() + "', '{\"url\":\"torrent://abc/0\",\"kind\":\"torrent\",\"origin\":\""
+                             + old.toUtf8() + "\"}', 120, 600, 5, 0)";
+        QCOMPARE(sqlite3_exec(db, sql.constData(), nullptr, nullptr, nullptr), SQLITE_OK);
+        sqlite3_close(db);
+        {
+            Storage storage(path);
+            QCOMPARE(storage.history().size(), 1);
+            QCOMPARE(storage.history().first().key, QStringLiteral("url:magnet:?xt=urn:btih:abc"));
+        }
+        Storage reopened(path);
+        QCOMPARE(reopened.history().first().key, QStringLiteral("url:magnet:?xt=urn:btih:abc"));
+    }
+
+    // The UI hears about a failed write, and keeps working.
+    void failedWriteReachesTheUi()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath("storage.sqlite");
+        Storage storage(path);
+        injectFailure(path, "library");
+        FakeTarget target;
+        Session session(&target);
+        Browser browser(&session);
+        Library library(storage, session, browser);
+        QSignalSpy changed(&library, &Library::storageErrorChanged);
+        library.add(QVariantMap{{"adapter", "stremio"}, {"id", "tt1"}, {"name", "X"}});
+        storage.flush();
+        QTRY_COMPARE(changed.count(), 1);
+        QVERIFY(library.storageError().contains("injected"));
+        storage.record(episode(1, 600, 1000));  // other tables still save
+        storage.flush();
+        Storage reopened(path);
+        QCOMPARE(reopened.history().size(), 1);
+        QVERIFY(reopened.library().isEmpty());
+    }
+
+    // An import is all or nothing: a failure on the last table leaves the
+    // others untouched, on disk and in memory.
+    void importIsAllOrNothing()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath("import.sqlite");
+        Storage destination(path);
+        injectFailure(path, "library");
+        Storage source({});
+        source.record(episode(1, 600, 1000));
+        LibraryItem item;
+        item.adapter = "stremio";
+        item.itemId = "tt9";
+        source.addToLibrary(item);
+        source.saveFolders({"/videos"});
+        QSignalSpy history(&destination, &Storage::historyChanged);
+        const QString error = destination.importJson(source.exportJson());
+        QVERIFY(error.contains("Nothing was imported"));
+        QVERIFY(destination.history().isEmpty());
+        QVERIFY(!destination.folders());
+        QCOMPARE(history.count(), 0);
+        Storage reopened(path);
+        QVERIFY(reopened.history().isEmpty());
+        QVERIFY(!reopened.folders());
+    }
+
+    // A damaged file is refused before anything is written.
+    void importChecksTheWholeFileFirst_data()
+    {
+        QTest::addColumn<QByteArray>("tail");
+        QTest::newRow("history not a list") << QByteArray("\"history\":{}");
+        QTest::newRow("entry not an object") << QByteArray("\"history\":[1]");
+        QTest::newRow("negative position") << QByteArray("\"history\":[{\"key\":\"k\",\"position\":-5}]");
+        QTest::newRow("bad link") << QByteArray("\"history\":[{\"key\":\"k\",\"source\":{\"url\":\"javascript:alert(1)\"}}]");
+        QTest::newRow("bad subtitle") << QByteArray("\"history\":[{\"key\":\"k\",\"source\":{\"url\":\"https://a.example/v\",\"subtitles\":[{\"url\":\"ftp://x/y.srt\"}]}}]");
+        QTest::newRow("addon not web") << QByteArray("\"addons\":[{\"transportUrl\":\"file:///etc/manifest.json\"}]");
+        QTest::newRow("folder not text") << QByteArray("\"folders\":[3]");
+    }
+
+    void importChecksTheWholeFileFirst()
+    {
+        QFETCH(QByteArray, tail);
+        Storage storage({});
+        const QByteArray json = "{\"format\":\"corporal-jackie-export\",\"version\":1,\"library\":[{\"adapter\":\"stremio\",\"itemId\":\"tt1\"}],"
+                              + tail + "}";
+        QVERIFY(!storage.importJson(json).isEmpty());
+        QVERIFY(storage.library().isEmpty());
+        QVERIFY(storage.history().isEmpty());
+    }
+
     void opensInMemory()
     {
         Storage s({});
