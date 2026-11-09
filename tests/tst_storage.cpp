@@ -233,6 +233,15 @@ private slots:
         PlayableSource noHash = PlayableSource::fromUrl(QUrl("torrent://none/0"), "No hash");
         noHash.origin = "magnet:?xt=urn:btih:&tr=https%3A%2F%2Ftracker.example%2Fpasskey111%2Fannounce";
         record(noHash, {}, 5);
+        // No playable link kept, only the magnet it came from.
+        PlayableSource originOnly;
+        originOnly.title = "Origin only";
+        originOnly.kind = PlayableSource::Kind::Torrent;
+        originOnly.origin = "magnet:?xt=urn:btih:DEF&tr=https%3A%2F%2Ftracker.example%2Fpasskey333%2Fannounce";
+        record(originOnly, {}, 7);
+        // Local keys never hold trackers either, v2-only magnets included.
+        for (const HistoryEntry& h : from.history())
+            QVERIFY2(!h.key.contains("passkey"), qPrintable(h.key));
         // An imported add-on entry keyed by its signed link, with no link left
         // in the source: the key is the only place the token is.
         {
@@ -250,13 +259,13 @@ private slots:
         }
 
         const QByteArray json = from.exportJson();
-        for (const char* secret : {"passkey456", "signedKey789", "pw0rdXYZ", "passkey000", "passkey111", "keyToken222"})
+        for (const char* secret : {"passkey456", "signedKey789", "pw0rdXYZ", "passkey000", "passkey111", "keyToken222", "passkey333"})
             QVERIFY2(!json.contains(secret), secret);
         QVERIFY(json.contains("urn:btmh:1220abcd"));  // still names its video
         Storage to({});
         QCOMPARE(to.importJson(json), QString());
         // The signed direct link has nothing left to find it by; the rest stay.
-        QCOMPARE(to.history().size(), 5);
+        QCOMPARE(to.history().size(), 6);
         const QByteArray full = from.exportJson(Storage::ExportMode::Full);
         for (const char* secret : {"signedKey789", "passkey111", "keyToken222"})
             QVERIFY2(full.contains(secret), secret);
