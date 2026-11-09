@@ -15,6 +15,8 @@ using test::FakeHttpServer;
 
 namespace {
 // 10 seconds, 160x120, 25 fps, a keyframe every second.
+QStringList auditMessages;
+
 const QString kTestPattern = QStringLiteral(CJ_TEST_DATA_DIR "/testsrc-10s.mkv");
 }
 
@@ -168,6 +170,20 @@ private slots:
             QVERIFY2(!r.headers.contains("authorization"), r.headers.value("authorization").constData());
             QVERIFY(r.headers.value("user-agent") != "Custom/1");
         }
+    }
+
+    void playbackLogsOmitSignedQuery()
+    {
+        FakeHttpServer server;
+        MpvTarget target(MpvTarget::Mode::Headless);
+        auditMessages.clear();
+        const auto previous = qInstallMessageHandler([](QtMsgType, const QMessageLogContext&, const QString& message) {
+            auditMessages << message;
+        });
+        const auto source = PlayableSource::fromUrl(QUrl(server.base() + "/clip.mkv?token=auditDummySigned987"), "Clip");
+        target.load(source, 0);
+        qInstallMessageHandler(previous);
+        QVERIFY2(!auditMessages.join("\n").contains("auditDummySigned987"), "Playback log contains signed URL credential");
     }
 
     void redirectMustNotForwardCredentials_data()
