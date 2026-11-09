@@ -566,6 +566,9 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
           CJ_BENCH_RUNS: "5"
+          # One test function runs every row; on the lossy link Jackie's 20
+          # rows took past Qt's default 5 minutes and the last ones were lost.
+          QTEST_FUNCTION_TIMEOUT: "3600000"
           CJ_BENCH_OUT: ${{ runner.temp }}/bench.jsonl
           CJ_COMPETITOR_MODULES: ${{ runner.temp }}/contenders/node_modules
           CJ_STREMIO_IMAGE: ${{ env.STREMIO_IMAGE }}
