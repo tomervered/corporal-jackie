@@ -65,6 +65,46 @@ class TestStorage : public QObject
     Q_OBJECT
 
 private slots:
+    void exportOmitsReusableCredentials_data()
+    {
+        QTest::addColumn<QString>("location");
+        for (const char* location : {"header", "url", "addon"})
+            QTest::newRow(location) << QString::fromLatin1(location);
+    }
+
+    void exportOmitsReusableCredentials()
+    {
+        QFETCH(QString, location);
+        Storage storage({});
+        auto entry = episode(1, 600, 1000);
+        const QString marker = "auditDummyCredential987";
+        if (location == "header")
+            entry.source.headers.insert("Authorization", "Bearer " + marker);
+        if (location == "url")
+            entry.source.url = QUrl("https://example.com/video?token=" + marker);
+        if (location == "addon")
+            storage.saveAddons(QJsonArray{QJsonObject{{"transportUrl", "https://example.com/" + marker + "/manifest.json"}}});
+        storage.record(entry);
+        QVERIFY2(!storage.exportJson().contains(marker.toUtf8()), "Default export contains a reusable credential");
+    }
+
+    void failedWriteIsReported()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath("storage.sqlite");
+        Storage storage(path);
+        sqlite3* db = nullptr;
+        QCOMPARE(sqlite3_open(path.toUtf8().constData(), &db), SQLITE_OK);
+        const int result = sqlite3_exec(db, "CREATE TRIGGER reject_history BEFORE INSERT ON history BEGIN SELECT RAISE(FAIL, 'audit injected disk failure'); END;", nullptr, nullptr, nullptr);
+        sqlite3_close(db);
+        QCOMPARE(result, SQLITE_OK);
+        storage.record(episode(1, 600, 1000));
+        storage.flush();
+        Storage reopened(path);
+        QVERIFY(reopened.history().isEmpty());
+        QVERIFY2(!storage.error().isEmpty(), "Failed database write has no observable error");
+    }
+
     void opensInMemory()
     {
         Storage s({});

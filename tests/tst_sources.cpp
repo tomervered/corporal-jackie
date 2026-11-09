@@ -463,7 +463,7 @@ private slots:
             {"name":"Fast 720p","infoHash":"0123456789abcdef0123456789abcdef01234567","fileIdx":0},
             {"name":"Fast 1080p","url":"http:\/\/127.0.0.1:1/v.mkv"}]})");
         server.setJson("/slow/stream/series/tt1%3A1%3A1.json", R"({"streams":[]})", /*delay*/ -1);
-        server.set("/broken/stream/series/tt1%3A1%3A1.json", {500, "oops", "text/plain", 0, {}});
+        server.set("/broken/stream/series/tt1%3A1%3A1.json", {500, "oops", "text/plain", 0, {}, {}});
         server.setJson("/subs/subtitles/series/tt1%3A1%3A1.json", R"({"subtitles":[{"url":"http:\/\/127.0.0.1:1/en.srt","lang":"eng"}]})");
 
         QTemporaryDir data;
@@ -688,3 +688,4 @@ private slots:
 
 QTEST_MAIN(TestSources)
 #include "tst_sources.moc"
+

@@ -170,6 +170,45 @@ private slots:
         }
     }
 
+    void redirectMustNotForwardCredentials_data()
+    {
+        QTest::addColumn<bool>("subtitle");
+        QTest::newRow("video") << false;
+        QTest::newRow("subtitle") << true;
+    }
+
+    void redirectMustNotForwardCredentials()
+    {
+        QFETCH(bool, subtitle);
+        FakeHttpServer origin, other;
+        FakeHttpServer::Answer clip;
+        clip.contentType = "video/x-matroska";
+        clip.filePath = kTestPattern;
+        origin.set("/clip.mkv", clip);
+        other.set("/clip.mkv", clip);
+        FakeHttpServer::Answer text;
+        text.contentType = "text/plain";
+        text.body = "1\n00:00:00,000 --> 00:00:09,000\nHello\n";
+        other.set("/other.srt", text);
+        FakeHttpServer::Answer redirect;
+        redirect.status = 302;
+        redirect.location = (other.base() + (subtitle ? "/other.srt" : "/clip.mkv")).toUtf8();
+        origin.set("/redirect", redirect);
+        auto source = PlayableSource::fromUrl(QUrl(origin.base() + (subtitle ? "/clip.mkv" : "/redirect")), "Clip");
+        source.headers.insert("Authorization", "Bearer audit-dummy");
+        source.headers.insert("Cookie", "audit=dummy");
+        if (subtitle)
+            source.subtitles = {{QUrl(origin.base() + "/redirect"), "en", {}}};
+        MpvTarget target(MpvTarget::Mode::Headless);
+        Session session(&target);
+        session.playSource(source);
+        QTRY_VERIFY_WITH_TIMEOUT(!other.requests.isEmpty(), 10000);
+        for (const auto& request : std::as_const(other.requests)) {
+            QVERIFY2(!request.headers.contains("authorization"), "Credential crossed origin");
+            QVERIFY2(!request.headers.contains("cookie"), "Cookie crossed origin");
+        }
+    }
+
 private:
     static int subtitleTracks(const Session& s)
     {
