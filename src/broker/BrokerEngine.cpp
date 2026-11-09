@@ -204,13 +204,14 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
     const std::string id = idOf(atp.info_hashes);
     std::lock_guard lock(m_mutex);
     if (auto it = m_torrents.find(id); it != m_torrents.end()) {
-        reopen(*it->second, atp);
+        reopen(*it->second, atp, req.fileIndex);
         return it->second;
     }
 
     auto t = std::make_shared<Torrent>();
     t->id = id;
     t->pendingOpens = 1;  // this open, from before the cache can see it
+    t->openingFile = req.fileIndex;
     t->linkPeers = atp.peers;
     t->dir = QDir(settings.cacheDir).filePath(QString::fromStdString(id));
     QDir().mkpath(t->dir);
@@ -246,7 +247,7 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
 
 // Opened again while still known: the new link's peers and trackers are
 // added, and a paused or failed torrent starts again. m_mutex must be held.
-void Engine::reopen(Torrent& t, lt::add_torrent_params& atp)
+void Engine::reopen(Torrent& t, lt::add_torrent_params& atp, int fileIndex)
 {
     try {
         // Peers and trackers from a newer magnet link still help.
@@ -276,6 +277,7 @@ void Engine::reopen(Torrent& t, lt::add_torrent_params& atp)
         std::lock_guard tl(t.mutex);
         // Counted under m_mutex, so the cache cannot delete it from here on.
         ++t.pendingOpens;
+        t.openingFile = fileIndex;
         if (t.paused) {
             qCInfo(lcBroker).noquote() << "Resuming" << QString::fromStdString(t.id) << ": opened again";
             t.paused = false;
@@ -381,15 +383,16 @@ void Engine::onMetadata(Torrent& t)
     for (int i = 0; i < int(st.pieces.size()) && i < int(t.have.size()); ++i)
         t.have[i] = st.pieces.get_bit(lt::piece_index_t(i));
     // Nothing is wanted until a reader asks, except when an open is waiting
-    // for this list: then the start and end of the largest file, its likely
-    // pick, are wanted at once. With nothing wanted even for a moment, we
+    // for this list: then the start and end of the file it asked for are
+    // wanted at once. With nothing wanted even for a moment, we
     // would tell peers we are no longer interested, they would choke us, and
     // unchoking again takes them a second (the benchmark's first byte came
     // 1 s late that way).
     std::vector<lt::download_priority_t> priorities(std::size_t(t.info->num_pieces()), lt::dont_download);
     t.wanted.clear();
     const lt::file_storage& files = fileLayout(*t.info);
-    if (const int f = largestFile(files); t.pendingOpens > 0 && f >= 0 && files.file_size(lt::file_index_t(f)) > 0) {
+    const int f = t.openingFile >= 0 ? t.openingFile : largestFile(files);
+    if (t.pendingOpens > 0 && f >= 0 && f < files.num_files() && files.file_size(lt::file_index_t(f)) > 0) {
         const qint64 start = files.file_offset(lt::file_index_t(f));
         const qint64 end = start + files.file_size(lt::file_index_t(f)) - 1;
         auto want = [&](int first, int last) {

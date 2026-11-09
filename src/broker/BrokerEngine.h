@@ -201,6 +201,7 @@ struct Torrent
     // say). They count as use: the cache must not delete the torrent, and it
     // must not pause, while someone is opening it.
     int pendingOpens = 0;
+    int openingFile = -1;  // the file the latest open asked for; -1 the largest
     bool paused = false;                            // idle for BrokerSettings::idlePauseMs
     Clock::time_point idleSince = Clock::now();     // when the last use ended
     bool inUse() const { return openHandles > 0 || pendingOpens > 0; }
@@ -306,7 +307,7 @@ private:
     void onMetadata(Torrent& t);  // t.mutex must be held
     void pauseIfIdle(Torrent& t);
     void dropExtraTrackers(lt::add_torrent_params& atp) const;
-    void reopen(Torrent& t, lt::add_torrent_params& atp);
+    void reopen(Torrent& t, lt::add_torrent_params& atp, int fileIndex);
     void loadSaved(const Torrent& t, lt::add_torrent_params& atp) const;
     void onReadPiece(Torrent& t, const lt::read_piece_alert& rp);  // t.mutex must be held
     void onResumeData(const lt::save_resume_data_alert& rd);
