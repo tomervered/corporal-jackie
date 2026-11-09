@@ -709,23 +709,35 @@ private slots:
         QCOMPARE(wrongBytes.load(), 0);
         QVERIFY2(reads.load() > 0, "no read finished");
 
-        // Shutdown while a call waits on a torrent nobody seeds. The thread
-        // gets the broker itself, not the unique_ptr that reset() clears,
-        // and the shutdown starts only once that thread is in the call.
+        // Shutdown while a read waits for a piece nobody has. The torrent is
+        // opened from its .torrent file, so open() returns at once with no
+        // peers, and the read then blocks. Only the handle is used across
+        // the shutdown: a handle may outlive its broker, a call into the
+        // broker may not.
         const TestTorrent c = harness::makeTorrent(dir.filePath("c"), "c.mkv", {2 * MiB}, kPiece, 33);
-        StreamBroker* const waitingOn = broker.get();
-        std::atomic<bool> calling{false};
-        auto waiting = std::async(std::launch::async, [&c, waitingOn, &calling] {
-            calling = true;
-            auto h = waitingOn->open({harness::magnet(c, {})});
-            return h ? h->read(0, nullptr, 0) : qint64(-1);
+        const QString torrentFile = dir.filePath("c.torrent");
+        {
+            const std::vector<char> bytes = harness::createTorrentFile(QDir(c.root).filePath("c.mkv"), c.root, kPiece);
+            QFile f(torrentFile);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            QCOMPARE(f.write(bytes.data(), qint64(bytes.size())), qint64(bytes.size()));
+        }
+        std::shared_ptr<StreamHandle> blocked = broker->open({torrentFile});
+        QVERIFY(blocked);
+        std::atomic<bool> reading{false};
+        auto waiting = std::async(std::launch::async, [blocked, &reading] {
+            reading = true;
+            char byte;
+            return blocked->read(0, &byte, 1);
         });
-        QTRY_VERIFY_WITH_TIMEOUT(calling.load(), 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(reading.load(), 10000);
         QTest::qWait(300);
+        QVERIFY(waiting.wait_for(std::chrono::seconds(0)) == std::future_status::timeout);
         QElapsedTimer clock;
         clock.start();
         broker.reset();
         QVERIFY(waiting.wait_for(std::chrono::seconds(20)) == std::future_status::ready);
+        QVERIFY2(waiting.get() < 0, "a read after shutdown returned data");
         QVERIFY2(clock.elapsed() < 20000, "shutdown hung");
     }
 
