@@ -2,10 +2,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { performance } = require('node:perf_hooks');
+const { pathToFileURL } = require('node:url');
 const MiB = 1048576;
 const chunk = MiB / 4;
 const [magnet, cache] = process.argv.slice(2);
-const engineName = process.env.CJ_COMPETITOR;
+const engineName = process.env.CJ_COMPETITOR || 'webtorrent';
 const dependencies = path.resolve(process.env.CJ_COMPETITOR_MODULES);
 const options = { path: cache, tmp: cache, dht: false, tracker: false, lsd: false, utp: false, natUpnp: false, natPmp: false };
 const peers = new URL(magnet).searchParams.getAll('x.pe');
@@ -14,11 +15,31 @@ const started = performance.now();
 const timeout = setTimeout(() => { console.error('Competitor timed out'); process.exit(2); }, 180000);
 let engine, client;
 
+// CJ_COMPETITOR: "webtorrent" (current, an ES module), "webtorrent1" (1.9.7,
+// the audit's pinned version, installed under that alias) or "torrent-stream"
+// (1.2.1, the engine Stremio's streaming server grew from).
+let WebTorrent;
+
+// The same measure as bench_player: VmHWM on Linux. maxRSS would not do
+// there, since Linux carries it across exec and it starts at the size of
+// tst_bench, which forked this process.
+function peakProcessBytes() {
+    try {
+        const hwm = /^VmHWM:\s+(\d+) kB/m.exec(fs.readFileSync('/proc/self/status', 'utf8'));
+        if (hwm)
+            return Number(hwm[1]) * 1024;
+    } catch (e) {}
+    return process.resourceUsage().maxRSS * 1024;
+}
+
 async function main() {
     fs.mkdirSync(cache, { recursive: true });
+    if (engineName === 'webtorrent')
+        WebTorrent = (await import(pathToFileURL(path.join(dependencies, 'webtorrent', 'index.js')).href)).default;
+    else if (engineName === 'webtorrent1')
+        WebTorrent = require(path.join(dependencies, 'webtorrent1'));
     await new Promise(resolve => {
-        if (engineName === 'webtorrent') {
-            const WebTorrent = require(path.join(dependencies, 'webtorrent'));
+        if (engineName.startsWith('webtorrent')) {
             client = new WebTorrent(options);
             engine = client.add(magnet, options, resolve);
             engine.once('infoHash', () => peers.forEach(peer => engine.addPeer(peer)));
@@ -61,7 +82,12 @@ async function main() {
         result.seeks.push({ at, kind: held ? 'cached' : 'missing', ms: Math.round(performance.now() - start) });
         await sleep(200);
     }
-    result.peakProcessBytes = process.resourceUsage().maxRSS * 1024;
+    result.peakProcessBytes = peakProcessBytes();
+    const cpu = process.cpuUsage();
+    result.cpuMs = Math.round((cpu.user + cpu.system) / 1000);
+    // Bytes received from peers: a WebTorrent torrent counts them itself,
+    // torrent-stream in its swarm.
+    result.fetchedBytes = engine.downloaded ?? engine.swarm?.downloaded ?? -1;
     result.totalMs = Math.round(performance.now() - started);
     console.log(JSON.stringify(result));
     clearTimeout(timeout);

@@ -5,7 +5,8 @@
 // spread between runs sets any threshold.
 //
 // CJ_BENCH_RUNS=n repeats each mode n times (default 1). CJ_BENCH_OUT=file
-// saves every run's JSON, one per line. CJ_BENCH_PLAYER_PATH runs another
+// saves every run's JSON, one per line, failed runs included (summarize
+// them with tests/bench/summarize.py). CJ_BENCH_PLAYER_PATH runs another
 // build of bench_player; CJ_BENCH_EXTERNAL runs another client (see
 // tests/bench/competitor.cjs).
 
@@ -201,6 +202,21 @@ private slots:
         const QJsonObject r = runPlayer(magnet, cache, ram ? kRamCap : 0);
         if (leaver.joinable())
             leaver.join();
+        // Every run is saved, failed and timed-out ones too, so a summary
+        // cannot leave out the bad runs.
+        QFile save(qEnvironmentVariable("CJ_BENCH_OUT"));
+        if (!save.fileName().isEmpty() && save.open(QIODevice::WriteOnly | QIODevice::Append)) {
+            QJsonObject tagged = r.isEmpty() ? QJsonObject{{"failed", true}} : r;
+            tagged.insert("scenario", swarm ? "peer-departure" : "single-seeder");
+            tagged.insert("ramOnly", ram);
+            const bool external = qEnvironmentVariableIsSet("CJ_BENCH_EXTERNAL");
+            tagged.insert("engine", external ? qEnvironmentVariable("CJ_COMPETITOR", "webtorrent")
+                                             : qEnvironmentVariable("CJ_BENCH_LABEL", "jackie"));
+            // CJ_BENCH_LINK names the network conditions (CI sets netem on lo).
+            tagged.insert("link", qEnvironmentVariable("CJ_BENCH_LINK", "loopback"));
+            save.write(QJsonDocument(tagged).toJson(QJsonDocument::Compact));
+            save.write("\n");
+        }
         QVERIFY2(!r.isEmpty(), ram ? "RAM run failed" : "disk run failed");
         QCOMPARE(r[QStringLiteral("seeks")].toArray().size(), 20);
         report(mode, r);
@@ -212,14 +228,6 @@ private slots:
             for (const QByteArray& line : m_lastLog.split('\n'))
                 if (line.contains("Read of piece"))
                     print(QStringLiteral("BENCH %1:   %2").arg(QLatin1String(mode), QString::fromLocal8Bit(line.trimmed())));
-        }
-        QFile save(qEnvironmentVariable("CJ_BENCH_OUT"));
-        if (!save.fileName().isEmpty() && save.open(QIODevice::WriteOnly | QIODevice::Append)) {
-            QJsonObject tagged = r;
-            tagged.insert("scenario", swarm ? "peer-departure" : "single-seeder");
-            tagged.insert("engine", qEnvironmentVariable("CJ_COMPETITOR", qEnvironmentVariable("CJ_BENCH_LABEL", "jackie")));
-            save.write(QJsonDocument(tagged).toJson(QJsonDocument::Compact));
-            save.write("\n");
         }
     }
 
