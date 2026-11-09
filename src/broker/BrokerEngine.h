@@ -202,6 +202,28 @@ struct Torrent
         return handle;
     }
 
+    // Keeps a copy of a verified piece for readers. Big pieces (16 MB and
+    // more in 4K torrents) would make a count limit cost hundreds of MB, so
+    // the limit is in bytes. The two newest stay: the one being read and the
+    // next.
+    void keepCopy(int p, boost::shared_array<char> data, int size)
+    {
+        if (auto old = pieces.find(p); old != pieces.end())
+            pieceBytes -= old->second.second;
+        pieces[p] = {std::move(data), size};
+        pieceBytes += size;
+        pieceOrder.remove(p);
+        pieceOrder.push_back(p);
+        while (pieceBytes > kPieceCacheBytes && pieceOrder.size() > 2) {
+            const int oldest = pieceOrder.front();
+            pieceOrder.pop_front();
+            if (auto it = pieces.find(oldest); it != pieces.end()) {
+                pieceBytes -= it->second.second;
+                pieces.erase(it);
+            }
+        }
+    }
+
     qint64 pieceLength() const { return info ? info->piece_length() : 0; }
     int pieceAt(qint64 torrentOffset) const { return int(torrentOffset / info->piece_length()); }
 
@@ -270,6 +292,10 @@ private:
     void onMetadata(Torrent& t);  // t.mutex must be held
     void pauseIfIdle(Torrent& t);
     void dropExtraTrackers(lt::add_torrent_params& atp) const;
+    void reopen(Torrent& t, lt::add_torrent_params& atp);
+    void loadSaved(const Torrent& t, lt::add_torrent_params& atp) const;
+    void onReadPiece(Torrent& t, const lt::read_piece_alert& rp);  // t.mutex must be held
+    void onResumeData(const lt::save_resume_data_alert& rd);
     void saveResume(Torrent& t);
     void trimMemory();
     void reload(const std::shared_ptr<Torrent>& t);

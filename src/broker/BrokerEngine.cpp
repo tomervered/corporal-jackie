@@ -150,11 +150,12 @@ void Engine::dropExtraTrackers(lt::add_torrent_params& atp) const
     atp.tracker_tiers = std::move(tiers);
 }
 
-std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* error)
+namespace {
+
+// The request as libtorrent's add parameters. False if it is not a torrent.
+bool parseRequest(const QString& uri, lt::add_torrent_params& atp)
 {
-    lt::add_torrent_params atp;
     lt::error_code ec;
-    const QString uri = req.uri.trimmed();
     static const QRegularExpression hex40(QStringLiteral("^[0-9a-fA-F]{40}$"));
     if (uri.startsWith(QLatin1String("magnet:"), Qt::CaseInsensitive)) {
         atp = lt::parse_magnet_uri(uri.toStdString(), ec);
@@ -170,8 +171,17 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
     } else {
         ec = lt::errors::make_error_code(lt::errors::unsupported_url_protocol);
     }
-    if (ec) {
+    if (ec)
         qCWarning(lcBroker).noquote() << "Cannot open" << uri << ":" << QString::fromStdString(ec.message());
+    return !ec;
+}
+
+} // namespace
+
+std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* error)
+{
+    lt::add_torrent_params atp;
+    if (!parseRequest(req.uri.trimmed(), atp)) {
         *error = BrokerError::InvalidUri;
         return nullptr;
     }
@@ -191,61 +201,8 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
     const std::string id = idOf(atp.info_hashes);
     std::lock_guard lock(m_mutex);
     if (auto it = m_torrents.find(id); it != m_torrents.end()) {
-        auto& t = it->second;
-        try {
-            // Peers and trackers from a newer magnet link still help.
-            const lt::torrent_handle h = t->currentHandle();
-            for (const auto& peer : atp.peers)
-                h.connect_peer(peer);
-            {
-                std::lock_guard tl(t->mutex);
-                for (const auto& peer : atp.peers)
-                    if (std::find(t->linkPeers.begin(), t->linkPeers.end(), peer) == t->linkPeers.end())
-                        t->linkPeers.push_back(peer);
-            }
-            {
-                std::lock_guard tl(t->mutex);
-                // Known to be private: only its own trackers.
-                if (t->info && t->info->priv())
-                    dropExtraTrackers(atp);
-                // Still waiting for metadata, and this request brings it (a
-                // .torrent file of the same torrent): hand it over.
-                if (!t->hasMetadata && atp.ti) {
-                    const auto info = atp.ti->info_section();
-                    h.set_metadata(lt::span<char const>(info.data(), info.size()));
-                }
-            }
-            for (const auto& tracker : atp.trackers)
-                h.add_tracker(lt::announce_entry(tracker));
-            std::lock_guard tl(t->mutex);
-            // Counted under m_mutex, so the cache cannot delete it from here on.
-            ++t->pendingOpens;
-            if (t->paused) {
-                qCInfo(lcBroker).noquote() << "Resuming" << QString::fromStdString(id) << ": opened again";
-                t->paused = false;
-                t->handle.resume();
-                // The peer list was cleared at the pause: find peers afresh.
-                for (const auto& peer : t->linkPeers)
-                    t->handle.connect_peer(peer);
-                t->handle.force_reannounce();
-                t->handle.force_dht_announce();
-                // A peer still disconnecting from the pause stays in the list
-                // and waits out the reconnect delay: with no peers 3 s from
-                // now, refresh() clears the list and calls again.
-                t->peersSeenAt = Clock::now() - kReannounceAfter + std::chrono::seconds(3);
-            }
-            // An earlier error (a full disk, say) may be gone: try again.
-            if (t->failed) {
-                qCInfo(lcBroker).noquote() << "Retrying" << QString::fromStdString(id) << "after an error";
-                t->failed = false;
-                t->error.clear();
-                t->handle.clear_error();
-                t->handle.resume();
-            }
-        } catch (const std::exception& e) {
-            qCWarning(lcBroker) << "Reopening a torrent failed:" << e.what();
-        }
-        return t;
+        reopen(*it->second, atp);
+        return it->second;
     }
 
     auto t = std::make_shared<Torrent>();
@@ -256,43 +213,7 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
     QDir().mkpath(t->dir);
     t->touch();
 
-    // Resume data from an earlier run: the file list and which pieces are
-    // verified, so nothing waits for peers or a full re-check. The new magnet
-    // link's trackers and peers are kept.
-    {
-        // In RAM only nothing from an earlier run is held: no resume data.
-        QFile resume(QDir(t->dir).filePath(QString::fromLatin1(kResumeFile)));
-        if (!memoryOnly() && resume.open(QIODevice::ReadOnly)) {
-            const QByteArray data = resume.readAll();
-            lt::error_code resumeError;
-            lt::add_torrent_params rp = lt::read_resume_data({data.constData(), int(data.size())}, resumeError);
-            if (!resumeError && idOf(rp.info_hashes) == id) {
-                for (auto& tracker : atp.trackers)
-                    rp.trackers.push_back(tracker);
-                for (auto& peer : atp.peers)
-                    rp.peers.push_back(peer);
-                if (!rp.ti && atp.ti)
-                    rp.ti = atp.ti;
-                // Earlier versions saved the open trackers with torrents
-                // whose privacy was not yet known. onMetadata() adds them
-                // back once the torrent is known to be public.
-                if (!rp.ti || rp.ti->priv())
-                    dropExtraTrackers(rp);
-                atp = std::move(rp);
-                qCInfo(lcBroker).noquote() << "Resuming" << QString::fromStdString(id) << "from saved data with"
-                                           << atp.have_pieces.count() << "pieces";
-            }
-        }
-    }
-
-    // A file list saved on an earlier run means no wait for metadata.
-    const QString saved = QDir(t->dir).filePath(QString::fromLatin1(kMetadataFile));
-    if (!atp.ti && QFileInfo::exists(saved)) {
-        lt::error_code loadError;
-        auto ti = std::make_shared<lt::torrent_info>(QFile::encodeName(saved).toStdString(), loadError);
-        if (!loadError && ti->info_hashes() == atp.info_hashes)
-            atp.ti = ti;
-    }
+    loadSaved(*t, atp);
 
     atp.save_path = QFile::encodeName(t->dir).toStdString();
     atp.flags &= ~(lt::torrent_flags::auto_managed | lt::torrent_flags::paused);
@@ -302,6 +223,7 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
         // Nothing is wanted until a reader asks for it.
         atp.piece_priorities.assign(std::size_t(atp.ti->num_pieces()), lt::dont_download);
     }
+    lt::error_code ec;
     t->handle = m_session->add_torrent(std::move(atp), ec);
     if (ec) {
         qCWarning(lcBroker).noquote() << "Cannot add torrent:" << QString::fromStdString(ec.message());
@@ -317,6 +239,104 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
         onMetadata(*t);
     }
     return t;
+}
+
+// Opened again while still known: the new link's peers and trackers are
+// added, and a paused or failed torrent starts again. m_mutex must be held.
+void Engine::reopen(Torrent& t, lt::add_torrent_params& atp)
+{
+    try {
+        // Peers and trackers from a newer magnet link still help.
+        const lt::torrent_handle h = t.currentHandle();
+        for (const auto& peer : atp.peers)
+            h.connect_peer(peer);
+        {
+            std::lock_guard tl(t.mutex);
+            for (const auto& peer : atp.peers)
+                if (std::find(t.linkPeers.begin(), t.linkPeers.end(), peer) == t.linkPeers.end())
+                    t.linkPeers.push_back(peer);
+        }
+        {
+            std::lock_guard tl(t.mutex);
+            // Known to be private: only its own trackers.
+            if (t.info && t.info->priv())
+                dropExtraTrackers(atp);
+            // Still waiting for metadata, and this request brings it (a
+            // .torrent file of the same torrent): hand it over.
+            if (!t.hasMetadata && atp.ti) {
+                const auto info = atp.ti->info_section();
+                h.set_metadata(lt::span<char const>(info.data(), info.size()));
+            }
+        }
+        for (const auto& tracker : atp.trackers)
+            h.add_tracker(lt::announce_entry(tracker));
+        std::lock_guard tl(t.mutex);
+        // Counted under m_mutex, so the cache cannot delete it from here on.
+        ++t.pendingOpens;
+        if (t.paused) {
+            qCInfo(lcBroker).noquote() << "Resuming" << QString::fromStdString(t.id) << ": opened again";
+            t.paused = false;
+            t.handle.resume();
+            // The peer list was cleared at the pause: find peers afresh.
+            for (const auto& peer : t.linkPeers)
+                t.handle.connect_peer(peer);
+            t.handle.force_reannounce();
+            t.handle.force_dht_announce();
+            // A peer still disconnecting from the pause stays in the list
+            // and waits out the reconnect delay: with no peers 3 s from
+            // now, refresh() clears the list and calls again.
+            t.peersSeenAt = Clock::now() - kReannounceAfter + std::chrono::seconds(3);
+        }
+        // An earlier error (a full disk, say) may be gone: try again.
+        if (t.failed) {
+            qCInfo(lcBroker).noquote() << "Retrying" << QString::fromStdString(t.id) << "after an error";
+            t.failed = false;
+            t.error.clear();
+            t.handle.clear_error();
+            t.handle.resume();
+        }
+    } catch (const std::exception& e) {
+        qCWarning(lcBroker) << "Reopening a torrent failed:" << e.what();
+    }
+}
+
+// What an earlier run saved of this torrent, into its add parameters: its
+// resume data (the file list and which pieces are verified, so nothing waits
+// for peers or a full re-check), else its file list alone. The new link's
+// trackers and peers are kept.
+void Engine::loadSaved(const Torrent& t, lt::add_torrent_params& atp) const
+{
+    // In RAM only nothing from an earlier run is held: no resume data.
+    QFile resume(QDir(t.dir).filePath(QString::fromLatin1(kResumeFile)));
+    if (!memoryOnly() && resume.open(QIODevice::ReadOnly)) {
+        const QByteArray data = resume.readAll();
+        lt::error_code ec;
+        lt::add_torrent_params rp = lt::read_resume_data({data.constData(), int(data.size())}, ec);
+        if (!ec && idOf(rp.info_hashes) == t.id) {
+            for (auto& tracker : atp.trackers)
+                rp.trackers.push_back(tracker);
+            for (auto& peer : atp.peers)
+                rp.peers.push_back(peer);
+            if (!rp.ti && atp.ti)
+                rp.ti = atp.ti;
+            // Earlier versions saved the open trackers with torrents whose
+            // privacy was not yet known. onMetadata() adds them back once
+            // the torrent is known to be public.
+            if (!rp.ti || rp.ti->priv())
+                dropExtraTrackers(rp);
+            atp = std::move(rp);
+            qCInfo(lcBroker).noquote() << "Resuming" << QString::fromStdString(t.id) << "from saved data with"
+                                       << atp.have_pieces.count() << "pieces";
+        }
+    }
+
+    const QString saved = QDir(t.dir).filePath(QString::fromLatin1(kMetadataFile));
+    if (!atp.ti && QFileInfo::exists(saved)) {
+        lt::error_code ec;
+        auto ti = std::make_shared<lt::torrent_info>(QFile::encodeName(saved).toStdString(), ec);
+        if (!ec && ti->info_hashes() == atp.info_hashes)
+            atp.ti = ti;
+    }
 }
 
 // An open has become a reader, failed or been cancelled.
@@ -526,49 +546,7 @@ void Engine::handleAlert(lt::alert* a)
     } else if (auto* rp = lt::alert_cast<lt::read_piece_alert>(a)) {
         if (auto t = find(rp->handle)) {
             std::lock_guard tl(t->mutex);
-            // From a torrent replaced by a reload (RAM only): its reads may
-            // fail on pieces dropped since, and count against the new one.
-            if (rp->handle != t->handle)
-                return;
-            const int p = static_cast<int>(rp->piece);
-            t->readsPending.erase(p);
-            const auto store = m_memory ? m_memory->find(t->id) : nullptr;
-            if (rp->error && store && !store->has(p)) {
-                // RAM only: the piece is gone from memory although libtorrent
-                // still counts it (dropped between the check and the read).
-                // Treat it as evicted: the reader's wait fetches it again.
-                qCInfo(lcBroker).noquote() << "Piece" << p << "of" << QString::fromStdString(t->id)
-                                           << "is no longer in memory: fetching it again";
-                if (p >= 0 && p < int(t->have.size()) && t->have[std::size_t(p)]) {
-                    t->have[std::size_t(p)] = false;
-                    t->evicted.insert(p);
-                }
-                t->readErrors.erase(p);
-            } else if (rp->error) {
-                ++t->readErrors[p];
-                qCWarning(lcBroker).noquote() << "Reading piece" << p << "failed:"
-                                              << QString::fromStdString(rp->error.message());
-            } else {
-                t->readErrors.erase(p);
-                if (auto old = t->pieces.find(p); old != t->pieces.end())
-                    t->pieceBytes -= old->second.second;
-                t->pieces[p] = {rp->buffer, rp->size};
-                t->pieceBytes += rp->size;
-                t->pieceOrder.remove(p);
-                t->pieceOrder.push_back(p);
-                // Big pieces (16 MB and more in 4K torrents) would make a count
-                // limit cost hundreds of MB, so the limit is in bytes. The two
-                // newest pieces always stay: the one being read and the next.
-                while (t->pieceBytes > kPieceCacheBytes && t->pieceOrder.size() > 2) {
-                    const int oldest = t->pieceOrder.front();
-                    t->pieceOrder.pop_front();
-                    if (auto it = t->pieces.find(oldest); it != t->pieces.end()) {
-                        t->pieceBytes -= it->second.second;
-                        t->pieces.erase(it);
-                    }
-                }
-            }
-            t->cv.notify_all();
+            onReadPiece(*t, *rp);
         }
     } else if (auto* md = lt::alert_cast<lt::metadata_received_alert>(a)) {
         if (auto t = find(md->handle)) {
@@ -589,16 +567,7 @@ void Engine::handleAlert(lt::alert* a)
             }
         }
     } else if (auto* rd = lt::alert_cast<lt::save_resume_data_alert>(a)) {
-        if (auto t = find(rd->handle); t && QFileInfo(t->dir).isDir()) {
-            qCDebug(lcBroker).noquote() << "Saving resume data of" << QString::fromStdString(t->id) << ":"
-                                        << rd->params.have_pieces.count() << "pieces";
-            const std::vector<char> buffer = lt::write_resume_data_buf(rd->params);
-            QSaveFile f(QDir(t->dir).filePath(QString::fromLatin1(kResumeFile)));
-            if (f.open(QIODevice::WriteOnly)) {
-                f.write(buffer.data(), qint64(buffer.size()));
-                f.commit();
-            }
-        }
+        onResumeData(*rd);
         --m_pendingSaves;
     } else if (lt::alert_cast<lt::save_resume_data_failed_alert>(a)) {
         --m_pendingSaves;
@@ -619,6 +588,50 @@ void Engine::handleAlert(lt::alert* a)
             qCWarning(lcBroker).noquote() << "Torrent error:" << QString::fromStdString(t->error);
             t->cv.notify_all();
         }
+    }
+}
+
+// The bytes of a piece a reader asked for, or why there are none.
+void Engine::onReadPiece(Torrent& t, const lt::read_piece_alert& rp)
+{
+    // From a torrent replaced by a reload (RAM only): its reads may fail on
+    // pieces dropped since, and count against the new one.
+    if (rp.handle != t.handle)
+        return;
+    const int p = static_cast<int>(rp.piece);
+    t.readsPending.erase(p);
+    const auto store = m_memory ? m_memory->find(t.id) : nullptr;
+    if (rp.error && store && !store->has(p)) {
+        // RAM only: the piece is gone from memory although libtorrent still
+        // counts it (dropped between the check and the read). Treat it as
+        // evicted: the reader's wait fetches it again.
+        qCInfo(lcBroker).noquote() << "Piece" << p << "of" << QString::fromStdString(t.id)
+                                   << "is no longer in memory: fetching it again";
+        if (p >= 0 && p < int(t.have.size()) && t.have[std::size_t(p)]) {
+            t.have[std::size_t(p)] = false;
+            t.evicted.insert(p);
+        }
+        t.readErrors.erase(p);
+    } else if (rp.error) {
+        ++t.readErrors[p];
+        qCWarning(lcBroker).noquote() << "Reading piece" << p << "failed:" << QString::fromStdString(rp.error.message());
+    } else {
+        t.readErrors.erase(p);
+        t.keepCopy(p, rp.buffer, rp.size);
+    }
+    t.cv.notify_all();
+}
+
+void Engine::onResumeData(const lt::save_resume_data_alert& rd)
+{
+    const auto t = find(rd.handle);
+    if (!t || !QFileInfo(t->dir).isDir())
+        return;
+    const std::vector<char> buffer = lt::write_resume_data_buf(rd.params);
+    QSaveFile f(QDir(t->dir).filePath(QString::fromLatin1(kResumeFile)));
+    if (f.open(QIODevice::WriteOnly)) {
+        f.write(buffer.data(), qint64(buffer.size()));
+        f.commit();
     }
 }
 

@@ -1,6 +1,8 @@
-// Torrent benchmark: a local seeder here, the player (bench/bench_player.cpp)
-// in its own process, on disk and in RAM. Prints the numbers; it checks only
-// that every run finished, since the spread between runs sets any threshold.
+// Torrent benchmark: local seeders here, the player (bench/bench_player.cpp)
+// in its own process, on disk and in RAM. Two swarms: one fast seeder, and
+// a "swarm" of four slow seeders where one leaves while the film plays.
+// Prints the numbers; it checks only that every run finished, since the
+// spread between runs sets any threshold.
 //
 // CJ_BENCH_RUNS=n repeats each mode n times (default 1). CJ_BENCH_OUT=file
 // saves every run's JSON, one per line.
@@ -19,6 +21,7 @@
 #include <cstdio>
 #include <map>
 #include <memory>
+#include <thread>
 
 using harness::Seeder;
 using harness::TestTorrent;
@@ -30,6 +33,9 @@ constexpr qint64 kFileSize = 96 * MiB;
 constexpr int kPiece = 1024 * 1024;       // as real torrents of this size use
 constexpr int kSeederRate = 16 * 1024 * 1024;  // bytes/s, twice the play rate
 constexpr qint64 kRamCap = 32 * MiB;      // small, so played pieces get dropped
+constexpr int kSwarmSeeders = 4;
+constexpr int kSwarmRate = 3 * 1024 * 1024;   // bytes/s each: 12 MB/s together, 9 after one leaves
+constexpr int kSwarmLeaveMs = 4000;           // when one of them leaves
 
 QString msLine(std::vector<qint64> v)
 {
@@ -131,31 +137,52 @@ private slots:
     void run_data()
     {
         QTest::addColumn<bool>("ram");
+        QTest::addColumn<bool>("swarm");
         const int runs = qMax(1, qEnvironmentVariableIntValue("CJ_BENCH_RUNS"));
         for (int i = 1; i <= runs; ++i) {
-            QTest::addRow("disk %d", i) << false;
-            QTest::addRow("ram %d", i) << true;
+            QTest::addRow("disk %d", i) << false << false;
+            QTest::addRow("ram %d", i) << true << false;
+            QTest::addRow("swarm disk %d", i) << false << true;
+            QTest::addRow("swarm ram %d", i) << true << true;
         }
     }
 
     void run()
     {
         QFETCH(bool, ram);
+        QFETCH(bool, swarm);
+        const char* mode = swarm ? (ram ? "swarm ram " : "swarm disk") : (ram ? "ram " : "disk");
+        QString magnet = m_magnet;
+        std::vector<std::unique_ptr<Seeder>> seeders;
+        std::thread leaver;
+        if (swarm) {
+            std::vector<int> ports;
+            for (int i = 0; i < kSwarmSeeders; ++i) {
+                seeders.push_back(std::make_unique<Seeder>(m_torrent, m_torrent.root, kSwarmRate));
+                ports.push_back(seeders.back()->port());
+            }
+            magnet = harness::magnet(m_torrent, ports);
+            leaver = std::thread([&seeders] {
+                std::this_thread::sleep_for(std::chrono::milliseconds(kSwarmLeaveMs));
+                seeders.front().reset();
+            });
+        }
         // A fresh cache each time: every run starts from nothing.
         const QString cache = m_dir.filePath(QStringLiteral("cache-%1").arg(++m_runs));
-        const QJsonObject r = runPlayer(m_magnet, cache, ram ? kRamCap : 0);
+        const QJsonObject r = runPlayer(magnet, cache, ram ? kRamCap : 0);
+        if (leaver.joinable())
+            leaver.join();
         QVERIFY2(!r.isEmpty(), ram ? "RAM run failed" : "disk run failed");
         QCOMPARE(r[QStringLiteral("seeks")].toArray().size(), 20);
-        report(ram ? "ram " : "disk", r);
-        // A stall of seconds in a swarm faster than playback is a fault to
-        // look into: show what the broker logged.
+        report(mode, r);
+        // A stall of seconds is worth a look: show what the broker logged.
         if (r[QStringLiteral("longestStallMs")].toInteger() > 3000) {
             print(QStringLiteral("A stall over 3 s. The player's log:\n%1").arg(QString::fromLocal8Bit(m_lastLog)));
         } else if (r[QStringLiteral("playStalls")].toInteger() > 0) {
             // Where the stalls waited: for the download, or for the bytes.
             for (const QByteArray& line : m_lastLog.split('\n'))
                 if (line.contains("Read of piece"))
-                    print(QStringLiteral("BENCH %1:   %2").arg(QLatin1String(ram ? "ram " : "disk"), QString::fromLocal8Bit(line.trimmed())));
+                    print(QStringLiteral("BENCH %1:   %2").arg(QLatin1String(mode), QString::fromLocal8Bit(line.trimmed())));
         }
         QFile save(qEnvironmentVariable("CJ_BENCH_OUT"));
         if (!save.fileName().isEmpty() && save.open(QIODevice::WriteOnly | QIODevice::Append)) {

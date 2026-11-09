@@ -26,6 +26,71 @@ bool StreamBroker::memoryOnly() const { return m_engine->memoryOnly(); }
 qint64 StreamBroker::memoryUsed() const { return m_engine->memoryUsed(); }
 qint64 StreamBroker::readCacheBytes() const { return m_engine->readCacheBytes(); }
 
+namespace {
+
+// Until the torrent's file list is here, at most the metadata timeout.
+BrokerError waitForMetadata(Engine& engine, Torrent& t, std::unique_lock<std::mutex>& lock,
+                            const std::function<bool()>& cancelled)
+{
+    const auto deadline = Clock::now() + std::chrono::milliseconds(engine.settings.metadataTimeoutMs);
+    while (!t.hasMetadata) {
+        if (t.failed)
+            return BrokerError::TorrentError;
+        if (t.removed || engine.closing)
+            return BrokerError::Closed;
+        if (cancelled && cancelled())
+            return BrokerError::Cancelled;
+        if (Clock::now() >= deadline) {
+            qCWarning(lcBroker).noquote() << "No metadata for" << QString::fromStdString(t.id) << "in"
+                                          << engine.settings.metadataTimeoutMs << "ms";
+            return BrokerError::MetadataTimeout;
+        }
+        t.cv.wait_for(lock, std::chrono::milliseconds(100));
+    }
+    return BrokerError::None;
+}
+
+// A torrent reopened from the cache first reads its resume data, in the
+// background. Until then libtorrent reports none of its pieces, and the
+// reader would wait for (or ask peers for) pieces already on disk. It takes
+// a moment; wait for it, at most 3 s, and take the pieces it lists.
+BrokerError takeResumedPieces(Engine& engine, Torrent& t, std::unique_lock<std::mutex>& lock)
+{
+    for (int i = 0; i < 60; ++i) {
+        lt::torrent_status st;
+        try {
+            st = t.handle.status(lt::torrent_handle::query_pieces);
+        } catch (const std::exception&) {
+            break;
+        }
+        if (st.state != lt::torrent_status::checking_resume_data) {
+            for (int p = 0; p < int(st.pieces.size()) && p < int(t.have.size()); ++p)
+                if (st.pieces.get_bit(lt::piece_index_t(p)) && !t.evicted.count(p))
+                    t.have[std::size_t(p)] = true;
+            break;
+        }
+        t.cv.wait_for(lock, std::chrono::milliseconds(50));
+        if (t.removed || engine.closing)
+            return BrokerError::Closed;
+    }
+    return BrokerError::None;
+}
+
+int largestFile(const lt::file_storage& files)
+{
+    int index = -1;
+    qint64 biggest = -1;
+    for (int i = 0; i < files.num_files(); ++i) {
+        if (const qint64 size = files.file_size(lt::file_index_t(i)); size > biggest) {
+            biggest = size;
+            index = i;
+        }
+    }
+    return index;
+}
+
+} // namespace
+
 std::shared_ptr<StreamHandle> StreamBroker::open(const OpenRequest& request, BrokerError* error,
                                                  const std::function<bool()>& cancelled)
 {
@@ -53,56 +118,13 @@ std::shared_ptr<StreamHandle> StreamBroker::open(const OpenRequest& request, Bro
     m_engine->enforceCacheCap(t->id);
 
     std::unique_lock lock(t->mutex);
-    const auto deadline = Clock::now() + std::chrono::milliseconds(m_engine->settings.metadataTimeoutMs);
-    while (!t->hasMetadata) {
-        if (t->failed) { *error = BrokerError::TorrentError; return nullptr; }
-        if (t->removed || m_engine->closing) { *error = BrokerError::Closed; return nullptr; }
-        if (cancelled && cancelled()) { *error = BrokerError::Cancelled; return nullptr; }
-        if (Clock::now() >= deadline) {
-            qCWarning(lcBroker).noquote() << "No metadata for" << QString::fromStdString(t->id) << "in"
-                                          << m_engine->settings.metadataTimeoutMs << "ms";
-            *error = BrokerError::MetadataTimeout;
-            return nullptr;
-        }
-        t->cv.wait_for(lock, std::chrono::milliseconds(100));
-    }
-
-    // A torrent reopened from the cache first reads its resume data, in the
-    // background. Until then libtorrent reports none of its pieces, and the
-    // reader would wait for (or ask peers for) pieces already on disk. It
-    // takes a moment; wait for it, at most 3 s.
-    for (int i = 0; i < 60; ++i) {
-        lt::torrent_status st;
-        try {
-            st = t->handle.status(lt::torrent_handle::query_pieces);
-        } catch (const std::exception&) {
-            break;
-        }
-        if (st.state != lt::torrent_status::checking_resume_data) {
-            if (i > 0 || st.num_pieces > 0)
-                qCDebug(lcBroker).noquote() << "Resume data of" << QString::fromStdString(t->id) << "read:"
-                                            << st.num_pieces << "pieces, state" << int(st.state);
-            for (int p = 0; p < int(st.pieces.size()) && p < int(t->have.size()); ++p)
-                if (st.pieces.get_bit(lt::piece_index_t(p)) && !t->evicted.count(p))
-                    t->have[std::size_t(p)] = true;
-            break;
-        }
-        t->cv.wait_for(lock, std::chrono::milliseconds(50));
-        if (t->removed || m_engine->closing) { *error = BrokerError::Closed; return nullptr; }
-    }
-
+    *error = waitForMetadata(*m_engine, *t, lock, cancelled);
+    if (*error == BrokerError::None)
+        *error = takeResumedPieces(*m_engine, *t, lock);
+    if (*error != BrokerError::None)
+        return nullptr;
     const lt::file_storage& files = fileLayout(*t->info);
-    int index = request.fileIndex;
-    if (index < 0) {
-        qint64 biggest = -1;
-        for (int i = 0; i < files.num_files(); ++i) {
-            const qint64 size = files.file_size(lt::file_index_t(i));
-            if (size > biggest) {
-                biggest = size;
-                index = i;
-            }
-        }
-    }
+    const int index = request.fileIndex >= 0 ? request.fileIndex : largestFile(files);
     if (index < 0 || index >= files.num_files()) {
         *error = BrokerError::NoSuchFile;
         return nullptr;
@@ -203,6 +225,96 @@ void StreamHandle::close()
         m_engine->releaseHandle(*m_torrent);
 }
 
+namespace {
+
+// What a wait in StreamHandle::read() ended with.
+enum class Wait { Done, Dropped, Stopped, Failed };
+
+// Step 1 of a read: until the piece is downloaded and verified. Alerts can be
+// dropped when libtorrent's queue overflows (many pieces finishing at once),
+// so every 2 s it asks libtorrent directly instead of waiting on one.
+template <typename Stopped>
+Wait waitUntilVerified(Engine& engine, Torrent& t, std::unique_lock<std::mutex>& lock, int piece, Stopped stopped)
+{
+    for (int waits = 1; !t.have[std::size_t(piece)]; ++waits) {
+        if (stopped())
+            return Wait::Stopped;
+        if (t.failed)
+            return Wait::Failed;
+        t.cv.wait_for(lock, std::chrono::milliseconds(250));
+        if (waits % 40 == 0)
+            qCDebug(lcBroker).noquote() << "Read of piece" << piece << "of" << QString::fromStdString(t.id)
+                                        << "still waits for the download after" << waits / 4 << "s";
+        if (waits % 8 == 0 && !t.have[std::size_t(piece)]) {
+            try {
+                if (engine.holds(t, piece)) {
+                    qCInfo(lcBroker) << "Piece" << piece << "was done without an alert";
+                    t.have[std::size_t(piece)] = true;
+                    t.scheduled.erase(piece);
+                }
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    return Wait::Done;
+}
+
+// Step 2: until libtorrent has handed over the verified piece's bytes.
+// Dropped: RAM only, the piece left memory after it was verified.
+template <typename Stopped>
+Wait waitForBytes(Torrent& t, std::unique_lock<std::mutex>& lock, int piece, Stopped stopped)
+{
+    bool rested = false;
+    for (int waits = 1; !t.pieces.count(piece); ++waits) {
+        if (stopped())
+            return Wait::Stopped;
+        if (!t.have[std::size_t(piece)])
+            return Wait::Dropped;
+        if (t.readErrors[piece] > 10)
+            return Wait::Failed;
+        if (waits % 20 == 0) {
+            qCDebug(lcBroker).noquote() << "Read of piece" << piece << "of" << QString::fromStdString(t.id)
+                                        << "has no bytes after" << waits / 4 << "s; errors" << t.readErrors[piece];
+            t.readsPending.erase(piece);  // 5 s without an answer: ask again
+        }
+        if (!t.readsPending.count(piece)) {
+            // A failed read is asked again after a pause, so a passing state
+            // (a torrent just reloaded, say) does not use up the tries.
+            if (t.readErrors[piece] > 0 && !rested) {
+                lock.unlock();
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                lock.lock();
+                rested = true;
+                continue;  // the piece may have been dropped meanwhile
+            }
+            rested = false;
+            try {
+                t.handle.read_piece(lt::piece_index_t(piece));
+                t.readsPending.insert(piece);
+            } catch (const std::exception&) {
+                return t.removed ? Wait::Stopped : Wait::Failed;
+            }
+        }
+        t.cv.wait_for(lock, std::chrono::milliseconds(250));
+    }
+    return Wait::Done;
+}
+
+// Readers usually go on to the next piece: ask for its bytes now.
+void readAhead(Torrent& t, int piece)
+{
+    if (piece >= int(t.have.size()) || !t.have[std::size_t(piece)] || t.pieces.count(piece)
+        || t.readsPending.count(piece))
+        return;
+    try {
+        t.handle.read_piece(lt::piece_index_t(piece));
+        t.readsPending.insert(piece);
+    } catch (const std::exception&) {
+    }
+}
+
+} // namespace
+
 qint64 StreamHandle::read(qint64 offset, char* buffer, qint64 length)
 {
     Reader& r = *m_reader;
@@ -217,89 +329,30 @@ qint64 StreamHandle::read(qint64 offset, char* buffer, qint64 length)
     const qint64 absolute = r.fileOffset + offset;
     std::unique_lock lock(t.mutex);
     const int piece = t.pieceAt(absolute);
-    const qint64 pieceStart = qint64(piece) * t.pieceLength();
-    const qint64 inPiece = absolute - pieceStart;
+    const qint64 inPiece = absolute - qint64(piece) * t.pieceLength();
     const qint64 count = std::min({length, r.fileSize - offset, qint64(t.info->piece_size(lt::piece_index_t(piece))) - inPiece});
 
     r.position = offset;
     m_engine->schedule(t, false);
 
     auto stopped = [&] { return r.cancelled || r.closed || t.removed || m_engine->closing.load(); };
-    // Alerts can be dropped when libtorrent's queue overflows (many pieces
-    // finishing at once). A read must never wait on an alert that will not
-    // come, so every 2 s it asks libtorrent directly.
-    // For the log: how long each step of a slow read took.
-    const auto startedAt = std::chrono::steady_clock::now();
+    // How long each step took, for the log.
+    const auto startedAt = Clock::now();
     auto verifiedAt = startedAt;
     for (;;) {
-        // 1. Wait until the piece is downloaded and verified.
-        int waits = 0;
-        while (!t.have[piece]) {
-            if (stopped())
-                return -1;
-            if (t.failed)
-                return -2;
-            t.cv.wait_for(lock, std::chrono::milliseconds(250));
-            if (++waits % 40 == 0)
-                qCDebug(lcBroker).noquote() << "Read of piece" << piece << "of" << QString::fromStdString(t.id)
-                                            << "still waits for the download after" << waits / 4 << "s";
-            if (waits % 8 == 0) {
-                try {
-                    if (!t.have[piece] && m_engine->holds(t, piece)) {
-                        qCInfo(lcBroker) << "Piece" << piece << "was done without an alert";
-                        t.have[piece] = true;
-                        t.scheduled.erase(piece);
-                    }
-                } catch (const std::exception&) {
-                }
-            }
-        }
-        verifiedAt = std::chrono::steady_clock::now();
-        // 2. Get its bytes from libtorrent (or the in-memory copy).
-        waits = 0;
-        bool dropped = false;
-        bool rested = false;
-        while (!t.pieces.count(piece)) {
-            if (stopped())
-                return -1;
-            // RAM only: dropped from memory since it was verified. Fetch it
-            // again (the engine reloads the torrent) and wait as in step 1.
-            if (!t.have[piece]) {
-                dropped = true;
-                break;
-            }
-            // A failed read is asked again after a pause, so a passing
-            // state (a torrent just reloaded, say) does not use up the tries.
-            if (t.readErrors[piece] > 10)
-                return -2;
-            if (++waits % 20 == 0) {
-                qCDebug(lcBroker).noquote() << "Read of piece" << piece << "of" << QString::fromStdString(t.id)
-                                            << "has no bytes after" << waits / 4 << "s; errors" << t.readErrors[piece];
-                t.readsPending.erase(piece);  // 5 s without an answer: ask again
-            }
-            if (!t.readsPending.count(piece) && t.readErrors[piece] > 0 && !rested) {
-                lock.unlock();
-                std::this_thread::sleep_for(std::chrono::milliseconds(200));
-                lock.lock();
-                rested = true;
-                continue;  // the piece may have been dropped meanwhile
-            }
-            if (!t.readsPending.count(piece)) {
-                rested = false;
-                try {
-                    t.handle.read_piece(lt::piece_index_t(piece));
-                    t.readsPending.insert(piece);
-                } catch (const std::exception&) {
-                    return t.removed ? -1 : -2;
-                }
-            }
-            t.cv.wait_for(lock, std::chrono::milliseconds(250));
-        }
-        if (!dropped)
+        Wait w = waitUntilVerified(*m_engine, t, lock, piece, stopped);
+        verifiedAt = Clock::now();
+        if (w == Wait::Done)
+            w = waitForBytes(t, lock, piece, stopped);
+        if (w == Wait::Stopped)
+            return -1;
+        if (w == Wait::Failed)
+            return -2;
+        if (w == Wait::Done)
             break;
-        m_engine->schedule(t, true);
+        m_engine->schedule(t, true);  // dropped: fetch it again, and wait as before
     }
-    if (const auto now = std::chrono::steady_clock::now(); now - startedAt > std::chrono::milliseconds(40)) {
+    if (const auto now = Clock::now(); now - startedAt > std::chrono::milliseconds(40)) {
         using std::chrono::duration_cast;
         using std::chrono::milliseconds;
         qCDebug(lcBroker).noquote() << "Read of piece" << piece << "waited"
@@ -312,16 +365,7 @@ qint64 StreamHandle::read(qint64 offset, char* buffer, qint64 length)
     std::memcpy(buffer, data.get() + inPiece, std::size_t(qMax<qint64>(0, n)));
     t.pieceOrder.remove(piece);
     t.pieceOrder.push_back(piece);
-
-    // Readers usually go on to the next piece: start reading it now.
-    const int next = piece + 1;
-    if (next < int(t.have.size()) && t.have[next] && !t.pieces.count(next) && !t.readsPending.count(next)) {
-        try {
-            t.handle.read_piece(lt::piece_index_t(next));
-            t.readsPending.insert(next);
-        } catch (const std::exception&) {
-        }
-    }
+    readAhead(t, piece + 1);
     r.position = offset + n;
     return n;
 }
