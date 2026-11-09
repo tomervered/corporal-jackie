@@ -349,11 +349,12 @@ Rectangle {
             }
             ActionRow {
                 title: "Back up or move"
-                detail: "One file with your library, history, add-ons and folders. Importing adds to what is here."
+                detail: "One file with your library, history, add-ons and folders. Importing adds to what is here. Logins, signed stream links and add-on settings are left out; add-ons with settings are listed in the file to set up again."
                 Button { text: "Export…"; focusPolicy: Qt.NoFocus; onClicked: exportDialog.open() }
                 Button { text: "Import…"; focusPolicy: Qt.NoFocus; onClicked: importDialog.open() }
             }
             Note { visible: panel.result !== ""; text: panel.result }
+            Note { visible: library.storageError !== ""; text: library.storageError }
         }
     }
 
