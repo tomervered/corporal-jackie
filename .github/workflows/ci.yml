@@ -532,9 +532,9 @@ jobs:
     timeout-minutes: 180
     env:
       # The release before the audit fixes, built with the measurement
-      # counters of 6948b5f and nothing else.
+      # counters (tests/bench/baseline-counters.patch, from 6948b5f) and
+      # nothing else.
       BASELINE: c6557a3a345f20d7a38b6cbd4562b246e5c18122
-      BASELINE_COUNTERS: 6948b5f1f23d11299d692b9befd6c4ceb69c1b26
       STREMIO_IMAGE: stremio/server:v4.22.5
     steps:
       - uses: actions/checkout@v4
@@ -558,7 +558,7 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build --target tst_bench bench_player
           git worktree add --detach "$RUNNER_TEMP/baseline" "$BASELINE"
-          git show "$BASELINE_COUNTERS" -- src/broker tests/bench/bench_player.cpp | git -C "$RUNNER_TEMP/baseline" apply
+          git -C "$RUNNER_TEMP/baseline" apply "$GITHUB_WORKSPACE/tests/bench/baseline-counters.patch"
           cmake -S "$RUNNER_TEMP/baseline" -B "$RUNNER_TEMP/baseline/build" -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build "$RUNNER_TEMP/baseline/build" --target bench_player
 

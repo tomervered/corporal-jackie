@@ -1,0 +1,200 @@
+commit 6948b5f1f23d11299d692b9befd6c4ceb69c1b26
+Author: tomervered <309056893+tomervered@users.noreply.github.com>
+Date:   Mon Nov 9 15:38:03 2026 +0000
+
+    Benchmark: CPU, refetched bytes, scheduling cost; a warm seeder
+    
+    - BrokerCounters (StreamHandle::counters): verified bytes fetched,
+      counting a refetch again; RAM reloads; schedule() passes, passes that
+      sent priorities, and time spent. bench_player reports them with the
+      process's CPU time.
+    - The first run against a fresh seeder reached its first byte about 1 s
+      late (1085 ms against 62-77 ms after it): the seeder's rate limiter
+      starts with no quota, so each message waits for a 100 ms tick, and
+      libtorrent's request pipeline starts small. Whichever client ran first
+      paid for it, which skewed the audit's first-byte comparison. tst_bench
+      now does one unrecorded run first, and hashes its seeders up front
+      instead of in seed mode. Swarm seeders are new each run, so the swarm
+      rows still include a cold start, for every client alike.
+    - CJ_BENCH_PLAYER_PATH runs another bench_player build, for A/B runs;
+      CJ_BENCH_LABEL names it in the saved JSON.
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_01KNcwpogjfQKH4H55cqGnm2
+
+diff --git a/src/broker/BrokerEngine.cpp b/src/broker/BrokerEngine.cpp
+index 4279091..155ddfc 100644
+--- a/src/broker/BrokerEngine.cpp
++++ b/src/broker/BrokerEngine.cpp
+@@ -583,6 +583,8 @@ void Engine::handleAlert(lt::alert* a)
+             const int p = int(static_cast<int>(pf->piece_index));
+             if (p >= 0 && p < int(t->have.size()))
+                 t->have[p] = true;
++            if (t->info && p >= 0 && p < t->info->num_pieces())
++                t->counters.fetchedBytes += t->info->piece_size(lt::piece_index_t(p));
+             t->evicted.erase(p);
+             t->scheduled.erase(p);
+             t->lastPieceAt = Clock::now();
+diff --git a/src/broker/BrokerEngine.h b/src/broker/BrokerEngine.h
+index 1642257..f653e3c 100644
+--- a/src/broker/BrokerEngine.h
++++ b/src/broker/BrokerEngine.h
+@@ -213,6 +213,7 @@ struct Torrent
+     qint64 downloadRate = 0;
+     Clock::time_point lastPieceAt = Clock::now();   // last piece finished, or a reader opened
+     Clock::time_point peersSeenAt = Clock::now();   // last time it had a peer
++    BrokerCounters counters;
+ 
+     // The libtorrent handle, read under `mutex`: a RAM-only reload replaces
+     // it from the alert thread. Use the copy outside the lock.
+diff --git a/src/broker/BrokerScheduling.cpp b/src/broker/BrokerScheduling.cpp
+index be01c49..ed0db5a 100644
+--- a/src/broker/BrokerScheduling.cpp
++++ b/src/broker/BrokerScheduling.cpp
+@@ -17,6 +17,18 @@ void Engine::schedule(Torrent& t, bool force)
+ {
+     if (t.removed || !t.hasMetadata || !t.handle.is_valid())
+         return;
++    const auto started = Clock::now();
++    ++t.counters.schedulePasses;
++    struct Timer
++    {
++        Torrent& t;
++        Clock::time_point started;
++        ~Timer()
++        {
++            t.counters.scheduleMicros +=
++                std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - started).count();
++        }
++    } timer{t, started};
+ 
+     const qint64 pieceLen = t.pieceLength();
+     std::map<int, int> deadlines;                 // piece -> ms
+@@ -88,6 +100,7 @@ void Engine::schedule(Torrent& t, bool force)
+     }
+     if (!anyChange)
+         return;
++    ++t.counters.scheduleSent;
+ 
+     try {
+         std::set<int> readerFiles;
+diff --git a/src/broker/BrokerTypes.h b/src/broker/BrokerTypes.h
+index 3d9c8c5..a6e966a 100644
+--- a/src/broker/BrokerTypes.h
++++ b/src/broker/BrokerTypes.h
+@@ -80,6 +80,16 @@ struct StreamStats
+     bool paused = false;          // nobody has used it for BrokerSettings::idlePauseMs
+ };
+ 
++// What the broker did for one torrent, for the benchmark and the log.
++struct BrokerCounters
++{
++    qint64 fetchedBytes = 0;   // verified piece bytes downloaded, counting a refetch again
++    int reloads = 0;           // RAM only: times the torrent was reloaded to refetch dropped pieces
++    int schedulePasses = 0;    // calls to Engine::schedule
++    int scheduleSent = 0;      // of those, the ones that sent priorities or deadlines
++    qint64 scheduleMicros = 0; // time spent in Engine::schedule
++};
++
+ // Bytes per second assumed when the duration is not known yet (about 12 Mbit/s).
+ constexpr double kDefaultBitrate = 1.5 * 1024 * 1024;
+ 
+diff --git a/src/broker/BrokerUpkeep.cpp b/src/broker/BrokerUpkeep.cpp
+index b87c2b0..ba4b5a7 100644
+--- a/src/broker/BrokerUpkeep.cpp
++++ b/src/broker/BrokerUpkeep.cpp
+@@ -14,6 +14,7 @@ void Engine::reload(const std::shared_ptr<Torrent>& tp)
+     t.reloadedAt = Clock::now();
+     if (t.removed || !t.hasMetadata || !t.handle.is_valid() || closing)
+         return;
++    ++t.counters.reloads;
+ 
+     const int n = t.info->num_pieces();
+     lt::add_torrent_params atp;
+diff --git a/src/broker/StreamBroker.cpp b/src/broker/StreamBroker.cpp
+index ec5361e..f66f1bc 100644
+--- a/src/broker/StreamBroker.cpp
++++ b/src/broker/StreamBroker.cpp
+@@ -370,6 +370,12 @@ qint64 StreamHandle::read(qint64 offset, char* buffer, qint64 length)
+ 
+ StreamStats StreamHandle::stats() const { return m_engine->stats(*m_torrent, *m_reader); }
+ 
++BrokerCounters StreamHandle::counters() const
++{
++    std::lock_guard lock(m_torrent->mutex);
++    return m_torrent->counters;
++}
++
+ PieceState StreamHandle::stateAt(qint64 offset) const
+ {
+     Torrent& t = *m_torrent;
+diff --git a/src/broker/StreamBroker.h b/src/broker/StreamBroker.h
+index 7d79aa1..9282c72 100644
+--- a/src/broker/StreamBroker.h
++++ b/src/broker/StreamBroker.h
+@@ -57,6 +57,7 @@ public:
+     void setDuration(double seconds);
+ 
+     StreamStats stats() const;
++    BrokerCounters counters() const;
+     PieceState stateAt(qint64 offset) const;
+ 
+ private:
+diff --git a/tests/bench/bench_player.cpp b/tests/bench/bench_player.cpp
+index 8e44c91..da93955 100644
+--- a/tests/bench/bench_player.cpp
++++ b/tests/bench/bench_player.cpp
+@@ -28,6 +28,7 @@
+ #  include <sys/resource.h>
+ #else
+ #  include <QFile>
++#  include <sys/resource.h>
+ #endif
+ 
+ using namespace cj;
+@@ -60,6 +61,22 @@ qint64 peakProcessMemory()
+ #endif
+ }
+ 
++// CPU time this process has used, user and system, in ms.
++qint64 cpuMs()
++{
++#ifdef Q_OS_WIN
++    FILETIME created, exited, kernel, user;
++    if (!GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user))
++        return -1;
++    auto ms = [](const FILETIME& f) { return ((qint64(f.dwHighDateTime) << 32) | f.dwLowDateTime) / 10000; };
++    return ms(kernel) + ms(user);
++#else
++    rusage u{};
++    getrusage(RUSAGE_SELF, &u);
++    return (qint64(u.ru_utime.tv_sec) + u.ru_stime.tv_sec) * 1000 + (u.ru_utime.tv_usec + u.ru_stime.tv_usec) / 1000;
++#endif
++}
++
+ // For the watchdog: when a read last returned, and where the player waits.
+ QElapsedTimer g_clock;
+ std::atomic<qint64> g_progressAt{0};
+@@ -251,6 +268,14 @@ int main(int argc, char** argv)
+         std::this_thread::sleep_for(std::chrono::milliseconds(200));
+     }
+     out[QStringLiteral("seeks")] = seeks;
++    // Bytes fetched beyond the file's size: refetches of dropped pieces, and
++    // read-ahead past what was played or sought.
++    const BrokerCounters c = h->counters();
++    out[QStringLiteral("fetchedBytes")] = c.fetchedBytes;
++    out[QStringLiteral("reloads")] = c.reloads;
++    out[QStringLiteral("schedulePasses")] = c.schedulePasses;
++    out[QStringLiteral("scheduleSent")] = c.scheduleSent;
++    out[QStringLiteral("scheduleMs")] = double(c.scheduleMicros) / 1000.0;
+ 
+     done = true;
+     sampler.join();
+@@ -261,6 +286,7 @@ int main(int argc, char** argv)
+     out[QStringLiteral("peakReadCacheBytes")] = peakReadCache.load();
+     out[QStringLiteral("peakProcessBytes")] = peakProcessMemory();
+     out[QStringLiteral("totalMs")] = clock.elapsed();
++    out[QStringLiteral("cpuMs")] = cpuMs();
+     std::fputs(QJsonDocument(out).toJson(QJsonDocument::Compact).constData(), stdout);
+     std::fputs("\n", stdout);
+     return 0;
