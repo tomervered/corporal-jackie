@@ -27,6 +27,11 @@ void shutdown();
 // Path of the current log file, or empty before init().
 QString currentLogFile();
 
+// Empties the current log file and deletes the previous run's. The logs name
+// what played (file names and servers), so clearing the watch history clears
+// them too.
+void clearFiles();
+
 // Formats one log line. Exposed for tests.
 QString formatLine(QtMsgType type, const char* category, const QString& message);
 

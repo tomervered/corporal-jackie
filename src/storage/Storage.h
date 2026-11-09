@@ -100,9 +100,15 @@ public:
 
     // --- Watch history -----------------------------------------------------------
     QList<HistoryEntry> history() const { return m_history; }  // newest first
-    void record(const HistoryEntry& entry);  // adds or updates by key
+    void record(const HistoryEntry& entry);  // adds or updates by key; nothing when history is off
+    // Off: nothing new is recorded. What is already saved stays until it is
+    // cleared. Saved as the setting "history/keep".
+    bool keepsHistory() const;
+    void setKeepsHistory(bool keep);
     std::optional<HistoryEntry> find(const QString& key) const;
     std::optional<HistoryEntry> findBySource(const PlayableSource& source) const;
+    // Both overwrite the deleted rows (secure_delete) and empty the WAL, so
+    // the entries do not linger in the database files.
     void forget(const QString& itemKey);     // every entry of one show or movie
     void clearHistory();
     // One entry per show or movie, newest first: unfinished ones past

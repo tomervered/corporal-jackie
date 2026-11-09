@@ -23,6 +23,8 @@ class Library : public QObject
     Q_OBJECT
     Q_PROPERTY(QVariantList continueWatching READ continueWatching NOTIFY historyChanged)
     Q_PROPERTY(int historyCount READ historyCount NOTIFY historyChanged)
+    // Off: nothing new goes into the history (Storage::keepsHistory).
+    Q_PROPERTY(bool keepHistory READ keepHistory WRITE setKeepHistory NOTIFY keepHistoryChanged)
     Q_PROPERTY(QVariantList items READ items NOTIFY itemsChanged)
     // Why saving failed, in words, or "": shown in Settings.
     Q_PROPERTY(QString storageError READ storageError NOTIFY storageErrorChanged)
@@ -35,6 +37,8 @@ public:
 
     QVariantList continueWatching() const;
     int historyCount() const { return int(m_storage.history().size()); }
+    bool keepHistory() const { return m_storage.keepsHistory(); }
+    void setKeepHistory(bool keep);
     QVariantList items() const;
     QString storageError() const { return m_storage.error(); }
 
@@ -42,6 +46,7 @@ public:
     Q_INVOKABLE void resume(const QString& key);
     // Removes a show or movie from Continue Watching and the history.
     Q_INVOKABLE void forget(const QString& itemKey);
+    // The history, and the log files, which name what played.
     Q_INVOKABLE void clearHistory();
     // Records where the current item is now (the app is closing).
     void saveNow();
@@ -62,6 +67,7 @@ public:
 
 signals:
     void historyChanged();
+    void keepHistoryChanged();
     void itemsChanged();
     void storageErrorChanged();
     // The browse panel should open to show an item.

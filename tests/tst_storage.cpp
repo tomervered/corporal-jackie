@@ -8,6 +8,8 @@
 #include "Session.h"
 #include "Storage.h"
 
+#include <QFile>
+#include <QFileInfo>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
@@ -299,6 +301,83 @@ private slots:
         QVERIFY(!storage.importJson(json).isEmpty());
         QVERIFY(storage.library().isEmpty());
         QVERIFY(storage.history().isEmpty());
+    }
+
+    // History off: nothing new is recorded, the choice survives a restart,
+    // and turning it on again records as before.
+    void historyOffRecordsNothing()
+    {
+        QTemporaryDir dir;
+        const QString file = dir.filePath(QStringLiteral("cj.sqlite"));
+        {
+            Storage s(file);
+            QVERIFY(s.keepsHistory());
+            s.record(episode(1, 600, 1000));
+            s.setKeepsHistory(false);
+            s.record(episode(2, 700, 2000));
+            QCOMPARE(s.history().size(), 1);
+        }
+        {
+            Storage s(file);
+            QVERIFY(!s.keepsHistory());
+            QCOMPARE(s.history().size(), 1);  // what was there stays
+            s.record(episode(3, 800, 3000));
+            QCOMPARE(s.history().size(), 1);
+            s.setKeepsHistory(true);
+            s.record(episode(3, 800, 3000));
+            QCOMPARE(s.history().size(), 2);
+        }
+        Storage s(file);
+        QCOMPARE(s.history().size(), 2);
+    }
+
+    // Forgetting and clearing leave no readable copy of the entries in the
+    // database file or its write-ahead log, while the database is open.
+    // Without the checkpoint the old pages stay in the WAL (checked). Ubuntu
+    // builds SQLite to overwrite deleted rows anyway; MSYS2's and Homebrew's
+    // builds do not, so there this also checks PRAGMA secure_delete.
+    void clearedHistoryLeavesNoTrace()
+    {
+        QTemporaryDir dir;
+        const QString file = dir.filePath(QStringLiteral("cj.sqlite"));
+        const QByteArray secret = "Zyzzyva Midnight Special";
+        const auto traces = [&] {
+            QStringList found;
+            for (const QString& suffix : {QString(), QStringLiteral("-wal"), QStringLiteral("-shm")}) {
+                QFile f(file + suffix);
+                if (f.open(QIODevice::ReadOnly) && f.readAll().contains(secret))
+                    found << QFileInfo(f).fileName();
+            }
+            return found;
+        };
+        Storage s(file);
+        // The show to forget, between entries that stay, so its rows share
+        // pages with rows that are kept.
+        s.record(direct(QStringLiteral("https://a.example/before.mkv"), 90, 500));
+        for (int n = 1; n <= 20; ++n) {
+            HistoryEntry e = episode(n, 600, 1000 + n);
+            e.itemName = QString::fromUtf8(secret);
+            s.record(e);
+        }
+        s.record(direct(QStringLiteral("https://a.example/after.mkv"), 90, 5000));
+        s.flush();
+        QVERIFY(!traces().isEmpty());  // the check can see it
+
+        s.forget(episode(1, 0, 0).itemKey());
+        s.flush();
+        QCOMPARE(traces(), QStringList());
+        QCOMPARE(s.history().size(), 2);
+
+        for (int n = 1; n <= 5; ++n) {
+            HistoryEntry e = episode(n, 600, 9000 + n);
+            e.itemName = QString::fromUtf8(secret);
+            s.record(e);
+        }
+        s.flush();
+        QVERIFY(!traces().isEmpty());
+        s.clearHistory();
+        s.flush();
+        QCOMPARE(traces(), QStringList());
     }
 
     void opensInMemory()

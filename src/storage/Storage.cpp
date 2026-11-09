@@ -124,6 +124,16 @@ bool transaction(sqlite3* db, Body&& body)
     return false;
 }
 
+// Copies the WAL into the database and cuts it to zero bytes, so deleted
+// rows leave no old copies of their pages there. The writes are already
+// safe when this fails (another process reading, say): it only logs.
+bool emptyWal(sqlite3* db)
+{
+    if (sqlite3_wal_checkpoint_v2(db, nullptr, SQLITE_CHECKPOINT_TRUNCATE, nullptr, nullptr) != SQLITE_OK)
+        qCWarning(lcStorage) << "Could not empty the write-ahead log:" << sqlite3_errmsg(db);
+    return true;
+}
+
 QString settingToText(const QVariant& v)
 {
     return QString::fromUtf8(QJsonDocument(QJsonArray{QJsonValue::fromVariant(v)}).toJson(QJsonDocument::Compact));
@@ -385,7 +395,10 @@ private:
             // WAL: a crash or kill loses at most the write in flight, and
             // reads never wait for writes. NORMAL sync is safe with WAL
             // against app crashes, and writes far less than FULL.
-            exec(db, "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;");
+            // secure_delete: deleted rows are overwritten with zeros, so a
+            // forgotten title is not left readable in free pages.
+            exec(db, "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;"
+                     " PRAGMA secure_delete=ON;");
             sqlite3_busy_timeout(db, 2000);
         }
         for (;;) {
@@ -622,9 +635,17 @@ void Storage::saveFolders(const QStringList& folders)
 
 // --- History ----------------------------------------------------------------------------
 
+bool Storage::keepsHistory() const { return setting(QStringLiteral("history/keep"), true).toBool(); }
+
+void Storage::setKeepsHistory(bool keep)
+{
+    if (keep != keepsHistory())
+        setSetting(QStringLiteral("history/keep"), keep);
+}
+
 void Storage::record(const HistoryEntry& entry)
 {
-    if (entry.key.isEmpty())
+    if (entry.key.isEmpty() || !keepsHistory())
         return;
     HistoryEntry e = entry;
     if (e.updatedAt == 0)
@@ -693,7 +714,7 @@ void Storage::forget(const QString& itemKey)
                 if (!Statement(db, "DELETE FROM history WHERE key = ?1").bind(1, k).run())
                     return false;
             return true;
-        });
+        }) && emptyWal(db);
     });
     emit historyChanged();
 }
@@ -701,7 +722,7 @@ void Storage::forget(const QString& itemKey)
 void Storage::clearHistory()
 {
     m_history.clear();
-    write([](sqlite3* db) { return exec(db, "DELETE FROM history"); });
+    write([](sqlite3* db) { return exec(db, "DELETE FROM history") && emptyWal(db); });
     emit historyChanged();
 }
 
