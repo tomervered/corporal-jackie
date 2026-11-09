@@ -27,6 +27,7 @@
 #include <libtorrent/bencode.hpp>
 #include <libtorrent/load_torrent.hpp>
 #include <libtorrent/magnet_uri.hpp>
+#include <libtorrent/mmap_disk_io.hpp>
 #include <libtorrent/peer_info.hpp>
 #include <libtorrent/read_resume_data.hpp>
 #include <libtorrent/write_resume_data.hpp>
