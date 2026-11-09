@@ -145,6 +145,13 @@ jobs:
           # The launcher must not need any DLL that is not part of Windows.
           if ldd dist/CorporalJackie.exe | grep -i ucrt64; then echo "launcher depends on MSYS2 DLLs"; exit 1; fi
           cp LICENSE dist/LICENSE.txt
+          # The updater ships with the app, so an update package carries only
+          # data: the checks it must pass come from the installed copy.
+          mkdir -p dist/app/updater
+          cp packaging/windows/updater/apply-update.ps1 dist/app/updater/
+          cp "packaging/windows/updater/Update Corporal Jackie.cmd" dist/
+          if [ -f packaging/windows/update-key.xml ]; then cp packaging/windows/update-key.xml dist/app/updater/
+          else echo "No packaging/windows/update-key.xml: this build will refuse every update (docs/RELEASE_SIGNING.md)"; fi
           packaging/windows/collect-licenses.sh dist "$(cygpath -u "$GITHUB_WORKSPACE")/.deps"
           echo "Top level:"; ls dist
           echo "Files in app: $(find dist/app -type f | wc -l)"
@@ -159,10 +166,20 @@ jobs:
         run: |
           cd dist
           echo "build ${{ github.run_number }} (${GITHUB_SHA::7})" > build.txt
-          find . -type f ! -name manifest.txt | sed 's|^\./||' | LC_ALL=C sort | while IFS= read -r f; do
+          find . -type f ! -name manifest.txt ! -name manifest.sig | sed 's|^\./||' | LC_ALL=C sort | while IFS= read -r f; do
             printf '%s\t%s\n' "$(sha256sum "$f" | cut -d' ' -f1)" "$f"
           done > manifest.txt
           cat build.txt; wc -l < manifest.txt
+
+      # manifest.sig: the updater's proof that build.txt and manifest.txt
+      # came from this CI. Needs the UPDATE_SIGNING_KEY secret.
+      - name: Sign the build for the updater
+        shell: pwsh
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          if (-not $env:UPDATE_SIGNING_KEY) { Write-Host "No UPDATE_SIGNING_KEY secret: build not signed, its update package will be refused"; exit 0 }
+          packaging/windows/updater/sign-manifest.ps1 -Folder dist -KeyXml $env:UPDATE_SIGNING_KEY
 
       - uses: actions/upload-artifact@v4
         with:
@@ -176,6 +193,7 @@ jobs:
           path: |
             dist/build.txt
             dist/manifest.txt
+            dist/manifest.sig
 
       # The update package: only the files that changed since the last main
       # build that has a manifest (see packaging/windows/README-update.txt).
@@ -199,7 +217,7 @@ jobs:
         run: packaging/windows/make-update.sh dist previous update
 
       - uses: actions/upload-artifact@v4
-        if: github.ref == 'refs/heads/main' && hashFiles('update/_update/from-build.txt') != ''
+        if: github.ref == 'refs/heads/main' && hashFiles('update/manifest.txt') != ''
         with:
           name: CorporalJackie-windows-x64-update
           path: update/
@@ -236,6 +254,21 @@ jobs:
           if (Test-Path $log) { Get-Content $log } else { Write-Host "No log file at $log" }
           Write-Host "Exit code: $($p.ExitCode)"
           exit $p.ExitCode
+
+  # The Windows updater on real folders: valid update, damaged file, forged
+  # signature, path traversal, links, a file in use, an interrupted update.
+  updater:
+    name: Windows updater
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Windows PowerShell 5.1
+        shell: powershell
+        run: tests\updater\Test-Updater.ps1
+      - name: PowerShell 7
+        shell: pwsh
+        run: tests\updater\Test-Updater.ps1
 
   macos:
     name: macOS (Apple silicon)
