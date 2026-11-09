@@ -102,7 +102,7 @@ void StremioAdapter::restore(const QJsonArray& list)
         if (auto m = stremio::parseManifest(raw, &error); m && url.isValid() && m_addons.size() < kMaxAddons)
             setManifest(url, *m, raw);
         else
-            qCWarning(lcSources).noquote() << "Skipping a stored add-on:" << url.toDisplayString() << error;
+            qCWarning(lcSources).noquote() << "Skipping a stored add-on:" << logging::redactUrl(url) << error;
     }
     qCInfo(lcSources) << "Add-ons installed:" << m_addons.size();
     emit addonsChanged();
@@ -359,7 +359,7 @@ void StremioAdapter::install(const QString& link, std::function<void(const QStri
         }
         setManifest(url, *m, json);
         save();
-        qCInfo(lcSources).noquote() << "Installed add-on" << m->id << m->version << "from" << url.toDisplayString();
+        qCInfo(lcSources).noquote() << "Installed add-on" << m->id << m->version << "from" << logging::redactUrl(url);
         emit addonsChanged();
         emit catalogsChanged();
         done({});
