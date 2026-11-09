@@ -3,16 +3,17 @@
 
 #include <QByteArray>
 #include <QHash>
-#include <QNetworkAccessManager>
-#include <QTemporaryDir>
 #include <QUrl>
 #include <cstdint>
+#include <memory>
 
 struct mpv_handle;
 struct mpv_event_property;
 struct mpv_node;
 
 namespace cj {
+
+class ScopedHttp;
 
 // The playback target for this computer, built on mpv. Owns the app's single
 // mpv instance (rule 3): create it once and reuse it for every item.
@@ -73,12 +74,9 @@ private:
     void handleProperty(uint64_t id, const ::mpv_event_property* prop);
     void command(std::initializer_list<const char*> args, uint64_t replyId = 0);
     void setProperty(const char* name, const QByteArray& value);
-    void startLoad(const QByteArray& target, double startSeconds);
-    void applyHeaders();
+    void startLoad(const QByteArray& target, const QString& shown, double startSeconds);
     void addSubtitleNow(const SubtitleSource& subtitle, const char* flag);
     void addSubtitleFile(const QByteArray& path, const char* flag, const SubtitleSource& subtitle);
-    bool needsOwnFetch(const QUrl& url) const;
-    void fetchSubtitle(const SubtitleSource& subtitle, const char* flag);
     void setState(PlaybackState s);
     void updateState();
     void applyCrop();
@@ -92,12 +90,9 @@ private:
     QByteArray m_pendingTarget;
     int m_loadsInFlight = 0;      // loadfile sent, START_FILE not yet seen
     double m_pendingStart = 0;
-    QMap<QString, QString> m_headers;          // for the item being loaded
-    QUrl m_headersFor;                         // ...and only for its server
-    quint64 m_loadGeneration = 0;              // a subtitle download is for one item
-    QNetworkAccessManager* m_network = nullptr;  // made on the first download
-    QTemporaryDir m_subtitleDir;
-    int m_subtitleFiles = 0;
+    QString m_pendingShown;       // the pending link, as logs may show it
+    std::unique_ptr<ScopedHttp> m_http;   // links with credentials, remote subtitles
+    static constexpr qint64 kMaxSubtitleBytes = 20 * 1024 * 1024;  // a subtitle is small
     QList<SubtitleSource> m_pendingSubtitles;  // added once the file is loaded
 
     PlaybackState m_state = PlaybackState::Idle;

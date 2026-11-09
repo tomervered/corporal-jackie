@@ -25,6 +25,7 @@ public:
         QByteArray contentType = "application/json";
         int delayMs = 0;    // < 0: never answer
         QString filePath;   // serve this file instead of body
+        QByteArray location;
     };
     struct Request
     {
@@ -93,7 +94,7 @@ private:
             // Exact path first, then decoded, then without the query.
             const QString path = QUrl::fromPercentEncoding(req.path.toLatin1());
             const QString noQuery = req.path.section(QLatin1Char('?'), 0, 0);
-            const Answer missing{404, "{}", "application/json", 0, {}};
+            const Answer missing{404, "{}", "application/json", 0, {}, {}};
             const Answer a = m_answers.value(req.path, m_answers.value(path, m_answers.value(noQuery, missing)));
             if (a.delayMs < 0)
                 return;  // hang: the client has to give up
@@ -110,6 +111,8 @@ private:
         QByteArray body = a.body;
         int status = a.status;
         QByteArray extra;
+        if (!a.location.isEmpty())
+            extra += "Location: " + a.location + "\r\n";
         if (!a.filePath.isEmpty()) {
             QFile f(a.filePath);
             const QByteArray all = f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
