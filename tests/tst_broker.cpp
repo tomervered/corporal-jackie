@@ -709,12 +709,18 @@ private slots:
         QCOMPARE(wrongBytes.load(), 0);
         QVERIFY2(reads.load() > 0, "no read finished");
 
-        // Shutdown while a read waits for a piece nobody has.
+        // Shutdown while a call waits on a torrent nobody seeds. The thread
+        // gets the broker itself, not the unique_ptr that reset() clears,
+        // and the shutdown starts only once that thread is in the call.
         const TestTorrent c = harness::makeTorrent(dir.filePath("c"), "c.mkv", {2 * MiB}, kPiece, 33);
-        auto waiting = std::async(std::launch::async, [&] {
-            auto h = broker->open({harness::magnet(c, {})});
+        StreamBroker* const waitingOn = broker.get();
+        std::atomic<bool> calling{false};
+        auto waiting = std::async(std::launch::async, [&c, waitingOn, &calling] {
+            calling = true;
+            auto h = waitingOn->open({harness::magnet(c, {})});
             return h ? h->read(0, nullptr, 0) : qint64(-1);
         });
+        QTRY_VERIFY_WITH_TIMEOUT(calling.load(), 10000);
         QTest::qWait(300);
         QElapsedTimer clock;
         clock.start();
