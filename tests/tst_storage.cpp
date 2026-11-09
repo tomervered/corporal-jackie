@@ -105,6 +105,25 @@ private slots:
         QVERIFY2(!storage.error().isEmpty(), "Failed database write has no observable error");
     }
 
+    void importReportsFailedPersistence()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath("import.sqlite");
+        Storage destination(path);
+        sqlite3* db = nullptr;
+        QCOMPARE(sqlite3_open(path.toUtf8().constData(), &db), SQLITE_OK);
+        const int result = sqlite3_exec(db, "CREATE TRIGGER reject_history BEFORE INSERT ON history BEGIN SELECT RAISE(FAIL, 'audit injected persistence failure'); END;", nullptr, nullptr, nullptr);
+        sqlite3_close(db);
+        QCOMPARE(result, SQLITE_OK);
+        Storage source({});
+        source.record(episode(1, 600, 1000));
+        const QString error = destination.importJson(source.exportJson());
+        destination.flush();
+        Storage reopened(path);
+        QVERIFY(reopened.history().isEmpty());
+        QVERIFY2(!error.isEmpty(), "Import reported success although persistence failed");
+    }
+
     void opensInMemory()
     {
         Storage s({});

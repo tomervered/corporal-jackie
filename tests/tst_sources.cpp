@@ -529,6 +529,23 @@ private slots:
 
     // A local video's id is its path. Add-ons, even ones that take any id,
     // must not hear it: it holds the user's folder and file names.
+    void remoteSubtitleSchemesAreRestricted_data()
+    {
+        QTest::addColumn<QString>("url");
+        QTest::newRow("local-file") << "file:///tmp/private.srt";
+        QTest::newRow("relative") << "private.srt";
+        QTest::newRow("unsupported") << "ftp://example.com/private.srt";
+        QTest::newRow("https-control") << "https://example.com/en.srt";
+    }
+
+    void remoteSubtitleSchemesAreRestricted()
+    {
+        QFETCH(QString, url);
+        const QJsonObject json{{"subtitles", QJsonArray{QJsonObject{{"url", url}, {"lang", "en"}}}}};
+        const auto subs = stremio::parseSubtitles(json);
+        QCOMPARE(subs.size(), url.startsWith("https://") ? 1 : 0);
+    }
+
     void localPathsStayOnThisComputer()
     {
         FakeHttpServer server;
@@ -688,4 +705,3 @@ private slots:
 
 QTEST_MAIN(TestSources)
 #include "tst_sources.moc"
-
