@@ -66,7 +66,13 @@ private:
         // Slow reads say where they waited (StreamHandle::read).
         env.insert(QStringLiteral("QT_LOGGING_RULES"), QStringLiteral("cj.broker.debug=true"));
         p.setProcessEnvironment(env);
-        p.start(QStringLiteral(CJ_BENCH_PLAYER), args);
+        const QString external = qEnvironmentVariable("CJ_BENCH_EXTERNAL");
+        if (external.isEmpty())
+            p.start(QStringLiteral(CJ_BENCH_PLAYER), args);
+        else {
+            args.prepend(external);
+            p.start(QStringLiteral("node"), args);
+        }
         const bool finished = p.waitForFinished(240000);
         if (!finished) {
             p.kill();
@@ -186,7 +192,10 @@ private slots:
         }
         QFile save(qEnvironmentVariable("CJ_BENCH_OUT"));
         if (!save.fileName().isEmpty() && save.open(QIODevice::WriteOnly | QIODevice::Append)) {
-            save.write(QJsonDocument(r).toJson(QJsonDocument::Compact));
+            QJsonObject tagged = r;
+            tagged.insert("scenario", swarm ? "peer-departure" : "single-seeder");
+            tagged.insert("engine", qEnvironmentVariable("CJ_COMPETITOR", "jackie"));
+            save.write(QJsonDocument(tagged).toJson(QJsonDocument::Compact));
             save.write("\n");
         }
     }
