@@ -24,6 +24,22 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           QTEST_FUNCTION_TIMEOUT: "150000"
         run: ctest --test-dir build -LE bench --output-on-failure
+      - name: Competitor dependencies
+        if: success() || failure()
+        run: npm install --prefix /tmp/contenders --ignore-scripts --no-audit --no-fund webtorrent@1.9.7 torrent-stream@1.2.1
+      - name: Competitor benchmark
+        if: success() || failure()
+        env:
+          QT_QPA_PLATFORM: offscreen
+          CJ_BENCH_RUNS: "3"
+          CJ_BENCH_EXTERNAL: tests/bench/competitor.cjs
+          CJ_COMPETITOR_MODULES: /tmp/contenders/node_modules
+          CJ_BENCH_OUT: /tmp/audit-competitors.jsonl
+        run: |
+          for engine in webtorrent torrent-stream; do
+            export CJ_COMPETITOR="$engine"
+            ./build/tests/tst_bench "run:disk 1" "run:swarm disk 1" "run:disk 2" "run:swarm disk 2" "run:disk 3" "run:swarm disk 3"
+          done
       - name: Benchmark
         if: success() || failure()
         env:
@@ -39,3 +55,4 @@ jobs:
             build/tests/*.log
             build/Testing/Temporary/LastTest.log
             /tmp/audit-benchmark.jsonl
+            /tmp/audit-competitors.jsonl
