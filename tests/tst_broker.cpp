@@ -673,7 +673,10 @@ private slots:
             QVERIFY(readRange(*h, 0, 4 * MiB) == t.data[0]);
         }
         broker.clearCache();
-        QTest::qWait(200);  // libtorrent's "deleted" alert arrives; the removal starts
+        // libtorrent deletes the data file, then reports it; the folder's
+        // removal (held for 1.5 s) starts on that report.
+        QTRY_VERIFY_WITH_TIMEOUT(!QFileInfo::exists(QDir(folder).filePath("movie.mkv")), 5000);
+        QTest::qWait(100);
 
         QElapsedTimer opening;
         opening.start();

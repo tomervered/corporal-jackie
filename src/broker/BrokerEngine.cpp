@@ -109,7 +109,12 @@ void Engine::shutdown()
         if (m_pendingSaves > 0)
             qCWarning(lcBroker) << "Resume data of" << m_pendingSaves.load() << "torrents was not saved in time";
     }
-    closing = true;
+    {
+        // Under the lock, so an open waiting for a deletion cannot miss it.
+        std::lock_guard lock(m_mutex);
+        closing = true;
+    }
+    m_deletesDone.notify_all();
     if (m_thread.joinable())
         m_thread.join();
     {
@@ -226,6 +231,10 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
                 qCWarning(lcBroker).noquote() << "The deletion of" << qid << "did not finish; opening anyway";
                 m_pendingDeletes.remove(qid);
             }
+        }
+        if (closing) {
+            *error = BrokerError::Closed;
+            return nullptr;
         }
     }
     if (auto it = m_torrents.find(id); it != m_torrents.end()) {
