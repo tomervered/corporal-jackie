@@ -224,7 +224,7 @@ New-Item -ItemType Directory -Path $elsewhere | Out-Null
 New-Item -ItemType Junction -Path (Join-Path $root 'app\qml') -Target $elsewhere | Out-Null
 $before = Get-State $root
 Test-Unchanged $case $root $before (Invoke-Updater $root $package)
-Check $case ((Get-ChildItem -LiteralPath $elsewhere -Recurse -File).Count -eq 0) 'a file was written through the link' $null
+Check $case (@(Get-ChildItem -LiteralPath $elsewhere -Recurse -File).Count -eq 0) 'a file was written through the link' $null
 
 $case = 'locked file'
 $root = New-Install 'locked'
