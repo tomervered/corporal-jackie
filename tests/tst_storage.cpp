@@ -284,6 +284,10 @@ private slots:
         QTest::newRow("bad subtitle") << QByteArray("\"history\":[{\"key\":\"k\",\"source\":{\"url\":\"https://a.example/v\",\"subtitles\":[{\"url\":\"ftp://x/y.srt\"}]}}]");
         QTest::newRow("addon not web") << QByteArray("\"addons\":[{\"transportUrl\":\"file:///etc/manifest.json\"}]");
         QTest::newRow("folder not text") << QByteArray("\"folders\":[3]");
+        // Found by tests/fuzz: a time past qint64 was converted unchecked.
+        QTest::newRow("huge time") << QByteArray("\"history\":[{\"key\":\"k\",\"updatedAt\":1.7e54}]");
+        QTest::newRow("negative time") << QByteArray("\"history\":[{\"key\":\"k\",\"updatedAt\":-1}]");
+        QTest::newRow("huge added time") << QByteArray("\"library\":[{\"adapter\":\"a\",\"itemId\":\"t\",\"addedAt\":1e300}]");
     }
 
     void importChecksTheWholeFileFirst()

@@ -393,3 +393,71 @@ jobs:
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1:strict_string_checks=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
         run: ctest --test-dir build -LE bench --output-on-failure
+
+  # Data races between the broker's and the database's own threads. Qt, glib
+  # and libtorrent are not built with TSan, so hand-offs inside them are
+  # suppressed (tests/tsan.supp); the network code that hands work over
+  # through Qt's event queues is left to ASan and its tests.
+  thread-sanitizer:
+    name: Linux (broker and storage under TSan)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build pkg-config \
+            qt6-base-dev qt6-declarative-dev libmpv-dev libtorrent-rasterbar-dev libsqlite3-dev
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCJ_WARNINGS_AS_ERRORS=ON -DCJ_SANITIZE_THREAD=ON
+
+      - name: Build
+        run: cmake --build build --target tst_broker tst_storage
+
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QTEST_FUNCTION_TIMEOUT: "250000"
+          TSAN_OPTIONS: halt_on_error=1 second_deadlock_stack=1 suppressions=${{ github.workspace }}/tests/tsan.supp
+        run: |
+          build/tests/tst_broker
+          build/tests/tst_storage
+
+  # libFuzzer on the parsers of untrusted text (tests/fuzz/fuzz_parsers.cpp)
+  # with ASan and UBSan, for five minutes from the seed corpus.
+  fuzz:
+    name: Linux (parser fuzzing)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build pkg-config clang libclang-rt-dev \
+            qt6-base-dev qt6-declarative-dev libmpv-dev libtorrent-rasterbar-dev libsqlite3-dev
+
+      - name: Configure
+        env:
+          CC: clang
+          CXX: clang++
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCJ_BUILD_TESTS=OFF -DCJ_FUZZ=ON
+
+      - name: Build
+        run: cmake --build build --target fuzz_parsers
+
+      - name: Fuzz
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+        run: |
+          mkdir -p corpus findings
+          build/tests/fuzz/fuzz_parsers -max_total_time=300 -max_len=8192 -timeout=10 -rss_limit_mb=4096 \
+            -artifact_prefix=findings/ corpus tests/fuzz/corpus
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: fuzz-findings
+          path: findings/

@@ -1,0 +1,16 @@
+# ThreadSanitizer suppressions, used by the CI job that runs tst_broker and
+# tst_storage with -DCJ_SANITIZE_THREAD=ON.
+#
+# The distribution builds Qt, glib, libtorrent and libc's time zone code
+# without TSan. Their locks are invisible to it, so a hand-off inside them
+# looks like a race: Qt's implicitly shared data being freed, glib's event
+# fds, libtorrent's network thread writing a result its caller waits for,
+# and the time zone state Qt's mktime takes a lock around. Races between
+# this project's own threads (std::mutex, std::condition_variable,
+# std::atomic) are still reported.
+called_from_lib:libQt6Core.so.6
+called_from_lib:libQt6Network.so.6
+called_from_lib:libQt6Test.so.6
+called_from_lib:libglib-2.0.so.0
+race:libtorrent-rasterbar.so
+race:tzset_internal

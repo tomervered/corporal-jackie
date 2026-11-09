@@ -225,6 +225,18 @@ QJsonObject entryToJson(const HistoryEntry& e)
             {"updatedAt", double(e.updatedAt)}, {"finished", e.finished}};
 }
 
+// A time in ms since 1970 from an export. Converting a double outside
+// qint64's range is undefined, so anything not finite, negative or past the
+// year 9999 comes back as -1, which import refuses.
+qint64 timeFromJson(const QJsonValue& v)
+{
+    constexpr double kLatest = 253402300800000.0;  // 10000-01-01
+    const double ms = v.toDouble();
+    if (!std::isfinite(ms) || ms < 0 || ms > kLatest)
+        return -1;
+    return qint64(ms);
+}
+
 HistoryEntry entryFromJson(const QJsonObject& o)
 {
     HistoryEntry e;
@@ -242,7 +254,7 @@ HistoryEntry entryFromJson(const QJsonObject& o)
     e.source = Storage::sourceFromJson(o.value("source").toObject());
     e.position = o.value("position").toDouble();
     e.duration = o.value("duration").toDouble();
-    e.updatedAt = qint64(o.value("updatedAt").toDouble());
+    e.updatedAt = timeFromJson(o.value("updatedAt"));
     e.finished = o.value("finished").toBool();
     return e;
 }
@@ -263,7 +275,7 @@ LibraryItem itemFromJson(const QJsonObject& o)
     i.name = o.value("name").toString();
     i.poster = o.value("poster").toString();
     i.releaseInfo = o.value("releaseInfo").toString();
-    i.addedAt = qint64(o.value("addedAt").toDouble());
+    i.addedAt = timeFromJson(o.value("addedAt"));
     return i;
 }
 
@@ -845,7 +857,7 @@ QString Storage::importJson(const QByteArray& json)
             return damaged("history", n);
         const HistoryEntry e = entryFromJson(historyIn.at(n).toObject());
         if (e.key.isEmpty() || !std::isfinite(e.position) || !std::isfinite(e.duration) || e.position < 0
-            || e.duration < 0 || !isImportableLink(e.source.url.toString()) || !isImportableLink(e.source.origin))
+            || e.duration < 0 || e.updatedAt < 0 || !isImportableLink(e.source.url.toString()) || !isImportableLink(e.source.origin))
             return damaged("history", n);
         for (const SubtitleSource& sub : e.source.subtitles)
             if (!sub.url.isLocalFile() && !isWeb(sub.url))
@@ -860,7 +872,7 @@ QString Storage::importJson(const QByteArray& json)
         if (!libraryIn.at(n).isObject())
             return damaged("library", n);
         const LibraryItem i = itemFromJson(libraryIn.at(n).toObject());
-        if (i.itemId.isEmpty())
+        if (i.itemId.isEmpty() || i.addedAt < 0)
             return damaged("library", n);
         if (!inLibrary(i.key()))
             newItems.append(i);
