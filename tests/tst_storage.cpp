@@ -200,6 +200,47 @@ private slots:
         QCOMPARE(to.resumePosition(magnet), 300.0);
     }
 
+    // A magnet without a v1 hash keeps no tracker either, and a torrent
+    // opened from a signed web link does not carry that link out.
+    void exportDropsSecretsFromTorrentOrigins()
+    {
+        Storage from({});
+        auto record = [&](const PlayableSource& source, const QString& adapter, qint64 at) {
+            HistoryEntry e;
+            e.source = source;
+            e.adapter = adapter;
+            e.itemId = adapter.isEmpty() ? QString() : QStringLiteral("tt1");
+            e.key = adapter.isEmpty() ? "url:" + Storage::sourceKey(source) : "item:" + adapter + ":tt1";
+            e.position = 100;
+            e.duration = 600;
+            e.updatedAt = at;
+            from.record(e);
+        };
+        PlayableSource v2 = PlayableSource::fromUrl(QUrl("torrent://v2/0"), "V2 only");
+        v2.origin = "magnet:?xt=urn:btmh:1220abcd&tr=https%3A%2F%2Ftracker.example%2Fpasskey456%2Fannounce";
+        record(v2, {}, 1);
+        PlayableSource signedDirect = PlayableSource::fromUrl(QUrl("torrent://def/0"), "Direct");
+        signedDirect.origin = "https://site.example/get.torrent?key=signedKey789";
+        record(signedDirect, {}, 2);
+        PlayableSource signedAddon = PlayableSource::fromUrl(QUrl("torrent://fed/0"), "Add-on");
+        signedAddon.origin = "https://user:pw0rdXYZ@site.example/file.torrent";
+        record(signedAddon, "addon.example", 3);
+        PlayableSource trackerUrl = PlayableSource::fromUrl(
+            QUrl("magnet:?xt=urn:btih:ABC&tr=https%3A%2F%2Ftracker.example%2Fpasskey000%2Fannounce"), "In the link");
+        trackerUrl.kind = PlayableSource::Kind::Torrent;
+        record(trackerUrl, {}, 4);
+
+        const QByteArray json = from.exportJson();
+        for (const char* secret : {"passkey456", "signedKey789", "pw0rdXYZ", "passkey000"})
+            QVERIFY2(!json.contains(secret), secret);
+        QVERIFY(json.contains("urn:btmh:1220abcd"));  // still names its video
+        Storage to({});
+        QCOMPARE(to.importJson(json), QString());
+        // The signed direct link has nothing left to find it by; the rest stay.
+        QCOMPARE(to.history().size(), 3);
+        QVERIFY(from.exportJson(Storage::ExportMode::Full).contains("signedKey789"));
+    }
+
     // Keys written before magnets were keyed by info hash move over once.
     void oldMagnetKeysMoveToInfoHashes()
     {
@@ -224,6 +265,51 @@ private slots:
         }
         Storage reopened(path);
         QCOMPARE(reopened.history().first().key, QStringLiteral("url:magnet:?xt=urn:btih:abc"));
+    }
+
+    // When old keys meet on one video, the newest row survives the move, in
+    // memory and on disk: two old links, or an old link and a newer new key.
+    void magnetKeyMoveKeepsTheNewest()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath("old.sqlite");
+        {
+            Storage storage(path);
+            storage.flush();
+        }
+        sqlite3* db = nullptr;
+        QCOMPARE(sqlite3_open(path.toUtf8().constData(), &db), SQLITE_OK);
+        auto insert = [&](const QString& key, const QString& origin, int position, int updatedAt) {
+            const QByteArray sql = "INSERT INTO history(key, source, position, duration, updated_at, finished) VALUES('"
+                                 + key.toUtf8() + "', '{\"url\":\"torrent://x/0\",\"kind\":\"torrent\",\"origin\":\""
+                                 + origin.toUtf8() + "\"}', " + QByteArray::number(position) + ", 600, "
+                                 + QByteArray::number(updatedAt) + ", 0)";
+            QCOMPARE(sqlite3_exec(db, sql.constData(), nullptr, nullptr, nullptr), SQLITE_OK);
+        };
+        // Video a: two old links, the newer one at 200 s.
+        const QString a1 = "magnet:?xt=urn:btih:aaa&tr=udp%3A%2F%2Fone.example%3A1";
+        const QString a2 = "magnet:?xt=urn:btih:aaa&tr=udp%3A%2F%2Ftwo.example%3A1";
+        insert("url:" + a1, a1, 100, 10);
+        insert("url:" + a2, a2, 200, 20);
+        // Video b: an old link, and a newer row already under the new key.
+        const QString b1 = "magnet:?xt=urn:btih:bbb&tr=udp%3A%2F%2Fone.example%3A1";
+        insert("url:" + b1, b1, 300, 30);
+        insert("url:magnet:?xt=urn:btih:bbb", "magnet:?xt=urn:btih:bbb", 400, 40);
+        sqlite3_close(db);
+        auto check = [](const Storage& storage) {
+            QCOMPARE(storage.history().size(), 2);
+            QHash<QString, double> positions;
+            for (const HistoryEntry& e : storage.history())
+                positions[e.key] = e.position;
+            QCOMPARE(positions.value("url:magnet:?xt=urn:btih:aaa"), 200.0);
+            QCOMPARE(positions.value("url:magnet:?xt=urn:btih:bbb"), 400.0);
+        };
+        {
+            Storage storage(path);
+            check(storage);
+        }
+        Storage reopened(path);
+        check(reopened);
     }
 
     // The UI hears about a failed write, and keeps working.
