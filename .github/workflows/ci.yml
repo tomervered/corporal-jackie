@@ -576,7 +576,10 @@ jobs:
           disk_rows=()
           for i in 1 2 3 4 5; do disk_rows+=("run:disk $i" "run:swarm disk $i"); done
           run_all() {
-            for engine in $(printf '%s\n' jackie jackie-c6557a3 webtorrent webtorrent1 torrent-stream qbittorrent stremio | shuf); do
+            # Only the clients the work is measured against. The others (torrent-stream,
+            # qbittorrent, stremio) and the previous release (jackie-c6557a3) are still
+            # handled below: add one to this list to run it.
+            for engine in $(printf '%s\n' jackie webtorrent webtorrent1 | shuf); do
               echo "::group::$CJ_BENCH_LINK: $engine"
               case $engine in
                 jackie)
