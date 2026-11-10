@@ -85,7 +85,9 @@ struct StreamStats
 // What the broker did for one torrent, for the benchmark and the log.
 struct BrokerCounters
 {
-    qint64 fetchedBytes = 0;   // verified piece bytes downloaded, counting a refetch again
+    qint64 fetchedBytes = 0;   // verified piece bytes downloaded, counting a refetch of a dropped piece again
+    qint64 wireBytes = 0;      // payload bytes received from peers, across reloads (partial pieces included)
+    qint64 wastedBytes = 0;    // of those, bytes that were redundant or failed their hash check
     int reloads = 0;           // RAM only: times the torrent was reloaded to refetch dropped pieces
     int schedulePasses = 0;    // calls to Engine::schedule
     int scheduleSent = 0;      // of those, the ones that sent priorities or deadlines

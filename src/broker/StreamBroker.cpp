@@ -372,8 +372,20 @@ StreamStats StreamHandle::stats() const { return m_engine->stats(*m_torrent, *m_
 
 BrokerCounters StreamHandle::counters() const
 {
-    std::lock_guard lock(m_torrent->mutex);
-    return m_torrent->counters;
+    const lt::torrent_handle h = m_torrent->currentHandle();
+    BrokerCounters c;
+    {
+        std::lock_guard lock(m_torrent->mutex);
+        c = m_torrent->counters;
+    }
+    try {
+        // Plus what the current handle has received so far.
+        const lt::torrent_status st = h.status({});
+        c.wireBytes += st.total_payload_download;
+        c.wastedBytes += st.total_redundant_bytes + st.total_failed_bytes;
+    } catch (const std::exception&) {
+    }
+    return c;
 }
 
 PieceState StreamHandle::stateAt(qint64 offset) const

@@ -245,6 +245,13 @@ private slots:
         QVERIFY(timer.elapsed() < 10000);
         // And reading on from there still works.
         QVERIFY(readRange(*h, 21 * MiB, 4 * MiB) == t.data[0].mid(int(21 * MiB), int(4 * MiB)));
+
+        // The reload made libtorrent report the pieces it kept as finished
+        // again. They were not downloaded again, and the count must not say so.
+        const BrokerCounters c = h->counters();
+        QVERIFY(c.reloads >= 1);
+        qInfo("Reloads %d, counted %lld MiB, received %lld MiB", c.reloads, c.fetchedBytes / MiB, c.wireBytes / MiB);
+        QVERIFY(c.fetchedBytes <= c.wireBytes + 2 * MiB);
     }
 
     void twoReadersAtOnce()
@@ -293,6 +300,40 @@ private slots:
         // and macOS then allocated all of an unread one.
         QVERIFY(!QFileInfo::exists(content + "/file0.bin"));
         QVERIFY(!QFileInfo::exists(content + "/file2.bin"));
+    }
+
+    // Opening a file turns it on in libtorrent, which then gives every piece
+    // of it the file's priority. That wiped the piece priorities sent a
+    // moment earlier, and the whole file downloaded at full speed whatever
+    // the read-ahead said.
+    void readAheadLimitHoldsOnceTheFileIsOpen()
+    {
+        QTemporaryDir dir;
+        const TestTorrent t = harness::makeTorrent(dir.filePath("seed"), "movie.mkv", {48 * MiB}, kPiece, 6);
+        Seeder seeder(t, t.root);  // no limit: the file is here in a second or two
+        BrokerSettings settings = testSettings(dir.filePath("cache"));
+        settings.cacheCapBytes = 16 * MiB;  // read-ahead and background fill: half of it
+        StreamBroker broker(settings);
+        auto h = broker.open({harness::magnet(t, {seeder.port()})});
+        QVERIFY(h);
+        QByteArray chunk(64 * 1024, Qt::Uninitialized);
+        QVERIFY(h->read(0, chunk.data(), chunk.size()) > 0);
+
+        // Wait until nothing more arrives for a second.
+        qint64 received = -1;
+        int still = 0;
+        QElapsedTimer timer;
+        timer.start();
+        while (still < 5 && timer.elapsed() < 20000) {
+            QTest::qWait(200);
+            const qint64 now = h->counters().wireBytes;
+            still = now == received ? still + 1 : 0;
+            received = now;
+        }
+        QVERIFY2(still >= 5, "the download never settled");
+        qInfo("Received %lld MiB of 48 MiB", received / MiB);
+        // The start, the end and 8 MiB ahead: about 16 MiB. Not the file.
+        QVERIFY(received < 32 * MiB);
     }
 
     void largestFileIsTheDefault()
