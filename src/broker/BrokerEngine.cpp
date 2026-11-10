@@ -600,9 +600,12 @@ void Engine::handleAlert(lt::alert* a)
             if (pf->handle != t->handle)
                 return;
             const int p = int(static_cast<int>(pf->piece_index));
+            // After a RAM reload libtorrent reports the pieces it was told
+            // it has as finished again: not a download.
+            const bool hadIt = p >= 0 && p < int(t->have.size()) && t->have[p];
             if (p >= 0 && p < int(t->have.size()))
                 t->have[p] = true;
-            if (t->info && p >= 0 && p < t->info->num_pieces())
+            if (!hadIt && t->info && p >= 0 && p < t->info->num_pieces())
                 t->counters.fetchedBytes += t->info->piece_size(lt::piece_index_t(p));
             t->evicted.erase(p);
             t->scheduled.erase(p);
@@ -637,6 +640,30 @@ void Engine::handleAlert(lt::alert* a)
         --m_pendingSaves;
     } else if (auto* cf = lt::alert_cast<lt::cache_flushed_alert>(a)) {
         onCacheFlushed(cf->handle);
+    } else if (auto* fp = lt::alert_cast<lt::file_prio_alert>(a)) {
+        // libtorrent has applied the file priorities, which sets the priority
+        // of every piece of those files to the file's, wiping what schedule()
+        // and onMetadata() sent a moment before: the whole file would download,
+        // in order, at full speed. Send the piece priorities we want again.
+        // That is the full state, not a new schedule: the alert can arrive
+        // before any reader has asked for anything.
+        if (auto t = find(fp->handle)) {
+            std::lock_guard tl(t->mutex);
+            if (fp->handle == t->handle && t->hasMetadata) {
+                std::vector<std::pair<lt::piece_index_t, lt::download_priority_t>> priorities;
+                priorities.reserve(t->have.size());
+                for (int p = 0; p < int(t->have.size()); ++p) {
+                    auto it = t->wanted.find(p);
+                    priorities.emplace_back(lt::piece_index_t(p),
+                                            it == t->wanted.end() || t->have[std::size_t(p)] ? lt::dont_download : it->second);
+                }
+                try {
+                    t->handle.prioritize_pieces(priorities);
+                } catch (const std::exception& e) {
+                    qCDebug(lcBroker) << "Sending the piece priorities again failed:" << e.what();
+                }
+            }
+        }
     } else if (auto* rf = lt::alert_cast<lt::save_resume_data_failed_alert>(a)) {
         qCWarning(lcBroker).noquote() << "Saving resume data failed:" << QString::fromStdString(rf->error.message());
         --m_pendingSaves;
