@@ -272,6 +272,8 @@ int main(int argc, char** argv)
     // read-ahead past what was played or sought.
     const BrokerCounters c = h->counters();
     out[QStringLiteral("fetchedBytes")] = c.fetchedBytes;
+    out[QStringLiteral("wireBytes")] = c.wireBytes;
+    out[QStringLiteral("wastedBytes")] = c.wastedBytes;
     out[QStringLiteral("reloads")] = c.reloads;
     out[QStringLiteral("schedulePasses")] = c.schedulePasses;
     out[QStringLiteral("scheduleSent")] = c.scheduleSent;

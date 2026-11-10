@@ -131,6 +131,11 @@ private:
                   .arg(r[QStringLiteral("schedulePasses")].toInteger())
                   .arg(r[QStringLiteral("scheduleSent")].toInteger())
                   .arg(r[QStringLiteral("scheduleMs")].toDouble(), 0, 'f', 1));
+        if (r.contains(QStringLiteral("wireBytes")))
+            print(QStringLiteral("BENCH %1:   received %2 MiB from peers (%3 MiB redundant or failed)")
+                      .arg(QLatin1String(mode))
+                      .arg(r[QStringLiteral("wireBytes")].toInteger() / MiB)
+                      .arg(r[QStringLiteral("wastedBytes")].toInteger() / MiB));
         print(QStringLiteral("BENCH %1:   peak memory: process %2 MiB, piece store %3 MiB, read cache %4 MiB")
                                  .arg(QLatin1String(mode))
                                  .arg(r[QStringLiteral("peakProcessBytes")].toInteger() / MiB)
