@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# Reviews run when asked: comment "@coderabbitai review" on a pull request.
+reviews:
+  auto_review:
+    enabled: false
