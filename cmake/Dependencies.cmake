@@ -50,6 +50,13 @@ else()
 endif()
 if(_cj_lt_stamp)
     message(STATUS "libtorrent: patched build in ${_cj_lt_prefix}")
+    # The installed target asks a Debug consumer to define TORRENT_USE_ASSERTS,
+    # which adds members to libtorrent's classes. The library is built once,
+    # without it, so a Debug app (the sanitizer jobs) would disagree with it
+    # about the layout of torrent_status and others.
+    get_target_property(_cj_lt_defs LibtorrentRasterbar::torrent-rasterbar INTERFACE_COMPILE_DEFINITIONS)
+    list(FILTER _cj_lt_defs EXCLUDE REGEX "TORRENT_USE_ASSERTS")
+    set_property(TARGET LibtorrentRasterbar::torrent-rasterbar PROPERTY INTERFACE_COMPILE_DEFINITIONS "${_cj_lt_defs}")
 elseif(CJ_REQUIRE_PATCHED_LIBTORRENT)
     message(FATAL_ERROR "This libtorrent is not the patched build from third_party/libtorrent/build.sh.")
 else()
