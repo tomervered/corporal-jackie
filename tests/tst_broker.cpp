@@ -429,6 +429,40 @@ private slots:
         QVERIFY(readRange(*h, 0, h->size()) == t.data[0]);
     }
 
+    // The torrent engine's patch for streaming (docs/ENGINE.md) must never
+    // lose or reorder data when a seeder disconnects in the middle of a read.
+    void readsThroughWhenASeederLeaves()
+    {
+        QTemporaryDir dir;
+        const TestTorrent t = harness::makeTorrent(dir.filePath("seed"), "movie.mkv", {24 * MiB}, kPiece, 9);
+        std::vector<std::unique_ptr<Seeder>> seeders;
+        std::vector<int> ports;
+        for (int i = 0; i < 3; ++i) {
+            seeders.push_back(std::make_unique<Seeder>(t, t.root, 3 * MiB));
+            ports.push_back(seeders.back()->port());
+        }
+        StreamBroker broker(testSettings(dir.filePath("cache")));
+        auto h = broker.open({harness::magnet(t, ports)});
+        QVERIFY(h);
+
+        QByteArray data;
+        qint64 longest = 0;
+        QElapsedTimer step;
+        while (data.size() < h->size()) {
+            step.start();
+            const QByteArray chunk = readRange(*h, data.size(), qMin<qint64>(256 * 1024, h->size() - data.size()));
+            QVERIFY(!chunk.isEmpty());
+            longest = qMax(longest, step.elapsed());
+            data += chunk;
+            if (data.size() >= 6 * MiB && seeders.front())
+                seeders.front().reset();
+        }
+        QVERIFY(data == t.data[0]);
+        qInfo("Longest wait for 256 KiB: %lld ms", longest);
+        // Far above a healthy run; a hung or starved request would exceed it.
+        QVERIFY2(longest < 10000, "a read waited seconds after a seeder left");
+    }
+
     void cacheStaysUnderItsCap()
     {
         QTemporaryDir dir;

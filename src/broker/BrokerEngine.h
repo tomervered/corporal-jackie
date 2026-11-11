@@ -63,9 +63,6 @@ constexpr qint64 kTailBytes = 4 * 1024 * 1024;   // and the index at the end
 constexpr qint64 kPieceCacheBytes = 64 * 1024 * 1024;  // piece copies kept in memory per torrent
 constexpr qint64 kDiskReserve = 2LL * 1024 * 1024 * 1024; // free disk space the cache always leaves
 constexpr auto kStallAfter = std::chrono::seconds(10);    // no new data for the awaited piece
-// Pieces ahead of each reader, its own included, that get deadlines (see
-// Engine::schedule). The rest of the read-ahead comes in order.
-constexpr int kUrgentPieces = 3;
 // Beyond the urgent window, keep downloading at low priority, so spare
 // bandwidth builds a buffer: up to this many seconds of video ahead...
 constexpr double kBackgroundSeconds = 600;
@@ -151,6 +148,8 @@ struct Reader
     std::atomic<double> duration{0};
     std::atomic<bool> cancelled{false};
     std::atomic<bool> closed{false};
+    int nextReadPiece = -1;   // continuation of a read split at a piece boundary
+    int deadlinePiece = -1;   // first piece after opening or jumping to a different position
     int scheduledPiece = -1;  // the piece the last schedule was computed for
     // Progress on the piece this reader waits for, to tell slow from stuck.
     // Written by stats() only, which runs on one thread at a time per reader.

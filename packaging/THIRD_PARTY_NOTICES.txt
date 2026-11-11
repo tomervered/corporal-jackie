@@ -16,7 +16,7 @@ mpv (libmpv)                 GPL-2.0-or-later
 FFmpeg                       GPL-3.0-or-later (built with --enable-gpl
                              --enable-version3)
 libplacebo                   LGPL-2.1-or-later
-libtorrent-rasterbar         BSD-3-Clause
+libtorrent-rasterbar         BSD-3-Clause (with one patch of ours, linked in)
 OpenSSL 3                    Apache-2.0
 Boost                        BSL-1.0
 SQLite                       Public domain

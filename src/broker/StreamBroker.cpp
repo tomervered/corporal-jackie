@@ -330,8 +330,14 @@ qint64 StreamHandle::read(qint64 offset, char* buffer, qint64 length)
     const qint64 inPiece = absolute - qint64(piece) * t.pieceLength();
     const qint64 count = std::min({length, r.fileSize - offset, qint64(t.info->piece_size(lt::piece_index_t(piece))) - inPiece});
 
+    // Keep a deadline through the continuation of a read split across two pieces.
+    const int previousNext = r.nextReadPiece;
+    if (count < qMin(length, r.fileSize - offset))
+        r.nextReadPiece = piece + 1;
+    else if (offset != r.position.load() || piece != previousNext)
+        r.nextReadPiece = -1;
     r.position = offset;
-    m_engine->schedule(t, false);
+    m_engine->schedule(t, previousNext != r.nextReadPiece);
 
     auto stopped = [&] { return r.cancelled || r.closed || t.removed || m_engine->closing.load(); };
     // How long each step took, for the log.

@@ -1,0 +1,13 @@
+name: Patched libtorrent
+description: Builds libtorrent with our patch (third_party/libtorrent), cached, and sets CJ_LT_PREFIX for CMAKE_PREFIX_PATH.
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@v4
+      with:
+        path: ~/cj-libtorrent
+        key: libtorrent-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('third_party/libtorrent/**') }}
+    - shell: bash
+      run: |
+        third_party/libtorrent/build.sh "$HOME/cj-libtorrent"
+        echo "CJ_LT_PREFIX=$HOME/cj-libtorrent" >> "$GITHUB_ENV"
