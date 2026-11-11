@@ -42,8 +42,11 @@ jobs:
             boost:p openssl:p sqlite3:p mesa:p
             dav1d:p libass:p lcms2:p uchardet:p zimg:p libdovi:p libiconv:p
 
-      - name: Cache the mpv build
-        uses: actions/cache@v4
+      # Both builds are saved as soon as they are done, so a failing test
+      # later in the job does not make the next run build them again.
+      - name: Restore the mpv build
+        id: mpv-cache
+        uses: actions/cache/restore@v4
         with:
           path: .deps
           key: mpv-${{ runner.os }}-${{ hashFiles('packaging/windows/build-mpv.sh') }}
@@ -52,15 +55,30 @@ jobs:
         timeout-minutes: 40
         run: packaging/windows/build-mpv.sh "$(cygpath -u "$GITHUB_WORKSPACE")/.deps"
 
+      - name: Save the mpv build
+        if: steps.mpv-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .deps
+          key: mpv-${{ runner.os }}-${{ hashFiles('packaging/windows/build-mpv.sh') }}
+
       # libtorrent with our patch, as a static library (third_party/libtorrent).
-      - name: Cache the libtorrent build
-        uses: actions/cache@v4
+      - name: Restore the libtorrent build
+        id: lt-cache
+        uses: actions/cache/restore@v4
         with:
           path: .deps-torrent
           key: libtorrent-${{ runner.os }}-${{ hashFiles('third_party/libtorrent/**') }}
 
       - name: Build libtorrent
         run: third_party/libtorrent/build.sh "$(cygpath -u "$GITHUB_WORKSPACE")/.deps-torrent"
+
+      - name: Save the libtorrent build
+        if: steps.lt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .deps-torrent
+          key: libtorrent-${{ runner.os }}-${{ hashFiles('third_party/libtorrent/**') }}
 
       - name: Configure
         run: |
@@ -70,6 +88,15 @@ jobs:
 
       - name: Build
         run: cmake --build build
+
+      # Boost.Asio's Windows timers run on a thread of their own, and
+      # libtorrent's connections start from a timer. Fires 5 short timers in
+      # 300 fresh io_contexts and says how many never finished.
+      - name: Probe Boost.Asio timers
+        continue-on-error: true
+        run: |
+          export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
+          timeout 180 build/tests/asio_timer_probe
 
       - name: Test
         env:
