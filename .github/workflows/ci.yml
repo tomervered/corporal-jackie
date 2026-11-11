@@ -428,7 +428,7 @@ jobs:
         run: |
           # Plain HTTP to Ubuntu's mirrors timed out on every request on 2026-11-11
           # (azure.archive.ubuntu.com and archive.ubuntu.com); HTTPS answered.
-          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/ priority:1' 'http://azure.archive.ubuntu.com/ubuntu/ priority:2' \
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/	priority:1' 'http://azure.archive.ubuntu.com/ubuntu/	priority:2' \
             | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 update
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config xvfb libgl1-mesa-dri \
@@ -478,7 +478,7 @@ jobs:
         run: |
           # Plain HTTP to Ubuntu's mirrors timed out on every request on 2026-11-11
           # (azure.archive.ubuntu.com and archive.ubuntu.com); HTTPS answered.
-          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/ priority:1' 'http://azure.archive.ubuntu.com/ubuntu/ priority:2' \
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/	priority:1' 'http://azure.archive.ubuntu.com/ubuntu/	priority:2' \
             | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 update
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config \
@@ -520,7 +520,7 @@ jobs:
         run: |
           # Plain HTTP to Ubuntu's mirrors timed out on every request on 2026-11-11
           # (azure.archive.ubuntu.com and archive.ubuntu.com); HTTPS answered.
-          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/ priority:1' 'http://azure.archive.ubuntu.com/ubuntu/ priority:2' \
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/	priority:1' 'http://azure.archive.ubuntu.com/ubuntu/	priority:2' \
             | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 update
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config \
@@ -556,7 +556,7 @@ jobs:
         run: |
           # Plain HTTP to Ubuntu's mirrors timed out on every request on 2026-11-11
           # (azure.archive.ubuntu.com and archive.ubuntu.com); HTTPS answered.
-          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/ priority:1' 'http://azure.archive.ubuntu.com/ubuntu/ priority:2' \
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/	priority:1' 'http://azure.archive.ubuntu.com/ubuntu/	priority:2' \
             | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 update
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config clang libclang-rt-dev \
@@ -613,7 +613,7 @@ jobs:
         run: |
           # Plain HTTP to Ubuntu's mirrors timed out on every request on 2026-11-11
           # (azure.archive.ubuntu.com and archive.ubuntu.com); HTTPS answered.
-          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/ priority:1' 'http://azure.archive.ubuntu.com/ubuntu/ priority:2' \
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/	priority:1' 'http://azure.archive.ubuntu.com/ubuntu/	priority:2' \
             | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 update
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config iproute2 qbittorrent-nox \
