@@ -10,4 +10,4 @@ Turns one file inside a torrent into seekable bytes: piece deadlines per reader,
 - `BrokerUpkeep.cpp`: reloads, resume data, the disk cache cap, and the numbers the UI shows.
 - `MemoryStorage.h/.cpp`: RAM-only piece storage.
 
-libtorrent throws when called on a torrent removed a moment ago; every such call is guarded so it can never crash the app. The code builds against libtorrent 2.0 (Linux) and 2.1 (Windows, macOS) without deprecated calls; differences are behind `LIBTORRENT_VERSION_NUM`.
+libtorrent throws when called on a torrent removed a moment ago; every such call is guarded so it can never crash the app. The code builds against libtorrent 2.0 and 2.1 without deprecated calls; differences are behind `LIBTORRENT_VERSION_NUM`. Releases use libtorrent 2.1.2 with the patch in `third_party/libtorrent` ([docs/ENGINE.md](../../docs/ENGINE.md)).

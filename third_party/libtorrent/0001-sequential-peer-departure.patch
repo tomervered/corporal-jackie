@@ -1,11 +1,30 @@
+Subject: Keep sequential streaming from stalling when a seeder leaves
+
+Two changes for sequential downloads with more than one seed:
+
+1. A rate-limited peer's request queue never leaves slow start, so it grows
+   to the remote's advertised reqq (2000 blocks) and holds requests for
+   seconds. When that peer disconnects, its blocks are re-requested at the
+   back of the other peers' queues. Cap the desired queue at 24 blocks
+   (384 KiB) per peer below 8 MiB/s. Done where the target is computed,
+   because the handshake overrides max_out_request_queue.
+
+2. When a later piece within 8 has already verified, the first missing piece
+   is a hole in playback. Let peers with room in their queues add one backup
+   request for each block that has exactly one outstanding request.
+
 diff --git a/src/peer_connection.cpp b/src/peer_connection.cpp
-index c37a5e9..ff34bda 100644
+index b849932..e0fc99f 100644
 --- a/src/peer_connection.cpp
 +++ b/src/peer_connection.cpp
-@@ -4812,4 +4812,10 @@ namespace libtorrent {
+@@ -4834,6 +4834,15 @@ namespace {
+ 			m_desired_queue_size = aux::clamp_assign<std::uint16_t>(desired_queue_size);
  		}
  
-+		if (m_desired_queue_size > 24)
++		// Streaming with several seeds: a deep queue on a rate-limited peer is
++		// a FIFO that holds blocks hostage when the peer leaves. Fast peers
++		// (their queue drains quickly) keep libtorrent's own sizing.
++		if (m_desired_queue_size > 24 && statistics().download_payload_rate() < 8 * 1024 * 1024)
 +		{
 +			auto const t = m_torrent.lock();
 +			if (t && t->is_sequential_download() && t->num_seeds() > 1)
@@ -13,11 +32,13 @@ index c37a5e9..ff34bda 100644
 +		}
  		if (m_desired_queue_size > m_max_out_request_queue)
  			m_desired_queue_size = m_max_out_request_queue;
+ 		if (m_desired_queue_size < min_request_queue)
 diff --git a/src/request_blocks.cpp b/src/request_blocks.cpp
-index 4aa78cf..e1d0c1e 100644
+index ab9d046..b961fb3 100644
 --- a/src/request_blocks.cpp
 +++ b/src/request_blocks.cpp
-@@ -167,4 +167,32 @@ namespace libtorrent {
+@@ -148,6 +148,34 @@ namespace libtorrent::aux {
+ 			bits = &fast_mask;
  		}
  
 +		// A later verified piece is evidence that sequential playback has a hole.
@@ -50,3 +71,4 @@ index 4aa78cf..e1d0c1e 100644
 +
  		// picks the interesting pieces from this peer
  		// the integer is the number of pieces that
+ 		// should be guaranteed to be available for download

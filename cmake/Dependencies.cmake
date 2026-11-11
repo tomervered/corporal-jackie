@@ -4,7 +4,7 @@
 #   cj::sqlite     SQLite 3
 #
 # Every platform gets them from its package manager (MSYS2 on Windows,
-# Homebrew on macOS, apt on Linux). Each lookup tries a CMake package first
+# Homebrew on macOS, apt on Linux), except libtorrent (patched, see below). Each lookup tries a CMake package first
 # and falls back to pkg-config.
 
 find_package(PkgConfig QUIET)
@@ -31,14 +31,30 @@ else()
 endif()
 
 # --- libtorrent-rasterbar ---------------------------------------------------
+# The app wants third_party/libtorrent/build.sh's build: libtorrent with one
+# patch that stops playback stalling when a seeder leaves (docs/ENGINE.md).
+# Put its prefix in CMAKE_PREFIX_PATH. Any other libtorrent 2.x still works,
+# without the patch, and the configure step says so.
+option(CJ_REQUIRE_PATCHED_LIBTORRENT "Fail unless libtorrent is the patched build from third_party/libtorrent" OFF)
 find_package(LibtorrentRasterbar 2.0 CONFIG QUIET)
 if(TARGET LibtorrentRasterbar::torrent-rasterbar)
     add_library(cj::libtorrent ALIAS LibtorrentRasterbar::torrent-rasterbar)
-elseif(PKG_CONFIG_FOUND)
+    get_filename_component(_cj_lt_prefix "${LibtorrentRasterbar_DIR}/../../.." ABSOLUTE)
+    file(GLOB _cj_lt_stamp "${_cj_lt_prefix}/share/corporal-jackie/libtorrent-[0-9]*")
+elseif(PKG_CONFIG_FOUND AND NOT CJ_REQUIRE_PATCHED_LIBTORRENT)
     pkg_check_modules(LIBTORRENT REQUIRED IMPORTED_TARGET libtorrent-rasterbar>=2.0)
     add_library(cj::libtorrent ALIAS PkgConfig::LIBTORRENT)
 else()
-    message(FATAL_ERROR "libtorrent-rasterbar 2.x not found.")
+    message(FATAL_ERROR "libtorrent-rasterbar 2.x not found. Build ours with "
+                        "third_party/libtorrent/build.sh <prefix> and add <prefix> to CMAKE_PREFIX_PATH.")
+endif()
+if(_cj_lt_stamp)
+    message(STATUS "libtorrent: patched build in ${_cj_lt_prefix}")
+elseif(CJ_REQUIRE_PATCHED_LIBTORRENT)
+    message(FATAL_ERROR "This libtorrent is not the patched build from third_party/libtorrent/build.sh.")
+else()
+    message(WARNING "libtorrent is not the patched build (third_party/libtorrent/build.sh): "
+                    "playback stalls longer when a seeder leaves.")
 endif()
 
 # --- SQLite -----------------------------------------------------------------
