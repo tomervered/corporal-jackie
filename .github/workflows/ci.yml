@@ -426,10 +426,12 @@ jobs:
       - name: Install dependencies
         timeout-minutes: 15
         run: |
-          # azure.archive.ubuntu.com timed out on every package (2026-11-11); use the main archive first.
-          echo 'http://archive.ubuntu.com/ubuntu/ priority:1' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Dpkg::Lock::Timeout=120 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config xvfb libgl1-mesa-dri \
+          # Plain HTTP to Ubuntu's mirrors timed out on every request on 2026-11-11
+          # (azure.archive.ubuntu.com and archive.ubuntu.com); HTTPS answered.
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/ priority:1' 'http://azure.archive.ubuntu.com/ubuntu/ priority:2' \
+            | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config xvfb libgl1-mesa-dri \
             qt6-base-dev qt6-declarative-dev qml6-module-qtquick qml6-module-qtquick-window qml6-module-qtqml-workerscript \
             qml6-module-qtquick-controls qml6-module-qtquick-templates qml6-module-qtquick-dialogs \
             qml6-module-qtquick-layouts qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-shapes \
@@ -474,10 +476,12 @@ jobs:
       - name: Install dependencies
         timeout-minutes: 15
         run: |
-          # azure.archive.ubuntu.com timed out on every package (2026-11-11); use the main archive first.
-          echo 'http://archive.ubuntu.com/ubuntu/ priority:1' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Dpkg::Lock::Timeout=120 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config \
+          # Plain HTTP to Ubuntu's mirrors timed out on every request on 2026-11-11
+          # (azure.archive.ubuntu.com and archive.ubuntu.com); HTTPS answered.
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/ priority:1' 'http://azure.archive.ubuntu.com/ubuntu/ priority:2' \
+            | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config \
             qt6-base-dev qt6-declarative-dev qml6-module-qtquick qml6-module-qtquick-window qml6-module-qtqml-workerscript \
             qml6-module-qtquick-controls qml6-module-qtquick-templates qml6-module-qtquick-dialogs \
             qml6-module-qtquick-layouts qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-shapes \
@@ -514,10 +518,12 @@ jobs:
       - name: Install dependencies
         timeout-minutes: 15
         run: |
-          # azure.archive.ubuntu.com timed out on every package (2026-11-11); use the main archive first.
-          echo 'http://archive.ubuntu.com/ubuntu/ priority:1' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Dpkg::Lock::Timeout=120 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config \
+          # Plain HTTP to Ubuntu's mirrors timed out on every request on 2026-11-11
+          # (azure.archive.ubuntu.com and archive.ubuntu.com); HTTPS answered.
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/ priority:1' 'http://azure.archive.ubuntu.com/ubuntu/ priority:2' \
+            | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config \
             qt6-base-dev qt6-declarative-dev libmpv-dev libboost-dev libssl-dev libsqlite3-dev
 
       - uses: ./.github/actions/libtorrent
@@ -548,10 +554,12 @@ jobs:
       - name: Install dependencies
         timeout-minutes: 15
         run: |
-          # azure.archive.ubuntu.com timed out on every package (2026-11-11); use the main archive first.
-          echo 'http://archive.ubuntu.com/ubuntu/ priority:1' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Dpkg::Lock::Timeout=120 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config clang libclang-rt-dev \
+          # Plain HTTP to Ubuntu's mirrors timed out on every request on 2026-11-11
+          # (azure.archive.ubuntu.com and archive.ubuntu.com); HTTPS answered.
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/ priority:1' 'http://azure.archive.ubuntu.com/ubuntu/ priority:2' \
+            | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config clang libclang-rt-dev \
             qt6-base-dev qt6-declarative-dev libmpv-dev libboost-dev libssl-dev libsqlite3-dev
 
       - uses: ./.github/actions/libtorrent
@@ -603,10 +611,12 @@ jobs:
       - name: Install dependencies
         timeout-minutes: 15
         run: |
-          # azure.archive.ubuntu.com timed out on every package (2026-11-11); use the main archive first.
-          echo 'http://archive.ubuntu.com/ubuntu/ priority:1' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Dpkg::Lock::Timeout=120 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config iproute2 qbittorrent-nox \
+          # Plain HTTP to Ubuntu's mirrors timed out on every request on 2026-11-11
+          # (azure.archive.ubuntu.com and archive.ubuntu.com); HTTPS answered.
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/ priority:1' 'http://azure.archive.ubuntu.com/ubuntu/ priority:2' \
+            | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config iproute2 qbittorrent-nox \
             qt6-base-dev qt6-declarative-dev libmpv-dev libtorrent-rasterbar-dev libboost-dev libssl-dev libsqlite3-dev
           npm install --prefix "$RUNNER_TEMP/contenders" --ignore-scripts --no-audit --no-fund \
             webtorrent@3.0.21 webtorrent1@npm:webtorrent@1.9.7 torrent-stream@1.2.1
