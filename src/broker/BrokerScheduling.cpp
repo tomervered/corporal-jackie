@@ -6,13 +6,8 @@
 namespace cj {
 namespace broker_detail {
 
-// Only the next few pieces of each reader get deadlines. libtorrent works on
-// every piece with a deadline at once, so with a long list the one the
-// player needs next finishes late, behind pieces it needs later (the
-// benchmark stalled 5 s that way). The rest of the read-ahead is wanted at
-// normal priority and, with sequential downloading, arrives in order; beyond
-// it, spare bandwidth fills a buffer at low priority. Never top priority:
-// libtorrent picks those first and in no set order, even in sequential mode.
+// Use one deadline when opening or seeking. Contiguous reads let the sequential
+// picker fill the buffer and repair gaps as later pieces complete.
 void Engine::schedule(Torrent& t, bool force)
 {
     if (t.removed || !t.hasMetadata || !t.handle.is_valid())
@@ -49,7 +44,6 @@ void Engine::schedule(Torrent& t, bool force)
         std::shared_ptr<Reader> r;
         qint64 pos;
         int first;
-        double bitrate;
         qint64 window;
         qint64 ahead;
     };
@@ -65,10 +59,12 @@ void Engine::schedule(Torrent& t, bool force)
         const qint64 ahead = std::min({qint64(bitrate * kBackgroundSeconds), kBackgroundMaxBytes, aheadCap()});
         const int first = t.pieceAt(pos);
         if (first != r->scheduledPiece) {
+            if (r->scheduledPiece < 0 || first != r->scheduledPiece + 1)
+                r->deadlinePiece = first;
             r->scheduledPiece = first;
             anyChange = true;
         }
-        plans.push_back({std::move(r), pos, first, bitrate, window, ahead});
+        plans.push_back({std::move(r), pos, first, window, ahead});
     }
     if (!anyChange)
         return;
@@ -98,15 +94,15 @@ void Engine::schedule(Torrent& t, bool force)
         const qint64 fileEnd = r.fileOffset + r.fileSize - 1;
         const int fileLast = t.pieceAt(fileEnd);
 
-        // Due when the player will reach them at the file's bitrate.
-        for (int p = first, n = 0; p <= fileLast && n < kUrgentPieces; ++p, ++n) {
-            if (!missing(p))
-                continue;
-            const int ms = int(double(qint64(p - first) * pieceLen) * 1000.0 / plan.bitrate);
-            auto it = deadlines.find(p);
-            if (it == deadlines.end() || ms < it->second)
-                deadlines[p] = ms;
-            want(p, lt::top_priority);
+        if (first == r.deadlinePiece && missing(first)) {
+            deadlines[first] = 0;
+            want(first, lt::top_priority);
+        }
+        // read() returns at a piece boundary. Pull in the next piece if
+        // this request already covers bytes on its far side.
+        if (r.nextReadPiece >= first && r.nextReadPiece <= fileLast && missing(r.nextReadPiece)) {
+            deadlines[r.nextReadPiece] = 0;
+            want(r.nextReadPiece, lt::top_priority);
         }
         const int last = t.pieceAt(qMin(plan.pos + plan.window, fileEnd));
         for (int p = first; p <= last; ++p)
