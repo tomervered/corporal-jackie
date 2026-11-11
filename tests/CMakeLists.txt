@@ -88,3 +88,10 @@ set_tests_properties(tst_bench PROPERTIES TIMEOUT 600 LABELS bench)
 # while a magnet plays (also run, unlabelled, inside tst_torrentstream).
 add_test(NAME bench_mpv COMMAND tst_torrentstream magnetPlaysToTheEnd)
 set_tests_properties(bench_mpv PROPERTIES TIMEOUT 300 LABELS bench)
+
+# A diagnostic, not a test: Boost.Asio's Windows timers (see ci.yml).
+if(WIN32)
+    add_executable(asio_timer_probe diag/asio_timer_probe.cpp)
+    target_link_libraries(asio_timer_probe PRIVATE cj::libtorrent)
+    target_compile_definitions(asio_timer_probe PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+endif()

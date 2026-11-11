@@ -1,0 +1,74 @@
+Subject: Keep sequential streaming from stalling when a seeder leaves
+
+Two changes for sequential downloads with more than one seed:
+
+1. A rate-limited peer's request queue never leaves slow start, so it grows
+   to the remote's advertised reqq (2000 blocks) and holds requests for
+   seconds. When that peer disconnects, its blocks are re-requested at the
+   back of the other peers' queues. Cap the desired queue at 24 blocks
+   (384 KiB) per peer below 8 MiB/s. Done where the target is computed,
+   because the handshake overrides max_out_request_queue.
+
+2. When a later piece within 8 has already verified, the first missing piece
+   is a hole in playback. Let peers with room in their queues add one backup
+   request for each block that has exactly one outstanding request.
+
+diff --git a/src/peer_connection.cpp b/src/peer_connection.cpp
+index b849932..e0fc99f 100644
+--- a/src/peer_connection.cpp
++++ b/src/peer_connection.cpp
+@@ -4834,6 +4834,15 @@ namespace {
+ 			m_desired_queue_size = aux::clamp_assign<std::uint16_t>(desired_queue_size);
+ 		}
+ 
++		// Streaming with several seeds: a deep queue on a rate-limited peer is
++		// a FIFO that holds blocks hostage when the peer leaves. Fast peers
++		// (their queue drains quickly) keep libtorrent's own sizing.
++		if (m_desired_queue_size > 24 && statistics().download_payload_rate() < 8 * 1024 * 1024)
++		{
++			auto const t = m_torrent.lock();
++			if (t && t->is_sequential_download() && t->num_seeds() > 1)
++				m_desired_queue_size = 24;
++		}
+ 		if (m_desired_queue_size > m_max_out_request_queue)
+ 			m_desired_queue_size = m_max_out_request_queue;
+ 		if (m_desired_queue_size < min_request_queue)
+diff --git a/src/request_blocks.cpp b/src/request_blocks.cpp
+index ab9d046..b961fb3 100644
+--- a/src/request_blocks.cpp
++++ b/src/request_blocks.cpp
+@@ -148,6 +148,34 @@ namespace libtorrent::aux {
+ 			bits = &fast_mask;
+ 		}
+ 
++		// A later verified piece is evidence that sequential playback has a hole.
++		// Use at most one backup copy per outstanding block in the first such piece.
++		if (t.is_sequential_download() && !c.on_parole() && !c.has_peer_choked())
++		{
++			auto front = p.cursor();
++			while (front < p.reverse_cursor() && p.have_piece(front)) ++front;
++			if (front < p.reverse_cursor() && (*bits)[front]
++				&& p.piece_priority(front) != dont_download)
++			{
++				bool passed_later = false;
++				for (auto i = next(front); i < p.reverse_cursor() && int(i) - int(front) <= 8; ++i)
++					if (p.have_piece(i)) { passed_later = true; break; }
++				if (passed_later)
++				{
++					for (int idx = 0; idx < p.blocks_in_piece(front) && num_requests > 0; ++idx)
++					{
++						piece_block const block(front, idx);
++						if (!p.is_requested(block) || p.num_peers(block) != 1) continue;
++						if (std::find_if(dq.begin(), dq.end(), aux::has_block(block)) != dq.end()) continue;
++						if (std::find_if(rq.begin(), rq.end(), aux::has_block(block)) != rq.end()) continue;
++						if (c.add_request(block, peer_connection::busy | peer_connection::time_critical))
++							--num_requests;
++					}
++					if (num_requests == 0) return true;
++				}
++			}
++		}
++
+ 		// picks the interesting pieces from this peer
+ 		// the integer is the number of pieces that
+ 		// should be guaranteed to be available for download

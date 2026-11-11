@@ -225,6 +225,18 @@ private slots:
         QVERIFY2(!r.isEmpty(), ram ? "RAM run failed" : "disk run failed");
         QCOMPARE(r[QStringLiteral("seeks")].toArray().size(), 20);
         report(mode, r);
+        // The app itself, not a competitor or an older build, must recover
+        // from a seeder leaving: without the patched libtorrent a stall of
+        // about 3 s shows up in one run of four. The limit is far above a
+        // healthy run's, so a slow runner does not trip it.
+        if (swarm && !qEnvironmentVariableIsSet("CJ_BENCH_EXTERNAL") && !qEnvironmentVariableIsSet("CJ_BENCH_PLAYER_PATH")) {
+            const qint64 limit = qEnvironmentVariable("CJ_BENCH_MAX_DEPARTURE_STALL_MS", QStringLiteral("2500")).toLongLong();
+            const qint64 longest = r[QStringLiteral("longestStallMs")].toInteger();
+            if (longest > limit)
+                print(QStringLiteral("A stall of %1 ms after a seeder left. The player's log:\n%2")
+                          .arg(longest).arg(QString::fromLocal8Bit(m_lastLog)));
+            QVERIFY2(longest <= limit, "playback stalled for seconds after a seeder left");
+        }
         // A stall of seconds is worth a look: show what the broker logged.
         if (r[QStringLiteral("longestStallMs")].toInteger() > 3000) {
             print(QStringLiteral("A stall over 3 s. The player's log:\n%1").arg(QString::fromLocal8Bit(m_lastLog)));
