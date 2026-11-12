@@ -98,6 +98,18 @@ jobs:
           export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
           timeout 180 build/tests/asio_timer_probe
 
+      # Starts and ends libtorrent sessions at random moments while every
+      # core is busy: the Windows crash was an access violation in Asio's
+      # timer thread after its io_context was gone. Three seeds; a crash
+      # shows as a non-zero exit code here.
+      - name: Probe libtorrent session teardown
+        continue-on-error: true
+        run: |
+          export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
+          for seed in 1 2 3; do
+            timeout 600 build/tests/session_churn_probe 400 4 "$seed" || { echo "session_churn_probe seed $seed exited with $?"; exit 1; }
+          done
+
       - name: Test
         env:
           QT_QPA_PLATFORM: offscreen
