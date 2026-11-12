@@ -98,13 +98,91 @@ private slots:
     {
         Run run(m_root->path());
         QVERIFY(run.core.storage().isOpen());
-        QCOMPARE(addonUrls(run.core.addons()), QStringList{QString::fromLatin1(StremioAdapter::kCinemetaUrl)});
+        // No add-ons: Cinemeta comes only with the first-run answer.
+        QVERIFY(run.core.addons().addons().isEmpty());
         QVERIFY(run.core.localFiles().folders().isEmpty());
         QVERIFY(run.core.session().hardwareDecoding());
         QCOMPARE(run.core.session().subtitleScale(), 1.0);
         QVERIFY(run.core.storage().setting(QString::fromLatin1(AppCore::kImportedOldSettings)).toBool());
-        // The default add-on is saved, so the next run does not seed again.
         QVERIFY(run.core.storage().addons().has_value());
+    }
+
+    // Until the person answers the first-run screen, nothing optional is on.
+    void nothingIsContactedBeforeTheAnswer()
+    {
+        Run run(m_root->path());
+        const Preferences& p = run.core.preferences();
+        QVERIFY(!p.privacyChosen());
+        QVERIFY(!p.useCinemeta() && !p.useDht() && !p.usePublicTrackers() && !p.usePortMapping());
+        const BrokerSettings s = run.core.brokerSettings();
+        QVERIFY(!s.dht && !s.localDiscovery && !s.portMapping && !s.publicTrackers);
+        QVERIFY(run.core.addons().addons().isEmpty());
+    }
+
+    void theAnswerAppliesAtOnceAndIsKept()
+    {
+        {
+            Run run(m_root->path());
+            Preferences& p = run.core.preferences();
+            QSignalSpy chosen(&p, &Preferences::privacyChanged);
+            p.choosePrivacy(true, true, false, true);
+            QCOMPARE(chosen.count(), 1);
+            QVERIFY(p.privacyChosen());
+            QCOMPARE(addonUrls(run.core.addons()), QStringList{QString::fromLatin1(StremioAdapter::kCinemetaUrl)});
+            const BrokerSettings s = run.core.brokerSettings();
+            QVERIFY(s.dht && s.localDiscovery && s.portMapping);
+            QVERIFY(!s.publicTrackers);
+            // Cinemeta goes when the switch goes off, and back when it is on again.
+            p.setUseCinemeta(false);
+            QVERIFY(run.core.addons().addons().isEmpty());
+            p.setUseCinemeta(true);
+            QCOMPARE(run.core.addons().addons().size(), 1);
+            p.setUseDht(false);
+            QVERIFY(!run.core.brokerSettings().dht && !run.core.brokerSettings().localDiscovery);
+            p.setUsePublicTrackers(true);
+        }
+        // Next run: the answers stand, and nothing asks again.
+        Run run(m_root->path());
+        const Preferences& p = run.core.preferences();
+        QVERIFY(p.privacyChosen());
+        QVERIFY(p.useCinemeta() && !p.useDht() && p.usePublicTrackers() && p.usePortMapping());
+        QCOMPARE(run.core.addons().addons().size(), 1);
+    }
+
+    void changingOtherChoicesLeavesTheAddonListAlone()
+    {
+        Run run(m_root->path());
+        Preferences& p = run.core.preferences();
+        p.choosePrivacy(true, false, false, false);
+        run.core.browser().removeAddon(QStringLiteral("com.linvo.cinemeta"));
+        QVERIFY(run.core.addons().addons().isEmpty());
+        // The person removed Cinemeta on the Add-ons page: no other switch brings it back.
+        p.setUseDht(true);
+        p.setUsePortMapping(true);
+        QVERIFY(run.core.addons().addons().isEmpty());
+    }
+
+    // An install from before the first-run screen keeps its other add-ons but
+    // loses Cinemeta until the person says yes.
+    void cinemetaWaitsForTheAnswerOnAnOlderInstall()
+    {
+        {
+            Run run(m_root->path());
+            run.core.preferences().choosePrivacy(true, false, false, false);
+            QCOMPARE(run.core.addons().addons().size(), 1);
+            // Back to how an old install looks: Cinemeta there, no answer.
+            run.core.storage().setSetting(QStringLiteral("privacy/chosen"), false);
+        }
+        {
+            Run run(m_root->path());
+            QVERIFY(!run.core.preferences().privacyChosen());
+            QVERIFY(run.core.addons().addons().isEmpty());
+            QVERIFY(run.core.storage().addons()->isEmpty());   // saved that way
+            run.core.preferences().choosePrivacy(false, false, false, false);
+        }
+        Run run(m_root->path());
+        QVERIFY(run.core.preferences().privacyChosen());
+        QVERIFY(run.core.addons().addons().isEmpty());
     }
 
     void playbackSettingsAreKept()
@@ -140,6 +218,8 @@ private slots:
         QTemporaryDir videos;
         {
             Run run(m_root->path());
+            run.core.preferences().choosePrivacy(true, false, false, false);
+            QCOMPARE(run.core.addons().addons().size(), 1);
             run.core.browser().removeAddon(QStringLiteral("com.linvo.cinemeta"));
             QVERIFY(run.core.addons().addons().isEmpty());
             QVERIFY(run.core.browser().addFolder(QUrl::fromLocalFile(videos.path())));
@@ -157,20 +237,24 @@ private slots:
         QByteArray exported;
         {
             Run run(m_root->path());
+            run.core.preferences().choosePrivacy(true, false, false, false);
             QVERIFY(run.core.browser().addFolder(QUrl::fromLocalFile(videos.path())));
             exported = run.core.storage().exportJson();
         }
         m_root = std::make_unique<QTemporaryDir>();
         Run run(m_root->path());
-        run.core.browser().removeAddon(QStringLiteral("com.linvo.cinemeta"));
         QVERIFY(run.core.addons().addons().isEmpty());
         QSignalSpy addons(&run.core.addons(), &StremioAdapter::addonsChanged);
         QSignalSpy folders(&run.core.localFiles(), &LocalLibrary::foldersChanged);
         QCOMPARE(run.core.storage().importJson(exported), QString());
         QVERIFY(addons.count() > 0);
         QVERIFY(folders.count() > 0);
-        QCOMPARE(addonUrls(run.core.addons()), QStringList{QString::fromLatin1(StremioAdapter::kCinemetaUrl)});
+        // The export came from an install that said yes to Cinemeta; this one
+        // has not answered, so Cinemeta stays out until it does.
+        QVERIFY(run.core.addons().addons().isEmpty());
         QCOMPARE(run.core.localFiles().folders().size(), 1);
+        run.core.preferences().choosePrivacy(true, false, false, false);
+        QCOMPARE(addonUrls(run.core.addons()), QStringList{QString::fromLatin1(StremioAdapter::kCinemetaUrl)});
     }
 
     void oldSettingsAreCopiedOnce()

@@ -20,7 +20,7 @@ Every adapter implements `SourceAdapter`: catalogs, items in a catalog, one item
 - `ytId` and `externalUrl` streams are skipped: nothing in v1 plays them.
 - Requests go only to add-ons whose manifest serves that resource, type and id prefix.
 
-`StremioAdapter` keeps the installed list in `addons.json` in the data folder, with each manifest, so catalogs show without network. Step 6 moves it into SQLite. A first run starts with Cinemeta (catalogs and details, no streams), from a built-in copy of its manifest that the next refresh replaces. Add-ons that say `configurationRequired` are refused with a message to set them up on their website first.
+`StremioAdapter` keeps the installed list in `addons.json` in the data folder, with each manifest, so catalogs show without network. Step 6 moves it into SQLite. A first run starts with no add-ons. Cinemeta (catalogs and details, no streams) is installed from a built-in copy of its manifest, which the next refresh replaces, only when the person allows it on the first-run screen or in Settings. Add-ons that say `configurationRequired` are refused with a message to set them up on their website first.
 
 Every request is bounded (`JsonFetcher`): 15 s timeout, 8 MB answer limit, JSON parsed on a pool thread. Each add-on remembers its last error, shown in the Add-ons tab. Streams arrive per add-on as each one answers, so a slow add-on shows as "Slow: timed out" without holding up the rest.
 

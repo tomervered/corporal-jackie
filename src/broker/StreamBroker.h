@@ -92,6 +92,13 @@ public:
     // The libtorrent listen port, for tests and the debug overlay.
     int listenPort() const;
 
+    // Changes, while running, what the engine reaches out to: DHT, LAN
+    // discovery, port mapping (the `dht`, `localDiscovery` and `portMapping`
+    // of the settings) and the app's open trackers (`publicTrackers`; turned
+    // off, they leave the torrents already open). Nothing else in `settings`
+    // changes.
+    void applyNetwork(const BrokerSettings& settings);
+
     // Deletes least recently used torrents until the cache is under its cap.
     // Torrents with an open handle are never deleted. Runs on its own after
     // open and close; public for tests.

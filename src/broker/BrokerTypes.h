@@ -23,6 +23,9 @@ struct BrokerSettings
     bool localDiscovery = true;              // find peers on the LAN
     bool portMapping = true;                 // UPnP and NAT-PMP
     bool utp = true;                         // accept peers calling over uTP (we call over TCP)
+    // The app's own list of open trackers (kPublicTrackers) is added to public
+    // torrents. A torrent's own trackers are always asked. Off: only those.
+    bool publicTrackers = true;
     int connectionsLimit = 200;
     int downloadLimit = 0;                   // bytes/s, 0 = unlimited
     int uploadLimit = 0;                     // bytes/s, 0 = unlimited

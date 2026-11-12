@@ -14,6 +14,7 @@ StreamBroker::StreamBroker(const BrokerSettings& settings)
 StreamBroker::~StreamBroker() { m_engine->shutdown(); }
 
 int StreamBroker::listenPort() const { return m_engine->listenPort(); }
+void StreamBroker::applyNetwork(const BrokerSettings& settings) { m_engine->applyNetwork(settings); }
 
 StreamStats StreamBroker::torrentStats(const QString& infoHash) const
 {

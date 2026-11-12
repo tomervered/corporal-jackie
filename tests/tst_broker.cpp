@@ -566,6 +566,66 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!openTracker.requests.isEmpty(), 10000);
     }
 
+    // The person can turn the app's open trackers off: a public torrent then
+    // meets only its own, now or on a later run from the cache.
+    void openTrackersStayAwayWhenTurnedOff()
+    {
+        QTemporaryDir dir;
+        FakeHttpServer openTracker;
+        openTracker.setTracker(1);
+        BrokerSettings s = trackerSettings(dir.filePath("cache"), openTracker);
+        s.publicTrackers = false;
+        const TestTorrent t = harness::makeTorrent(dir.filePath("seed"), "public.mkv", {2 * MiB}, kPiece, 3);
+        {
+            StreamBroker broker(s);
+            Seeder seeder(t, t.root);
+            auto h = openLater(broker, harness::magnet(t, {seeder.port()}));
+            QTRY_VERIFY_WITH_TIMEOUT(ready(h), 15000);
+            QVERIFY(h.get());
+            QTest::qWait(2500);
+            QVERIFY2(openTracker.requests.isEmpty(), qPrintable(openTracker.paths().join(' ')));
+        }
+        // Next run, from the cached metadata, and then on again while running.
+        StreamBroker broker(s);
+        QVERIFY(broker.open({harness::infoHash(t)}));
+        QTest::qWait(2500);
+        QVERIFY2(openTracker.requests.isEmpty(), qPrintable(openTracker.paths().join(' ')));
+        BrokerSettings on = s;
+        on.publicTrackers = true;
+        broker.applyNetwork(on);
+        QTRY_VERIFY_WITH_TIMEOUT(!openTracker.requests.isEmpty(), 10000);
+    }
+
+    // Turned off while running: they leave a torrent that has them, and a
+    // torrent opened later does not get them.
+    void openTrackersLeaveWhenTurnedOffWhileRunning()
+    {
+        QTemporaryDir dir;
+        FakeHttpServer openTracker;
+        openTracker.setTracker(1);
+        const BrokerSettings s = trackerSettings(dir.filePath("cache"), openTracker);
+        const TestTorrent t = harness::makeTorrent(dir.filePath("seed"), "public.mkv", {2 * MiB}, kPiece, 3);
+        const TestTorrent other = harness::makeTorrent(dir.filePath("seed2"), "other.mkv", {2 * MiB}, kPiece, 5);
+        StreamBroker broker(s);
+        Seeder seeder(t, t.root);
+        auto h = openLater(broker, harness::magnet(t, {seeder.port()}));
+        QTRY_VERIFY_WITH_TIMEOUT(ready(h), 15000);
+        auto handle = h.get();
+        QVERIFY(handle);
+        QTRY_VERIFY_WITH_TIMEOUT(!openTracker.requests.isEmpty(), 10000);
+
+        BrokerSettings off = s;
+        off.publicTrackers = false;
+        broker.applyNetwork(off);
+        openTracker.requests.clear();
+        Seeder otherSeeder(other, other.root);
+        auto h2 = openLater(broker, harness::magnet(other, {otherSeeder.port()}));
+        QTRY_VERIFY_WITH_TIMEOUT(ready(h2), 15000);
+        QVERIFY(h2.get());
+        QTest::qWait(2500);
+        QVERIFY2(openTracker.requests.isEmpty(), qPrintable(openTracker.paths().join(' ')));
+    }
+
     void privateTorrentNeverMeetsTheOpenTrackers()
     {
         QTemporaryDir dir;

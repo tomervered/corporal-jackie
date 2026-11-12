@@ -7,6 +7,7 @@
 #include "Logging.h"
 #include "MpvTarget.h"
 #include "MpvVideoItem.h"
+#include "Preferences.h"
 #include "Session.h"
 #include "Storage.h"
 #include "StremioAdapter.h"
@@ -139,8 +140,19 @@ int main(int argc, char* argv[])
     }
 #endif
 
-    if (const QStringList files = args.positionalArguments(); !files.isEmpty())
-        session.openPath(files.first());
+    if (const QStringList files = args.positionalArguments(); !files.isEmpty()) {
+        // A link or file named on the command line waits for the first-run
+        // answer: opening a torrent is a connection. (The smoke test does not wait.)
+        if (core.preferences().privacyChosen() || args.isSet(smokeTest)) {
+            session.openPath(files.first());
+        } else {
+            auto* once = new QObject(&core);
+            QObject::connect(&core.preferences(), &cj::Preferences::privacyChanged, once, [&session, once, first = files.first()] {
+                session.openPath(first);
+                once->deleteLater();
+            });
+        }
+    }
 
     if (args.isSet(smokeTest)) {
         // With a file, the smoke test also checks that it loads and plays.

@@ -139,6 +139,17 @@ void TorrentTransport::clearCache()
     qCInfo(lcTransports).noquote() << "Torrent cache cleared:" << m_settings.cacheDir;
 }
 
+void TorrentTransport::setNetwork(const BrokerSettings& s)
+{
+    std::lock_guard lock(m_brokerMutex);
+    m_settings.dht = s.dht;
+    m_settings.localDiscovery = s.localDiscovery;
+    m_settings.portMapping = s.portMapping;
+    m_settings.publicTrackers = s.publicTrackers;
+    if (m_broker)
+        m_broker->applyNetwork(m_settings);
+}
+
 StreamBroker& TorrentTransport::broker()
 {
     std::lock_guard lock(m_brokerMutex);

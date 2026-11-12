@@ -13,6 +13,7 @@
 #include "StremioAdapter.h"
 #include "TorrentTransport.h"
 
+#include <algorithm>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
@@ -66,6 +67,12 @@ BrokerSettings AppCore::brokerSettings() const
     s.cacheCapBytes = m_preferences->startDiskCacheBytes();
     s.memoryOnly = m_preferences->startInMemory();
     s.memoryCapBytes = m_preferences->startMemoryCapBytes();
+    // What the person allowed (nothing until they answer the first-run
+    // screen), as it is now: these apply while running.
+    s.dht = m_preferences->useDht();
+    s.localDiscovery = m_preferences->useDht();
+    s.portMapping = m_preferences->usePortMapping();
+    s.publicTrackers = m_preferences->usePublicTrackers();
     return s;
 }
 
@@ -106,6 +113,11 @@ void AppCore::start(PlaybackTarget* target, TorrentTransport& torrents, bool reg
     // A YouTube adapter would be added here with m_browser->addAdapter().
 
     m_library = std::make_unique<Library>(*m_storage, *session, *m_browser);
+    // The choices apply as they are made.
+    connect(m_preferences.get(), &Preferences::privacyChanged, this,
+            [this] { m_torrents->setNetwork(brokerSettings()); });
+    connect(m_preferences.get(), &Preferences::cinemetaChoiceChanged, this, [this](bool on) { syncCinemeta(on); });
+
     m_caches = std::make_unique<Caches>(*m_storage, torrents, QDir(m_cacheDir).filePath(QStringLiteral("images")));
 }
 
@@ -129,6 +141,26 @@ void AppCore::shutDown()
     // for peers must not hold that up.
     if (m_torrents)
         m_torrents->abort();
+}
+
+// Cinemeta (Stremio's server) is installed only when the person says yes on
+// the first-run screen: a fresh install starts with no add-ons, and an install
+// from before that screen (or an import from one) loses it until they answer.
+void AppCore::dropCinemetaUntilChosen()
+{
+    if (!m_preferences->privacyChosen())
+        m_addons->uninstall(QString::fromLatin1(StremioAdapter::kCinemetaId));
+}
+
+void AppCore::syncCinemeta(bool on)
+{
+    const QString id = QString::fromLatin1(StremioAdapter::kCinemetaId);
+    const auto& list = m_addons->addons();
+    const bool has = std::any_of(list.begin(), list.end(), [&](const InstalledAddon& a) { return a.manifest.id == id; });
+    if (on && !has)
+        m_addons->installDefaults();
+    else if (!on && has)
+        m_addons->uninstall(id);
 }
 
 // Hardware decoding and the subtitle look, kept between runs.
@@ -157,8 +189,7 @@ void AppCore::restoreSources()
     StremioAdapter* addons = m_addons.get();
     if (const auto stored = storage->addons())
         addons->restore(*stored);
-    else
-        addons->installDefaults();
+    dropCinemetaUntilChosen();
     storage->saveAddons(addons->storedList());
     connect(addons, &StremioAdapter::addonsChanged, storage, [storage, addons] { storage->saveAddons(addons->storedList()); });
 
@@ -168,7 +199,10 @@ void AppCore::restoreSources()
         local->restoreFolders(*stored);
     connect(local, &LocalLibrary::foldersChanged, storage, [storage, local] { storage->saveFolders(local->folders()); });
 
-    connect(storage, &Storage::addonsImported, addons, [storage, addons] { addons->restore(*storage->addons()); });
+    connect(storage, &Storage::addonsImported, addons, [this, storage, addons] {
+        addons->restore(*storage->addons());
+        dropCinemetaUntilChosen();
+    });
     connect(storage, &Storage::foldersImported, local, [storage, local] { local->restoreFolders(*storage->folders()); });
 }
 

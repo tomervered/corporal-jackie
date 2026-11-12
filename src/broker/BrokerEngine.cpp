@@ -14,6 +14,7 @@ Engine::Engine(const BrokerSettings& s)
         extraTrackers.push_back(tracker.toStdString());
     if (settings.extraTrackers.isEmpty() && !settings.loopbackOnly)
         extraTrackers.assign(std::begin(kPublicTrackers), std::end(kPublicTrackers));
+    publicTrackers = settings.publicTrackers;
 
     lt::settings_pack pack;
     pack.set_str(lt::settings_pack::user_agent, "CorporalJackie/0.1 libtorrent/" LIBTORRENT_VERSION);
@@ -151,6 +152,68 @@ std::shared_ptr<Torrent> Engine::find(const lt::torrent_handle& h)
     return it == m_torrents.end() ? nullptr : it->second;
 }
 
+// Adds the open trackers to a public torrent, or takes them off a private one
+// or when the user turned them off. t.mutex must be held and the metadata
+// known. Off removes every tracker in the built-in list, even one the link
+// also names: the choice is about the app's own trackers, and a link that
+// needs its tracker still has the DHT, its other trackers and peers.
+void Engine::syncOpenTrackers(Torrent& t)
+{
+    if (!t.info)
+        return;
+    if (t.info->priv() || !publicTrackers) {
+        lt::add_torrent_params own;
+        for (const lt::announce_entry& e : t.handle.trackers()) {
+            own.trackers.push_back(e.url);
+            own.tracker_tiers.push_back(e.tier);
+        }
+        const std::size_t before = own.trackers.size();
+        dropExtraTrackers(own);
+        if (own.trackers.size() != before) {
+            std::vector<lt::announce_entry> keep;
+            for (std::size_t i = 0; i < own.trackers.size(); ++i) {
+                lt::announce_entry e(own.trackers[i]);
+                e.tier = std::uint8_t(own.tracker_tiers[i]);
+                keep.push_back(e);
+            }
+            t.handle.replace_trackers(keep);
+            qCInfo(lcBroker).noquote() << QString::fromStdString(t.id)
+                                       << (t.info->priv() ? "is private: open trackers removed" : "open trackers removed");
+        }
+    } else {
+        for (const std::string& tracker : extraTrackers)
+            t.handle.add_tracker(lt::announce_entry(tracker));
+    }
+}
+
+void Engine::applyNetwork(const BrokerSettings& s)
+{
+    const bool trackersChanged = publicTrackers.exchange(s.publicTrackers) != s.publicTrackers;
+    if (!settings.loopbackOnly && m_session) {
+        lt::settings_pack pack;
+        pack.set_bool(lt::settings_pack::enable_dht, s.dht);
+        pack.set_bool(lt::settings_pack::enable_lsd, s.localDiscovery);
+        pack.set_bool(lt::settings_pack::enable_upnp, s.portMapping);
+        pack.set_bool(lt::settings_pack::enable_natpmp, s.portMapping);
+        m_session->apply_settings(std::move(pack));
+    }
+    qCInfo(lcBroker).noquote() << "Network choices: DHT" << s.dht << "LAN discovery" << s.localDiscovery
+                               << "port mapping" << s.portMapping << "open trackers" << s.publicTrackers;
+    if (!trackersChanged)
+        return;
+    std::vector<std::shared_ptr<Torrent>> torrents;
+    {
+        std::lock_guard lock(m_mutex);
+        for (auto& [id, t] : m_torrents)
+            torrents.push_back(t);
+    }
+    for (const auto& t : torrents) {
+        std::lock_guard lock(t->mutex);
+        if (t->hasMetadata)
+            syncOpenTrackers(*t);
+    }
+}
+
 void Engine::dropExtraTrackers(lt::add_torrent_params& atp) const
 {
     const auto isExtra = [this](const std::string& url) {
@@ -212,7 +275,7 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
     // back. So they are added only once the metadata says it is public:
     // here for a .torrent file, in onMetadata() for everything else (a
     // magnet link, cached metadata, resume data).
-    if (atp.ti && !atp.ti->priv()) {
+    if (atp.ti && !atp.ti->priv() && publicTrackers) {
         for (const std::string& tracker : extraTrackers)
             if (std::find(atp.trackers.begin(), atp.trackers.end(), tracker) == atp.trackers.end())
                 atp.trackers.push_back(tracker);
@@ -456,28 +519,7 @@ void Engine::onMetadata(Torrent& t)
     // stops its DHT and peer exchange for a private torrent by itself. The
     // private branch only cleans up after older versions: nothing adds them
     // before this point any more.
-    if (t.info->priv()) {
-        lt::add_torrent_params own;
-        for (const lt::announce_entry& e : t.handle.trackers()) {
-            own.trackers.push_back(e.url);
-            own.tracker_tiers.push_back(e.tier);
-        }
-        const std::size_t before = own.trackers.size();
-        dropExtraTrackers(own);
-        if (own.trackers.size() != before) {
-            std::vector<lt::announce_entry> keep;
-            for (std::size_t i = 0; i < own.trackers.size(); ++i) {
-                lt::announce_entry e(own.trackers[i]);
-                e.tier = std::uint8_t(own.tracker_tiers[i]);
-                keep.push_back(e);
-            }
-            t.handle.replace_trackers(keep);
-            qCInfo(lcBroker).noquote() << QString::fromStdString(t.id) << "is private: open trackers removed";
-        }
-    } else {
-        for (const std::string& tracker : extraTrackers)
-            t.handle.add_tracker(lt::announce_entry(tracker));
-    }
+    syncOpenTrackers(t);
 
     const QString saved = QDir(t.dir).filePath(QString::fromLatin1(kMetadataFile));
     if (!QFileInfo::exists(saved)) {
