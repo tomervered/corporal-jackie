@@ -2,6 +2,10 @@
 
 Corporal Jackie has no server and no account. It sends nothing to its authors: there is no telemetry, update check or crash upload (a crash leaves a note in the local log, nothing more). Everything below is traffic to services the user chose (add-ons, links, torrents) and files on the user's own disk.
 
+## Who is responsible, and where the data goes
+
+The author of Corporal Jackie runs no server and receives none of this traffic. The app's defaults and code decide which third parties are contacted, which is why the first-run screen exists: nothing optional is contacted before the person answers. Questions and requests: open an issue at https://github.com/tomervered/corporal-jackie/issues. Cinemeta, the trackers and the DHT nodes are run by others, under their own policies and in places this project has not checked, so the data may leave the user's country, and the European Economic Area, when the user allows these connections. Torrent peers are ordinary computers anywhere in the world.
+
 ## The first-run choices
 
 On first start, and on an install that predates the screen, a window asks about four optional connections before the app makes any of them. All four start off. "Continue with these choices" saves the switches as set; "Allow all" turns them all on. Settings (key P) has the same four switches, and each applies at once, with no restart:
@@ -11,7 +15,7 @@ On first start, and on an install that predates the screen, a window asks about 
 3. **The app's eight public trackers.** Off: they are not added to any torrent, and they are taken off torrents already open.
 4. **Router port mapping** (UPnP and NAT-PMP).
 
-What the screen does not offer: whether to upload while a torrent plays, and whether a torrent's own trackers and peers are used. Both are part of playing a torrent (see below). A link or file named on the command line, and anything dropped on the window, waits for the answer. With all four off, only the peers and trackers in a magnet link are used, so some torrents will not start.
+While a torrent engine is running, the app listens for incoming peer connections on a random port on every network interface. This happens whatever the four switches say (with port mapping off, only peers that can already reach the computer can connect). What the screen does not offer: whether to upload while a torrent plays, and whether a torrent's own trackers and peers are used. Both are part of playing a torrent (see below). A link or file named on the command line, and anything dropped on the window, waits for the answer. With all four off, only the peers and trackers in a magnet link are used, so some torrents will not start.
 
 The answers are stored in the local database (`privacy/*`). A missing answer counts as no.
 
@@ -44,7 +48,7 @@ The data folder is `QStandardPaths::AppDataLocation` and the cache folder `QStan
 |---|---|---|
 | Watch history: titles, add-on item ids, episode, position, the stream link and any headers the add-on gave it | `corporal-jackie.sqlite` in the data folder (plus `-wal` and `-shm` while running) | The newest 2000 entries are kept. Forget (Continue Watching) or Clear (Settings) removes them |
 | Library, add-on list with install links, local folders, settings | Same database | Removed by the user |
-| Logs: what played (file names, and servers as `https://host/…`, never paths, queries or logins), errors | `logs/corporal-jackie.log` in the data folder, and the previous run's `corporal-jackie.1.log` | Two runs; Clear history empties both |
+| Logs: what played (file names, the info hash of each torrent opened, and servers as `https://host/…`, never paths, queries or logins), errors | `logs/corporal-jackie.log` in the data folder, and the previous run's `corporal-jackie.1.log` | Two runs; Clear history empties both |
 | Poster images | `images/` in the cache folder | The size cap in Settings (100 MB to 1 GB); Clear in Settings |
 | Torrent pieces (disk mode) | `torrents/` in the cache folder, or the folder chosen in Settings | The cache cap (10 GB default), oldest torrent first; Clear in Settings |
 | Torrent pieces (RAM mode, default) | Memory only; each torrent's file list is written to the torrent cache | Closing the torrent |
