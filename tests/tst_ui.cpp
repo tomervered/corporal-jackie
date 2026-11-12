@@ -9,6 +9,7 @@
 #include "FakeHttpServer.h"
 #include "FakeTarget.h"
 #include "Library.h"
+#include "Preferences.h"
 #include "Session.h"
 #include "Storage.h"
 #include "TorrentTransport.h"
@@ -89,7 +90,6 @@ private slots:
 
         // Only the fake add-on: Cinemeta would go to the internet.
         Browser& browser = m_core->browser();
-        browser.removeAddon(QStringLiteral("com.linvo.cinemeta"));
         browser.installAddon(m_server.base() + QStringLiteral("/films/manifest.json"));
         QTRY_COMPARE(browser.addons().size(), 1);
 
@@ -112,6 +112,40 @@ private slots:
     }
 
     void cleanup() { noWarnings(); }
+
+    // The first run: a screen over everything, switches off, keys and clicks
+    // kept from the window below, until the person answers.
+    void firstRunAsksBeforeAnything()
+    {
+        QQuickItem* screen = m_window->findChild<QQuickItem*>(QStringLiteral("privacyScreen"));
+        QVERIFY(screen);
+        QVERIFY(screen->isVisible());
+        QVERIFY(!m_core->preferences().privacyChosen());
+        const QList<QQuickItem*> options = screen->findChildren<QQuickItem*>(QStringLiteral("privacyOption"));
+        QCOMPARE(options.size(), 4);
+        shot("privacy");
+
+        // Keys go nowhere: B would open the pages, P the settings.
+        QTest::keyClick(m_window, Qt::Key_P);
+        QVERIFY(!m_window->property("settingsVisible").toBool());
+
+        // Switch on the second one (DHT and local discovery) and continue.
+        QQuickItem* dht = options.at(1);
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, dht->mapToScene(QPointF(dht->width() - 30, dht->height() / 2)).toPoint());
+        QTRY_VERIFY(screen->property("dht").toBool());
+        QVERIFY(!screen->property("cinemeta").toBool());
+        QQuickItem* go = screen->findChild<QQuickItem*>(QStringLiteral("privacyContinue"));
+        QVERIFY(go);
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, go->mapToScene(QPointF(go->width() / 2, go->height() / 2)).toPoint());
+        QTRY_VERIFY(!screen->isVisible());
+        const Preferences& p = m_core->preferences();
+        QVERIFY(p.privacyChosen());
+        QVERIFY(p.useDht());
+        QVERIFY(!p.useCinemeta() && !p.usePublicTrackers() && !p.usePortMapping());
+        // Cinemeta stayed out; only the fake add-on is here.
+        QCOMPARE(m_core->browser().addons().size(), 1);
+        noWarnings();
+    }
 
     void homeShowsTheAddonsLists()
     {

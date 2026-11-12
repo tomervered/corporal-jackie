@@ -235,6 +235,34 @@ Rectangle {
             }
             Note { text: "While watching, G makes subtitles bigger and Shift+G smaller." }
 
+            // --- What may be contacted ------------------------------------------
+            Heading { text: "Privacy: what Corporal Jackie may contact" }
+            Note { text: "Each applies at once. Playing a torrent always shows your IP address and the torrent to its peers; a VPN hides the address. PRIVACY.md, next to the app, lists everything." }
+            Toggle {
+                title: "Browse and search with Cinemeta"
+                detail: "Stremio's catalog server sees your IP address and every title you search for or open. Off removes it from Add-ons."
+                checked: preferences.useCinemeta
+                onToggled: on => preferences.useCinemeta = on
+            }
+            Toggle {
+                title: "Find peers through the DHT and your local network"
+                detail: "Tells unrelated computers the torrent you open and your IP address."
+                checked: preferences.useDht
+                onToggled: on => preferences.useDht = on
+            }
+            Toggle {
+                title: "Ask eight public trackers for peers"
+                detail: "They learn your IP address and the torrent you open. A magnet link's own trackers are used either way."
+                checked: preferences.usePublicTrackers
+                onToggled: on => preferences.usePublicTrackers = on
+            }
+            Toggle {
+                title: "Let your router open a port (UPnP, NAT-PMP)"
+                detail: "Lets more peers connect to you."
+                checked: preferences.usePortMapping
+                onToggled: on => preferences.usePortMapping = on
+            }
+
             // --- Torrents --------------------------------------------------------
             Heading { text: "Torrent storage" }
             Toggle {

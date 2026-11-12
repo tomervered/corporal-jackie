@@ -305,8 +305,14 @@ public:
     // answer is wrong for pieces dropped from memory. t.mutex must be held.
     bool holds(Torrent& t, int piece);
 
+    // Applies the choices that can change while running: DHT, LAN discovery,
+    // port mapping, and the open trackers (added to or taken off the torrents
+    // already here). The rest of `settings` is fixed at start.
+    void applyNetwork(const BrokerSettings& s);
+
     BrokerSettings settings;
     std::vector<std::string> extraTrackers;  // for public torrents only
+    std::atomic<bool> publicTrackers{true};  // may extraTrackers be used?
     std::atomic<bool> closing{false};
 
 private:
@@ -316,6 +322,7 @@ private:
     void onMetadata(Torrent& t);  // t.mutex must be held
     void pauseIfIdle(Torrent& t);
     void dropExtraTrackers(lt::add_torrent_params& atp) const;
+    void syncOpenTrackers(Torrent& t);  // t.mutex must be held
     void reopen(Torrent& t, lt::add_torrent_params& atp, int fileIndex);
     void loadSaved(const Torrent& t, lt::add_torrent_params& atp) const;
     void onReadPiece(Torrent& t, const lt::read_piece_alert& rp);  // t.mutex must be held

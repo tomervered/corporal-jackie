@@ -12,6 +12,11 @@ const QString kInMemory = QStringLiteral("torrents/inMemory");
 const QString kMemoryCap = QStringLiteral("torrents/memoryCapMB");
 const QString kDiskCap = QStringLiteral("torrents/diskCacheGB");
 const QString kFolder = QStringLiteral("torrents/cacheFolder");
+const QString kPrivacyChosen = QStringLiteral("privacy/chosen");
+const QString kCinemeta = QStringLiteral("privacy/cinemeta");
+const QString kDht = QStringLiteral("privacy/dht");
+const QString kTrackers = QStringLiteral("privacy/publicTrackers");
+const QString kPortMapping = QStringLiteral("privacy/portMapping");
 } // namespace
 
 Preferences::Preferences(Storage& storage, const QString& defaultCacheFolder, QObject* parent)
@@ -28,6 +33,12 @@ Preferences::Preferences(Storage& storage, const QString& defaultCacheFolder, QO
         qCWarning(lcApp).noquote() << "Torrent cache folder" << m_cacheFolder << "is not usable; using the default";
         m_cacheFolder.clear();
     }
+    m_privacyChosen = value(kPrivacyChosen, false).toBool();
+    // Off unless the person said yes: a missing answer is a no.
+    m_cinemeta = m_privacyChosen && value(kCinemeta, false).toBool();
+    m_dht = m_privacyChosen && value(kDht, false).toBool();
+    m_publicTrackers = m_privacyChosen && value(kTrackers, false).toBool();
+    m_portMapping = m_privacyChosen && value(kPortMapping, false).toBool();
     m_started = {m_inMemory, m_memoryCapMB, m_diskCacheGB, effectiveFolder()};
 }
 
@@ -65,6 +76,66 @@ void Preferences::setDiskCacheGB(int gb)
         return;
     m_diskCacheGB = gb;
     save();
+}
+
+void Preferences::setUseCinemeta(bool on)
+{
+    if (on == m_cinemeta)
+        return;
+    m_cinemeta = on;
+    savePrivacy(!on);
+}
+
+void Preferences::setUseDht(bool on)
+{
+    if (on == m_dht)
+        return;
+    m_dht = on;
+    savePrivacy(m_cinemeta);
+}
+
+void Preferences::setUsePublicTrackers(bool on)
+{
+    if (on == m_publicTrackers)
+        return;
+    m_publicTrackers = on;
+    savePrivacy(m_cinemeta);
+}
+
+void Preferences::setUsePortMapping(bool on)
+{
+    if (on == m_portMapping)
+        return;
+    m_portMapping = on;
+    savePrivacy(m_cinemeta);
+}
+
+void Preferences::choosePrivacy(bool cinemeta, bool dht, bool publicTrackers, bool portMapping)
+{
+    const bool cinemetaBefore = m_cinemeta;
+    m_cinemeta = cinemeta;
+    m_dht = dht;
+    m_publicTrackers = publicTrackers;
+    m_portMapping = portMapping;
+    m_privacyChosen = true;
+    savePrivacy(cinemetaBefore);
+}
+
+// Saves the four answers and tells the app, which acts on them.
+void Preferences::savePrivacy(bool cinemetaBefore)
+{
+    // Choosing from Settings is choosing: the first-run screen is not needed after.
+    m_privacyChosen = true;
+    m_storage.setSetting(kPrivacyChosen, true);
+    m_storage.setSetting(kCinemeta, m_cinemeta);
+    m_storage.setSetting(kDht, m_dht);
+    m_storage.setSetting(kTrackers, m_publicTrackers);
+    m_storage.setSetting(kPortMapping, m_portMapping);
+    qCInfo(lcApp).noquote() << "Network choices: Cinemeta" << m_cinemeta << "DHT and LAN discovery" << m_dht
+                            << "open trackers" << m_publicTrackers << "port mapping" << m_portMapping;
+    emit privacyChanged();
+    if (cinemetaBefore != m_cinemeta)
+        emit cinemetaChoiceChanged(m_cinemeta);
 }
 
 void Preferences::setCacheFolder(const QUrl& folder)
