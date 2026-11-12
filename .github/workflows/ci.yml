@@ -115,6 +115,22 @@ jobs:
         if: failure()
         run: for f in build/tests/*.log; do echo "== $f"; tail -n 400 "$f"; done
 
+      # Temporary: how often does the broker test fail on this runner?
+      - name: Repeat the broker test
+        if: always()
+        continue-on-error: true
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
+          export TMP="$(cygpath -w "$RUNNER_TEMP")" TEMP="$(cygpath -w "$RUNNER_TEMP")"
+          pass=0
+          for i in 1 2 3 4; do
+            if timeout 400 build/tests/tst_broker.exe > "run$i.txt" 2>&1; then pass=$((pass+1)); echo "run $i ok"
+            else echo "run $i FAILED"; grep -E "FAIL!|Totals" "run$i.txt" | head -8; fi
+          done
+          echo "default build: broker test passed $pass of 4"
+
       # A crash inside libtorrent shows only "SegFault"; run the broker test
       # under gdb for a stack trace.
       - name: Crash trace
@@ -682,3 +698,68 @@ jobs:
         with:
           name: benchmark-results
           path: ${{ runner.temp }}/bench.jsonl
+
+  # Temporary experiment: the same Windows build with Boost.Asio's IOCP
+  # backend off (no timer thread), to see whether the intermittent timer
+  # thread crash and the "no metadata" failures go away.
+  windows-no-iocp:
+    name: Windows experiment (Asio without IOCP)
+    runs-on: windows-2022
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          release: false
+          update: true
+          install: git make diffutils
+          pacboy: >-
+            toolchain:p cmake:p ninja:p pkgconf:p meson:p nasm:p
+            qt6-base:p qt6-declarative:p qt6-tools:p
+            boost:p openssl:p sqlite3:p mesa:p
+            dav1d:p libass:p lcms2:p uchardet:p zimg:p libdovi:p libiconv:p
+      - name: Restore the mpv build
+        uses: actions/cache/restore@v4
+        with:
+          path: .deps
+          key: mpv-${{ runner.os }}-${{ hashFiles('packaging/windows/build-mpv.sh') }}
+      - name: Build FFmpeg, libplacebo and mpv (playback only)
+        timeout-minutes: 40
+        run: packaging/windows/build-mpv.sh "$(cygpath -u "$GITHUB_WORKSPACE")/.deps"
+      - name: Build libtorrent without IOCP
+        env:
+          CJ_LT_CXXFLAGS: -DBOOST_ASIO_DISABLE_IOCP -DFD_SETSIZE=1024
+        run: third_party/libtorrent/build.sh "$(cygpath -u "$GITHUB_WORKSPACE")/.deps-torrent-noiocp"
+      - name: Configure
+        run: |
+          DEPS="$(cygpath -u "$GITHUB_WORKSPACE")/.deps"
+          export PATH="$DEPS/bin:$PATH" PKG_CONFIG_PATH="$DEPS/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-DBOOST_ASIO_DISABLE_IOCP -DFD_SETSIZE=1024" -DCMAKE_PREFIX_PATH="$(cygpath -m "$DEPS");$(cygpath -m "$GITHUB_WORKSPACE/.deps-torrent-noiocp")" -DCJ_REQUIRE_PATCHED_LIBTORRENT=ON
+      - name: Build
+        run: cmake --build build --target tst_broker tst_torrentstream
+      - name: Repeat the broker test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
+          export TMP="$(cygpath -w "$RUNNER_TEMP")" TEMP="$(cygpath -w "$RUNNER_TEMP")"
+          pass=0
+          for i in 1 2 3 4; do
+            if timeout 400 build/tests/tst_broker.exe > "run$i.txt" 2>&1; then pass=$((pass+1)); echo "run $i ok"
+            else echo "run $i FAILED"; grep -E "FAIL!|Totals" "run$i.txt" | head -8; fi
+          done
+          echo "no-IOCP build: broker test passed $pass of 4"
+      - name: Torrent stream test
+        if: always()
+        continue-on-error: true
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QTEST_FUNCTION_TIMEOUT: "150000"
+        run: |
+          export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
+          export TMP="$(cygpath -w "$RUNNER_TEMP")" TEMP="$(cygpath -w "$RUNNER_TEMP")"
+          timeout 400 build/tests/tst_torrentstream.exe 2>&1 | grep -E "FAIL!|Totals"
