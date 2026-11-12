@@ -28,6 +28,11 @@ include(Dependencies)   # libmpv, libtorrent-rasterbar, SQLite
 
 set(CMAKE_AUTOMOC ON)
 
+# Same Asio settings as the libtorrent build (third_party/libtorrent/build.sh).
+if(WIN32)
+    add_compile_definitions(BOOST_ASIO_DISABLE_IOCP FD_SETSIZE=1024)
+endif()
+
 # Our own code only: the dependencies are found as installed packages, and
 # Qt's headers are system headers, so their warnings do not show.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
