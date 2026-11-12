@@ -15,7 +15,7 @@ target_link_libraries(tst_session PRIVATE cj_session)
 
 # The real mpv target, headless, on a bundled clip.
 cj_add_test(tst_mpvtarget FakeHttpServer.h)
-target_link_libraries(tst_mpvtarget PRIVATE cj_targets Qt6::Network)
+target_link_libraries(tst_mpvtarget PRIVATE cj_targets cj::mpv Qt6::Network)
 target_compile_definitions(tst_mpvtarget PRIVATE CJ_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
 
 # The torrent stream broker against a local swarm.
