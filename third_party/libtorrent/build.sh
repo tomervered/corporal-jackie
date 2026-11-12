@@ -53,7 +53,6 @@ rm -rf "$PREFIX/include/libtorrent" "$PREFIX"/lib/libtorrent-rasterbar* "$PREFIX
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="$CMAKE_PREFIX" -DCMAKE_INSTALL_LIBDIR=lib \
     -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    ${CJ_LT_CXXFLAGS:+-DCMAKE_CXX_FLAGS="$CJ_LT_CXXFLAGS"} \
     -Dwebtorrent=OFF \
     -Dbuild_tests=OFF -Dbuild_examples=OFF -Dbuild_tools=OFF -Dpython-bindings=OFF \
     "${EXTRA[@]}"
