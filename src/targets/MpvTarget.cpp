@@ -142,6 +142,11 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
     setOption(m_mpv, "input-default-bindings", "no");
     setOption(m_mpv, "osc", "no");
     setOption(m_mpv, "config", "no");          // ignore any mpv.conf on the user's machine
+    // Links come from add-ons and pasted text. Distro builds of libmpv (Homebrew,
+    // apt) include Lua: its ytdl hook would hand a link to a yt-dlp found on the
+    // PATH, and a script from the user's folders would run inside the player.
+    setOption(m_mpv, "ytdl", "no");
+    setOption(m_mpv, "load-scripts", "no");
     setOption(m_mpv, "screenshot-format", "png");
     // Read ahead for every source, not only for what mpv sees as network
     // streams (torrent:// is not one): a torrent that slows down for a few

@@ -18,6 +18,8 @@ COMMIT="${GITHUB_SHA:-$(git -C "$ROOT" rev-parse HEAD)}"
 
 rm -rf "$LIC" && mkdir -p "$LIC"
 cp "$ROOT/packaging/THIRD_PARTY_NOTICES.txt" "$DIST/THIRD_PARTY_NOTICES.txt"
+# What the app sends and keeps, for the person who installs it.
+cp "$ROOT/docs/PRIVACY.md" "$DIST/PRIVACY.md"
 
 # Which Homebrew formula each bundled dylib or framework came from:
 # Cellar/<formula>/<version>/lib/<name>.
