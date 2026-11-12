@@ -22,6 +22,8 @@ COMMIT="${GITHUB_SHA:-$(git -C "$ROOT" rev-parse HEAD)}"
 
 rm -rf "$LIC" && mkdir -p "$LIC"
 cp "$ROOT/packaging/THIRD_PARTY_NOTICES.txt" "$DIST/THIRD_PARTY_NOTICES.txt"
+# What the app sends and keeps, for the person who installs it.
+cp "$ROOT/docs/PRIVACY.md" "$DIST/PRIVACY.md"
 
 # --- Libraries we build: license files from their sources at the same tags.
 version() { sed -n "s/^$1=//p" "$HERE/build-mpv.sh"; }

@@ -8,6 +8,7 @@
 #include "Session.h"
 
 #include <QSignalSpy>
+#include <mpv/client.h>
 #include <QtTest>
 #include <clocale>
 
@@ -29,6 +30,18 @@ class TestMpvTarget : public QObject
 
 private slots:
     void initTestCase() { std::setlocale(LC_NUMERIC, "C"); }
+
+    // Links come from add-ons: mpv must not run yt-dlp or Lua scripts for them.
+    void playerRunsNoScriptsAndNoYtdl()
+    {
+        MpvTarget target(MpvTarget::Mode::Headless);
+        for (const char* name : {"ytdl", "load-scripts"}) {
+            char* value = mpv_get_property_string(target.handle(), name);
+            QVERIFY2(value, name);
+            QCOMPARE(QString::fromUtf8(value), QStringLiteral("no"));
+            mpv_free(value);
+        }
+    }
 
     void loadsAndReportsDuration()
     {

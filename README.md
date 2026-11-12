@@ -8,6 +8,8 @@ Built with C++20, Qt 6/QML, libmpv, libtorrent-rasterbar and SQLite. Windows and
 
 When nothing plays, the window shows Home: Continue Watching, then a row for each list of your add-ons and folders. The side bar has Discover (one list at a time, by type and genre), Library, Add-ons (install, order, remove) and Your folders; the search box on Home searches every add-on at once. Pick an item, then an episode, then one of the ways to play it, best first. Press B while watching to open the same pages over the video. Everything works by keyboard: Tab moves between controls and rows, arrow keys move inside them, Enter opens and Escape goes back. Cinemeta comes installed and gives lists and details, but streams need a stream add-on. Subtitle files next to a video load with it. How it works: [src/sources/README.md](src/sources/README.md).
 
+What the app sends and keeps is listed in [docs/PRIVACY.md](docs/PRIVACY.md), which also ships in the Windows and macOS packages.
+
 Corporal Jackie comes with no streams of its own. Use it only for videos you have the right to watch and share. While a torrent plays, the app also uploads it to other peers, and they can see your IP address.
 
 To play a torrent, press U (or "Open a link…") and paste a magnet link, press Ctrl+V with one copied, drop it on the window, or pass it on the command line. While it loads, the window says what it is doing: looking for peers, getting the file list, buffering with a percentage, or waiting for peers when the swarm goes quiet.
