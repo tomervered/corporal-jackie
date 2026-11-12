@@ -4,13 +4,17 @@ This holds only the files that changed since the previous build, so it is
 much smaller than the full download.
 
 1. Close Corporal Jackie.
-2. Unzip this into your Corporal Jackie folder (the one with
-   CorporalJackie.exe and build.txt), replacing files if asked.
-3. Double-click apply-update.cmd.
+2. Leave this zip where it downloaded (or anywhere) and do not unzip it.
+3. In your Corporal Jackie folder, drag the zip onto
+   "Update Corporal Jackie.cmd". Or double-click that file: it uses the
+   newest CorporalJackie-windows-x64-update zip in your Downloads folder.
 
-It checks that your folder has the build this update starts from. If you
-skipped a build, or your folder has no build.txt yet, it changes nothing:
-download the full build instead (CorporalJackie-windows-x64).
+The updater that comes with your copy checks the update before it changes
+anything: the signature, that it is newer than your build, that every file
+is undamaged, and that your folder has the build it starts from. If a check
+fails, nothing changes; download the full build (CorporalJackie-windows-x64)
+instead. If the update stops half way (a crash, a power cut), running it
+again puts the previous version back first.
 
-When it is done it checks every file against the new build's list and
-removes itself, this file included.
+Copies older than this updater have no "Update Corporal Jackie.cmd": they
+need the full build once.

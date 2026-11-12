@@ -10,7 +10,7 @@ Column {
     PageTitle { text: "Add-ons" }
     Muted {
         width: parent.width
-        text: "Add-ons give the lists, details and streams. Paste an add-on's install link (it ends in manifest.json). Cinemeta comes installed: it has lists and details, not streams. Add-ons higher up are asked first, and their lists come first on Home."
+        text: "Add-ons give the lists, details and streams. Paste an add-on's install link (it ends in manifest.json). Cinemeta, if you allowed it on the first-run screen or in Settings, has lists and details, not streams. Add-ons higher up are asked first, and their lists come first on Home."
     }
     Row {
         width: parent.width

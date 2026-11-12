@@ -14,6 +14,7 @@ StreamBroker::StreamBroker(const BrokerSettings& settings)
 StreamBroker::~StreamBroker() { m_engine->shutdown(); }
 
 int StreamBroker::listenPort() const { return m_engine->listenPort(); }
+void StreamBroker::applyNetwork(const BrokerSettings& settings) { m_engine->applyNetwork(settings); }
 
 StreamStats StreamBroker::torrentStats(const QString& infoHash) const
 {
@@ -330,8 +331,14 @@ qint64 StreamHandle::read(qint64 offset, char* buffer, qint64 length)
     const qint64 inPiece = absolute - qint64(piece) * t.pieceLength();
     const qint64 count = std::min({length, r.fileSize - offset, qint64(t.info->piece_size(lt::piece_index_t(piece))) - inPiece});
 
+    // Keep a deadline through the continuation of a read split across two pieces.
+    const int previousNext = r.nextReadPiece;
+    if (count < qMin(length, r.fileSize - offset))
+        r.nextReadPiece = piece + 1;
+    else if (offset != r.position.load() || piece != previousNext)
+        r.nextReadPiece = -1;
     r.position = offset;
-    m_engine->schedule(t, false);
+    m_engine->schedule(t, previousNext != r.nextReadPiece);
 
     auto stopped = [&] { return r.cancelled || r.closed || t.removed || m_engine->closing.load(); };
     // How long each step took, for the log.
@@ -369,6 +376,24 @@ qint64 StreamHandle::read(qint64 offset, char* buffer, qint64 length)
 }
 
 StreamStats StreamHandle::stats() const { return m_engine->stats(*m_torrent, *m_reader); }
+
+BrokerCounters StreamHandle::counters() const
+{
+    const lt::torrent_handle h = m_torrent->currentHandle();
+    BrokerCounters c;
+    {
+        std::lock_guard lock(m_torrent->mutex);
+        c = m_torrent->counters;
+    }
+    try {
+        // Plus what the current handle has received so far.
+        const lt::torrent_status st = h.status({});
+        c.wireBytes += st.total_payload_download;
+        c.wastedBytes += st.total_redundant_bytes + st.total_failed_bytes;
+    } catch (const std::exception&) {
+    }
+    return c;
+}
 
 PieceState StreamHandle::stateAt(qint64 offset) const
 {

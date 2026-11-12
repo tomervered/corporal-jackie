@@ -78,6 +78,8 @@ private:
     void importOldSettings();
     void restorePlaybackSettings();
     void restoreSources();
+    void dropCinemetaUntilChosen();
+    void syncCinemeta(bool on);
 
     QString m_dataDir;
     QString m_cacheDir;

@@ -245,6 +245,13 @@ private slots:
         QVERIFY(timer.elapsed() < 10000);
         // And reading on from there still works.
         QVERIFY(readRange(*h, 21 * MiB, 4 * MiB) == t.data[0].mid(int(21 * MiB), int(4 * MiB)));
+
+        // The reload made libtorrent report the pieces it kept as finished
+        // again. They were not downloaded again, and the count must not say so.
+        const BrokerCounters c = h->counters();
+        QVERIFY(c.reloads >= 1);
+        qInfo("Reloads %d, counted %lld MiB, received %lld MiB", c.reloads, c.fetchedBytes / MiB, c.wireBytes / MiB);
+        QVERIFY(c.fetchedBytes <= c.wireBytes + 2 * MiB);
     }
 
     void twoReadersAtOnce()
@@ -287,12 +294,49 @@ private slots:
         const qint64 other2 = StreamBroker::diskUsage(content + "/file2.bin");
         qInfo("Other files on disk: %lld and %lld bytes", other0, other2);
         // Files are piece-aligned here, so nothing of the others is needed.
-        QVERIFY(other0 < kPiece);
-        QVERIFY(other2 < kPiece);
+        // A magnet downloads at default priority between the metadata arriving
+        // and the file priorities being applied, so a few blocks of the first
+        // pieces may slip in (344064 bytes once under ASan); 8 MiB would be a bug.
+        QVERIFY(other0 < 2 * kPiece);
+        QVERIFY(other2 < 2 * kPiece);
         // Nor are they created: libtorrent sizes every file it may write,
         // and macOS then allocated all of an unread one.
         QVERIFY(!QFileInfo::exists(content + "/file0.bin"));
         QVERIFY(!QFileInfo::exists(content + "/file2.bin"));
+    }
+
+    // Opening a file turns it on in libtorrent, which then gives every piece
+    // of it the file's priority. That wiped the piece priorities sent a
+    // moment earlier, and the whole file downloaded at full speed whatever
+    // the read-ahead said.
+    void readAheadLimitHoldsOnceTheFileIsOpen()
+    {
+        QTemporaryDir dir;
+        const TestTorrent t = harness::makeTorrent(dir.filePath("seed"), "movie.mkv", {48 * MiB}, kPiece, 6);
+        Seeder seeder(t, t.root);  // no limit: the file is here in a second or two
+        BrokerSettings settings = testSettings(dir.filePath("cache"));
+        settings.cacheCapBytes = 16 * MiB;  // read-ahead and background fill: half of it
+        StreamBroker broker(settings);
+        auto h = broker.open({harness::magnet(t, {seeder.port()})});
+        QVERIFY(h);
+        QByteArray chunk(64 * 1024, Qt::Uninitialized);
+        QVERIFY(h->read(0, chunk.data(), chunk.size()) > 0);
+
+        // Wait until nothing more arrives for a second.
+        qint64 received = -1;
+        int still = 0;
+        QElapsedTimer timer;
+        timer.start();
+        while (still < 5 && timer.elapsed() < 20000) {
+            QTest::qWait(200);
+            const qint64 now = h->counters().wireBytes;
+            still = now == received ? still + 1 : 0;
+            received = now;
+        }
+        QVERIFY2(still >= 5, "the download never settled");
+        qInfo("Received %lld MiB of 48 MiB", received / MiB);
+        // The start, the end and 8 MiB ahead: about 16 MiB. Not the file.
+        QVERIFY(received < 32 * MiB);
     }
 
     void largestFileIsTheDefault()
@@ -386,6 +430,40 @@ private slots:
         auto h = broker.open({harness::magnet(t, {a.port(), b.port()})});
         QVERIFY(h);
         QVERIFY(readRange(*h, 0, h->size()) == t.data[0]);
+    }
+
+    // The torrent engine's patch for streaming (docs/ENGINE.md) must never
+    // lose or reorder data when a seeder disconnects in the middle of a read.
+    void readsThroughWhenASeederLeaves()
+    {
+        QTemporaryDir dir;
+        const TestTorrent t = harness::makeTorrent(dir.filePath("seed"), "movie.mkv", {24 * MiB}, kPiece, 9);
+        std::vector<std::unique_ptr<Seeder>> seeders;
+        std::vector<int> ports;
+        for (int i = 0; i < 3; ++i) {
+            seeders.push_back(std::make_unique<Seeder>(t, t.root, 3 * MiB));
+            ports.push_back(seeders.back()->port());
+        }
+        StreamBroker broker(testSettings(dir.filePath("cache")));
+        auto h = broker.open({harness::magnet(t, ports)});
+        QVERIFY(h);
+
+        QByteArray data;
+        qint64 longest = 0;
+        QElapsedTimer step;
+        while (data.size() < h->size()) {
+            step.start();
+            const QByteArray chunk = readRange(*h, data.size(), qMin<qint64>(256 * 1024, h->size() - data.size()));
+            QVERIFY(!chunk.isEmpty());
+            longest = qMax(longest, step.elapsed());
+            data += chunk;
+            if (data.size() >= 6 * MiB && seeders.front())
+                seeders.front().reset();
+        }
+        QVERIFY(data == t.data[0]);
+        qInfo("Longest wait for 256 KiB: %lld ms", longest);
+        // Far above a healthy run; a hung or starved request would exceed it.
+        QVERIFY2(longest < 10000, "a read waited seconds after a seeder left");
     }
 
     void cacheStaysUnderItsCap()
@@ -486,6 +564,69 @@ private slots:
         StreamBroker broker(s);
         QVERIFY(broker.open({harness::infoHash(t)}));
         QTRY_VERIFY_WITH_TIMEOUT(!openTracker.requests.isEmpty(), 10000);
+    }
+
+    // The person can turn the app's open trackers off: a public torrent then
+    // meets only its own, now or on a later run from the cache.
+    void openTrackersStayAwayWhenTurnedOff()
+    {
+        QTemporaryDir dir;
+        FakeHttpServer openTracker;
+        openTracker.setTracker(1);
+        BrokerSettings s = trackerSettings(dir.filePath("cache"), openTracker);
+        s.publicTrackers = false;
+        const TestTorrent t = harness::makeTorrent(dir.filePath("seed"), "public.mkv", {2 * MiB}, kPiece, 3);
+        {
+            StreamBroker broker(s);
+            Seeder seeder(t, t.root);
+            auto h = openLater(broker, harness::magnet(t, {seeder.port()}));
+            QTRY_VERIFY_WITH_TIMEOUT(ready(h), 15000);
+            QVERIFY(h.get());
+            QTest::qWait(2500);
+            QVERIFY2(openTracker.requests.isEmpty(), qPrintable(openTracker.paths().join(' ')));
+        }
+        // Next run, from the cached metadata, and then on again while running.
+        StreamBroker broker(s);
+        QVERIFY(broker.open({harness::infoHash(t)}));
+        QTest::qWait(2500);
+        QVERIFY2(openTracker.requests.isEmpty(), qPrintable(openTracker.paths().join(' ')));
+        BrokerSettings on = s;
+        on.publicTrackers = true;
+        broker.applyNetwork(on);
+        QTRY_VERIFY_WITH_TIMEOUT(!openTracker.requests.isEmpty(), 10000);
+    }
+
+    // Turned off while running: they leave a torrent that has them, and a
+    // torrent opened later does not get them.
+    void openTrackersLeaveWhenTurnedOffWhileRunning()
+    {
+        QTemporaryDir dir;
+        FakeHttpServer openTracker;
+        openTracker.setTracker(1);
+        const BrokerSettings s = trackerSettings(dir.filePath("cache"), openTracker);
+        const TestTorrent t = harness::makeTorrent(dir.filePath("seed"), "public.mkv", {2 * MiB}, kPiece, 3);
+        const TestTorrent other = harness::makeTorrent(dir.filePath("seed2"), "other.mkv", {2 * MiB}, kPiece, 5);
+        StreamBroker broker(s);
+        Seeder seeder(t, t.root);
+        auto h = openLater(broker, harness::magnet(t, {seeder.port()}));
+        QTRY_VERIFY_WITH_TIMEOUT(ready(h), 15000);
+        auto handle = h.get();
+        QVERIFY(handle);
+        QTRY_VERIFY_WITH_TIMEOUT(!openTracker.requests.isEmpty(), 10000);
+
+        BrokerSettings off = s;
+        off.publicTrackers = false;
+        broker.applyNetwork(off);
+        // libtorrent applies the change on its own thread; an announce that was
+        // already on its way (the first torrent finishing) may still land.
+        QTest::qWait(1500);
+        openTracker.requests.clear();
+        Seeder otherSeeder(other, other.root);
+        auto h2 = openLater(broker, harness::magnet(other, {otherSeeder.port()}));
+        QTRY_VERIFY_WITH_TIMEOUT(ready(h2), 15000);
+        QVERIFY(h2.get());
+        QTest::qWait(2500);
+        QVERIFY2(openTracker.requests.isEmpty(), qPrintable(openTracker.paths().join(' ')));
     }
 
     void privateTorrentNeverMeetsTheOpenTrackers()
@@ -621,6 +762,159 @@ private slots:
         QVERIFY(readerA);
         QVERIFY(second.get());
         QVERIFY(readRange(*readerA, 0, kPiece) == a.data[0].left(int(kPiece)));
+    }
+
+    // Evicted, then opened again before libtorrent has finished deleting the
+    // old copy: the late "deleted" alert must not delete the new copy's
+    // folder. The hook holds the old deletion back, so the reopen always
+    // comes first.
+    void reopenWhileItsDeletionIsPending()
+    {
+        QTemporaryDir dir;
+        BrokerSettings s = testSettings(dir.filePath("cache"));
+        s.deleteDelayMsForTests = 1500;
+        StreamBroker broker(s);
+        const TestTorrent t = harness::makeTorrent(dir.filePath("seed"), "movie.mkv", {4 * MiB}, kPiece, 21);
+        Seeder seeder(t, t.root);
+        const QString folder = QDir(s.cacheDir).filePath(harness::infoHash(t));
+        {
+            auto h = broker.open({harness::magnet(t, {seeder.port()})});
+            QVERIFY(h);
+            QVERIFY(readRange(*h, 0, 4 * MiB) == t.data[0]);
+        }
+        broker.clearCache();  // not in use: evicted, its deletion pending
+
+        auto again = broker.open({harness::magnet(t, {seeder.port()})});
+        QVERIFY(again);
+        QVERIFY(readRange(*again, 0, 4 * MiB) == t.data[0]);
+        QTest::qWait(2500);  // past the old deletion
+        QVERIFY2(QDir(folder).exists(), "the old deletion removed the reopened torrent's folder");
+        // Still readable from its own files, and its resume data saves on close.
+        QVERIFY(readRange(*again, 0, 4 * MiB) == t.data[0]);
+        again.reset();
+        QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(QDir(folder).filePath("resume.dat")), 5000);
+    }
+
+    // The same, but the old folder's removal outlasts the open's wait. The
+    // open must not go ahead while the removal runs, or it removes the new
+    // copy's files: it waits for the removal instead of giving up on it.
+    void reopenWhileItsFolderIsBeingRemoved()
+    {
+        QTemporaryDir dir;
+        BrokerSettings s = testSettings(dir.filePath("cache"));
+        s.deleteDelayMsForTests = 1500;  // the removal takes 1.5 s
+        s.deleteWaitMsForTests = 300;    // the open gives up waiting after 0.3 s
+        StreamBroker broker(s);
+        const TestTorrent t = harness::makeTorrent(dir.filePath("seed"), "movie.mkv", {4 * MiB}, kPiece, 22);
+        Seeder seeder(t, t.root);
+        const QString folder = QDir(s.cacheDir).filePath(harness::infoHash(t));
+        {
+            auto h = broker.open({harness::magnet(t, {seeder.port()})});
+            QVERIFY(h);
+            QVERIFY(readRange(*h, 0, 4 * MiB) == t.data[0]);
+        }
+        broker.clearCache();
+        // libtorrent deletes the data file, then reports it; the folder's
+        // removal (held for 1.5 s) starts on that report.
+        QTRY_VERIFY_WITH_TIMEOUT(!QFileInfo::exists(QDir(folder).filePath("movie.mkv")), 5000);
+        QTest::qWait(100);
+
+        QElapsedTimer opening;
+        opening.start();
+        auto again = broker.open({harness::magnet(t, {seeder.port()})});
+        QVERIFY(again);
+        QVERIFY2(opening.elapsed() >= 1000, "the open went ahead while the old folder was being removed");
+        QVERIFY(readRange(*again, 0, 4 * MiB) == t.data[0]);
+        QTest::qWait(500);
+        QVERIFY2(QDir(folder).exists(), "the old removal took the reopened torrent's folder");
+        QVERIFY(readRange(*again, 0, 4 * MiB) == t.data[0]);
+    }
+
+    // Many things at once, as a user switching sources fast would cause:
+    // opens, reads, cancels, closes and cache clears on two torrents from
+    // several threads, then shutdown with reads still waiting. Nothing may
+    // hang or crash (the sanitizer jobs run this too), and every byte read
+    // must be right.
+    void concurrentOpensReadsCancelsAndClears()
+    {
+        QTemporaryDir dir;
+        BrokerSettings s = idleSettings(dir.filePath("cache"));
+        auto broker = std::make_unique<StreamBroker>(s);
+        const TestTorrent a = harness::makeTorrent(dir.filePath("a"), "a.mkv", {3 * MiB}, kPiece, 31);
+        const TestTorrent b = harness::makeTorrent(dir.filePath("b"), "b.mkv", {3 * MiB}, kPiece, 32);
+        Seeder seederA(a, a.root);
+        Seeder seederB(b, b.root);
+        const QString links[] = {harness::magnet(a, {seederA.port()}), harness::magnet(b, {seederB.port()})};
+        const TestTorrent* torrents[] = {&a, &b};
+
+        std::atomic<bool> stop{false};
+        std::atomic<int> wrongBytes{0}, reads{0};
+        std::vector<std::thread> workers;
+        for (int w = 0; w < 4; ++w) {
+            workers.emplace_back([&, w] {
+                std::mt19937 rng(unsigned(w) + 1);
+                while (!stop) {
+                    const int which = int(rng() % 2);
+                    auto h = broker->open({links[which]}, nullptr, [&] { return stop.load(); });
+                    if (!h)
+                        continue;
+                    const qint64 at = qint64(rng() % (3 * MiB - 64 * 1024));
+                    QByteArray chunk(64 * 1024, Qt::Uninitialized);
+                    const qint64 n = h->read(at, chunk.data(), chunk.size());
+                    if (n > 0) {
+                        ++reads;
+                        if (QByteArray(chunk.constData(), int(n)) != torrents[which]->data[0].mid(int(at), int(n)))
+                            ++wrongBytes;
+                    }
+                    if (rng() % 3 == 0)
+                        h->cancel();  // a source switch mid-read
+                }
+            });
+        }
+        std::thread clearer([&] {
+            while (!stop) {
+                broker->clearCache();
+                std::this_thread::sleep_for(std::chrono::milliseconds(150));
+            }
+        });
+        QTest::qWait(6000);
+        stop = true;
+        for (auto& t : workers)
+            t.join();
+        clearer.join();
+        QCOMPARE(wrongBytes.load(), 0);
+        QVERIFY2(reads.load() > 0, "no read finished");
+
+        // Shutdown while a read waits for a piece nobody has. The torrent is
+        // opened from its .torrent file, so open() returns at once with no
+        // peers, and the read then blocks. Only the handle is used across
+        // the shutdown: a handle may outlive its broker, a call into the
+        // broker may not.
+        const TestTorrent c = harness::makeTorrent(dir.filePath("c"), "c.mkv", {2 * MiB}, kPiece, 33);
+        const QString torrentFile = dir.filePath("c.torrent");
+        {
+            const std::vector<char> bytes = harness::createTorrentFile(QDir(c.root).filePath("c.mkv"), c.root, kPiece);
+            QFile f(torrentFile);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            QCOMPARE(f.write(bytes.data(), qint64(bytes.size())), qint64(bytes.size()));
+        }
+        std::shared_ptr<StreamHandle> blocked = broker->open({torrentFile});
+        QVERIFY(blocked);
+        std::atomic<bool> reading{false};
+        auto waiting = std::async(std::launch::async, [blocked, &reading] {
+            reading = true;
+            char byte;
+            return blocked->read(0, &byte, 1);
+        });
+        QTRY_VERIFY_WITH_TIMEOUT(reading.load(), 10000);
+        QTest::qWait(300);
+        QVERIFY(waiting.wait_for(std::chrono::seconds(0)) == std::future_status::timeout);
+        QElapsedTimer clock;
+        clock.start();
+        broker.reset();
+        QVERIFY(waiting.wait_for(std::chrono::seconds(20)) == std::future_status::ready);
+        QVERIFY2(waiting.get() < 0, "a read after shutdown returned data");
+        QVERIFY2(clock.elapsed() < 20000, "shutdown hung");
     }
 
     // Resume data saved on close means a reopened torrent knows its verified

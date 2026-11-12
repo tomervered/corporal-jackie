@@ -6,7 +6,9 @@ Built with C++20, Qt 6/QML, libmpv, libtorrent-rasterbar and SQLite. Windows and
 
 **Status:** Step 6 (library and watch history) done. Browses Stremio add-on catalogs and your own folders, and plays local video files, web links, magnet links, torrent info hashes and .torrent files. The interface talks only to the Session, which sends commands to the mpv target; the contract between them is in [docs/TARGET_CONTRACT.md](docs/TARGET_CONTRACT.md). Torrents reach mpv through a `torrent://` stream protocol backed by the stream broker, with no local HTTP server; the broker's contract is in [docs/BROKER_CONTRACT.md](docs/BROKER_CONTRACT.md) and the protocol is described in [src/transports/README.md](src/transports/README.md). [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) maps the layers, the threads, and how a byte gets from a peer to the screen.
 
-When nothing plays, the window shows Home: Continue Watching, then a row for each list of your add-ons and folders. The side bar has Discover (one list at a time, by type and genre), Library, Add-ons (install, order, remove) and Your folders; the search box on Home searches every add-on at once. Pick an item, then an episode, then one of the ways to play it, best first. Press B while watching to open the same pages over the video. Everything works by keyboard: Tab moves between controls and rows, arrow keys move inside them, Enter opens and Escape goes back. Cinemeta comes installed and gives lists and details, but streams need a stream add-on. Subtitle files next to a video load with it. How it works: [src/sources/README.md](src/sources/README.md).
+When nothing plays, the window shows Home: Continue Watching, then a row for each list of your add-ons and folders. The side bar has Discover (one list at a time, by type and genre), Library, Add-ons (install, order, remove) and Your folders; the search box on Home searches every add-on at once. Pick an item, then an episode, then one of the ways to play it, best first. Press B while watching to open the same pages over the video. Everything works by keyboard: Tab moves between controls and rows, arrow keys move inside them, Enter opens and Escape goes back. Cinemeta (Stremio's catalog server) gives lists and details if you allow it on the first-run screen; streams need a stream add-on. Subtitle files next to a video load with it. How it works: [src/sources/README.md](src/sources/README.md).
+
+What the app sends and keeps is listed in [docs/PRIVACY.md](docs/PRIVACY.md), which also ships in the Windows and macOS packages.
 
 Corporal Jackie comes with no streams of its own. Use it only for videos you have the right to watch and share. While a torrent plays, the app also uploads it to other peers, and they can see your IP address.
 
@@ -63,18 +65,18 @@ tests/          Qt Test suites, run by ctest
 
 ## Building
 
-You need CMake 3.21+, Ninja, a C++20 compiler, and Qt 6, libmpv, libtorrent-rasterbar 2.x and SQLite with their development files.
+You need CMake 3.21+, Ninja, a C++20 compiler, and Qt 6, libmpv, SQLite, Boost headers and OpenSSL with their development files. libtorrent is built from source with a small patch (see below).
 
 **Windows**: install [MSYS2](https://www.msys2.org), open the *UCRT64* shell, and run:
 
 ```sh
-pacman -S --needed mingw-w64-ucrt-x86_64-{toolchain,cmake,ninja,pkgconf,qt6-base,qt6-declarative,qt6-tools,mpv,libtorrent-rasterbar,sqlite3}
+pacman -S --needed mingw-w64-ucrt-x86_64-{toolchain,cmake,ninja,pkgconf,qt6-base,qt6-declarative,qt6-tools,mpv,boost,openssl,sqlite3}
 ```
 
 **macOS**:
 
 ```sh
-brew install qt mpv libtorrent-rasterbar ninja pkgconf
+brew install qt mpv boost openssl@3 ninja pkgconf
 export CMAKE_PREFIX_PATH="$(brew --prefix qt)"
 ```
 
@@ -85,17 +87,20 @@ sudo apt install ninja-build pkg-config qt6-base-dev qt6-declarative-dev \
   qml6-module-qtquick qml6-module-qtquick-window qml6-module-qtqml-workerscript \
   qml6-module-qtquick-controls qml6-module-qtquick-templates qml6-module-qtquick-dialogs \
   qml6-module-qtquick-layouts qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-shapes \
-  libmpv-dev libtorrent-rasterbar-dev libsqlite3-dev
+  libmpv-dev libboost-dev libssl-dev libsqlite3-dev
 ```
 
-Then, on any platform:
+Then, on any platform, build libtorrent once (about four minutes), and the app against it:
 
 ```sh
-cmake -S . -B build -G Ninja
+third_party/libtorrent/build.sh "$HOME/cj-libtorrent"
+cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="$HOME/cj-libtorrent"
 cmake --build build
 ctest --test-dir build -LE bench --output-on-failure
 ctest --test-dir build -L bench -V    # the torrent benchmark (docs/BROKER_CONTRACT.md)
 ```
+
+On macOS add the Qt prefix: `-DCMAKE_PREFIX_PATH="$(brew --prefix qt);$HOME/cj-libtorrent"`. The patch keeps playback from stalling when a seeder leaves ([docs/ENGINE.md](docs/ENGINE.md)). Any other libtorrent 2.x still builds and works, with a configure warning, and CI passes `-DCJ_REQUIRE_PATCHED_LIBTORRENT=ON` to make that an error.
 
 CI builds with `-DCJ_WARNINGS_AS_ERRORS=ON`, so any compiler warning fails the build, and runs the tests a second time on Linux built with `-DCJ_SANITIZE=ON` (AddressSanitizer and UndefinedBehaviorSanitizer). `tst_ui` loads the real window against a fake player and fails on any QML warning; set `CJ_UI_SHOTS` to a folder to get a picture of each page.
 

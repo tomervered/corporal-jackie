@@ -39,11 +39,14 @@ jobs:
           pacboy: >-
             toolchain:p cmake:p ninja:p pkgconf:p meson:p nasm:p
             qt6-base:p qt6-declarative:p qt6-tools:p
-            libtorrent-rasterbar:p sqlite3:p mesa:p
+            boost:p openssl:p sqlite3:p mesa:p
             dav1d:p libass:p lcms2:p uchardet:p zimg:p libdovi:p libiconv:p
 
-      - name: Cache the mpv build
-        uses: actions/cache@v4
+      # Both builds are saved as soon as they are done, so a failing test
+      # later in the job does not make the next run build them again.
+      - name: Restore the mpv build
+        id: mpv-cache
+        uses: actions/cache/restore@v4
         with:
           path: .deps
           key: mpv-${{ runner.os }}-${{ hashFiles('packaging/windows/build-mpv.sh') }}
@@ -52,14 +55,60 @@ jobs:
         timeout-minutes: 40
         run: packaging/windows/build-mpv.sh "$(cygpath -u "$GITHUB_WORKSPACE")/.deps"
 
+      - name: Save the mpv build
+        if: steps.mpv-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .deps
+          key: mpv-${{ runner.os }}-${{ hashFiles('packaging/windows/build-mpv.sh') }}
+
+      # libtorrent with our patch, as a static library (third_party/libtorrent).
+      - name: Restore the libtorrent build
+        id: lt-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .deps-torrent
+          key: libtorrent-${{ runner.os }}-${{ hashFiles('third_party/libtorrent/**') }}
+
+      - name: Build libtorrent
+        run: third_party/libtorrent/build.sh "$(cygpath -u "$GITHUB_WORKSPACE")/.deps-torrent"
+
+      - name: Save the libtorrent build
+        if: steps.lt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .deps-torrent
+          key: libtorrent-${{ runner.os }}-${{ hashFiles('third_party/libtorrent/**') }}
+
       - name: Configure
         run: |
           DEPS="$(cygpath -u "$GITHUB_WORKSPACE")/.deps"
           export PATH="$DEPS/bin:$PATH" PKG_CONFIG_PATH="$DEPS/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCJ_WARNINGS_AS_ERRORS=ON -DCMAKE_PREFIX_PATH="$(cygpath -m "$DEPS")"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCJ_WARNINGS_AS_ERRORS=ON -DCMAKE_PREFIX_PATH="$(cygpath -m "$DEPS");$(cygpath -m "$GITHUB_WORKSPACE/.deps-torrent")" -DCJ_REQUIRE_PATCHED_LIBTORRENT=ON
 
       - name: Build
         run: cmake --build build
+
+      # Boost.Asio's Windows timers run on a thread of their own, and
+      # libtorrent's connections start from a timer. Fires 5 short timers in
+      # 300 fresh io_contexts and says how many never finished.
+      - name: Probe Boost.Asio timers
+        continue-on-error: true
+        run: |
+          export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
+          timeout 180 build/tests/asio_timer_probe
+
+      # Starts and ends libtorrent sessions at random moments while every
+      # core is busy: the Windows crash was an access violation in Asio's
+      # timer thread after its io_context was gone. Three seeds; a crash
+      # shows as a non-zero exit code here.
+      - name: Probe libtorrent session teardown
+        continue-on-error: true
+        run: |
+          export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
+          for seed in 1 2 3; do
+            timeout 600 build/tests/session_churn_probe 400 4 "$seed" || { echo "session_churn_probe seed $seed exited with $?"; exit 1; }
+          done
 
       - name: Test
         env:
@@ -145,7 +194,14 @@ jobs:
           # The launcher must not need any DLL that is not part of Windows.
           if ldd dist/CorporalJackie.exe | grep -i ucrt64; then echo "launcher depends on MSYS2 DLLs"; exit 1; fi
           cp LICENSE dist/LICENSE.txt
-          packaging/windows/collect-licenses.sh dist "$(cygpath -u "$GITHUB_WORKSPACE")/.deps"
+          # The updater ships with the app, so an update package carries only
+          # data: the checks it must pass come from the installed copy.
+          mkdir -p dist/app/updater
+          cp packaging/windows/updater/apply-update.ps1 dist/app/updater/
+          cp "packaging/windows/updater/Update Corporal Jackie.cmd" dist/
+          if [ -f packaging/windows/update-key.xml ]; then cp packaging/windows/update-key.xml dist/app/updater/
+          else echo "No packaging/windows/update-key.xml: this build will refuse every update (docs/RELEASE_SIGNING.md)"; fi
+          packaging/windows/collect-licenses.sh dist "$(cygpath -u "$GITHUB_WORKSPACE")/.deps" "$(cygpath -u "$GITHUB_WORKSPACE")/.deps-torrent"
           echo "Top level:"; ls dist
           echo "Files in app: $(find dist/app -type f | wc -l)"
           echo "Total size:"; du -sh dist
@@ -159,10 +215,20 @@ jobs:
         run: |
           cd dist
           echo "build ${{ github.run_number }} (${GITHUB_SHA::7})" > build.txt
-          find . -type f ! -name manifest.txt | sed 's|^\./||' | LC_ALL=C sort | while IFS= read -r f; do
+          find . -type f ! -name manifest.txt ! -name manifest.sig | sed 's|^\./||' | LC_ALL=C sort | while IFS= read -r f; do
             printf '%s\t%s\n' "$(sha256sum "$f" | cut -d' ' -f1)" "$f"
           done > manifest.txt
           cat build.txt; wc -l < manifest.txt
+
+      # manifest.sig: the updater's proof that build.txt and manifest.txt
+      # came from this CI. Needs the UPDATE_SIGNING_KEY secret.
+      - name: Sign the build for the updater
+        shell: pwsh
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          if (-not $env:UPDATE_SIGNING_KEY) { Write-Host "No UPDATE_SIGNING_KEY secret: build not signed, its update package will be refused"; exit 0 }
+          packaging/windows/updater/sign-manifest.ps1 -Folder dist -KeyXml $env:UPDATE_SIGNING_KEY
 
       - uses: actions/upload-artifact@v4
         with:
@@ -176,6 +242,7 @@ jobs:
           path: |
             dist/build.txt
             dist/manifest.txt
+            dist/manifest.sig
 
       # The update package: only the files that changed since the last main
       # build that has a manifest (see packaging/windows/README-update.txt).
@@ -199,7 +266,7 @@ jobs:
         run: packaging/windows/make-update.sh dist previous update
 
       - uses: actions/upload-artifact@v4
-        if: github.ref == 'refs/heads/main' && hashFiles('update/_update/from-build.txt') != ''
+        if: github.ref == 'refs/heads/main' && hashFiles('update/manifest.txt') != ''
         with:
           name: CorporalJackie-windows-x64-update
           path: update/
@@ -237,6 +304,79 @@ jobs:
           Write-Host "Exit code: $($p.ExitCode)"
           exit $p.ExitCode
 
+      # The update flow on the real package: the test copy above as the
+      # install, a next build made from this one (a changed file, a new file,
+      # a higher build number), signed with a key made here and thrown away,
+      # packaged by make-update.sh, applied by the installed updater, and
+      # the updated app played again.
+      - name: Make a key for the update test
+        shell: pwsh
+        run: |
+          $rsa = New-Object Security.Cryptography.RSACryptoServiceProvider 2048
+          [IO.File]::WriteAllText("$env:RUNNER_TEMP\update-test-private.xml", $rsa.ToXmlString($true))
+          [IO.File]::WriteAllText("$env:RUNNER_TEMP\update-test-public.xml", $rsa.ToXmlString($false))
+
+      - name: Make the next build for the update test
+        run: |
+          key="$(cygpath -u "$RUNNER_TEMP")/update-test-public.xml"
+          rm -rf upd-old upd-new upd-pkg
+          cp -r dist-test upd-old
+          cp -r dist upd-new
+          cp "$key" upd-old/app/updater/update-key.xml
+          cp "$key" upd-new/app/updater/update-key.xml
+          echo "Changed by the update test." >> upd-new/LICENSE.txt
+          echo "Added by the update test." > upd-new/app/updater/update-test.txt
+          echo "build $(( ${{ github.run_number }} + 1 )) (update test)" > upd-new/build.txt
+          (cd upd-new && find . -type f ! -name manifest.txt ! -name manifest.sig | sed 's|^\./||' | LC_ALL=C sort \
+            | while IFS= read -r f; do printf '%s\t%s\n' "$(sha256sum "$f" | cut -d' ' -f1)" "$f"; done > manifest.txt)
+
+      - name: Sign the next build with the test key
+        shell: pwsh
+        run: packaging/windows/updater/sign-manifest.ps1 -Folder upd-new -KeyXml ([IO.File]::ReadAllText("$env:RUNNER_TEMP\update-test-private.xml"))
+
+      - name: Package the update
+        run: packaging/windows/make-update.sh upd-new upd-old upd-pkg
+
+      - name: Apply the update and play the updated app
+        timeout-minutes: 5
+        shell: pwsh
+        env:
+          GALLIUM_DRIVER: llvmpipe
+          CJ_MPV_OPTS: gpu-dumb-mode=yes
+        run: |
+          & upd-old\app\updater\apply-update.ps1 -Package upd-pkg -Root upd-old -NoPause
+          if ($LASTEXITCODE -ne 0) { throw "The updater exited with $LASTEXITCODE" }
+          $build = (Get-Content upd-old\build.txt -Raw).Trim()
+          if ($build -ne "build $(${{ github.run_number }} + 1) (update test)") { throw "build.txt says '$build'" }
+          if (-not (Test-Path upd-old\app\updater\update-test.txt)) { throw "the new file is missing" }
+          if ((Get-FileHash upd-old\LICENSE.txt).Hash -ne (Get-FileHash upd-new\LICENSE.txt).Hash) { throw "LICENSE.txt was not replaced" }
+          if (Test-Path upd-old\.update-journal) { throw "a journal was left" }
+          # The same package again is refused: it is not newer.
+          & upd-old\app\updater\apply-update.ps1 -Package upd-pkg -Root upd-old -NoPause
+          if ($LASTEXITCODE -eq 0) { throw "a replayed update was applied" }
+          $env:PATH = "$env:SystemRoot\system32;$env:SystemRoot"
+          $clip = Resolve-Path tests\data\testsrc-10s.mkv
+          $p = Start-Process -FilePath upd-old\CorporalJackie.exe -ArgumentList '--smoke-test', "`"$clip`"" -PassThru
+          $null = $p.Handle
+          if (-not $p.WaitForExit(60000)) { Stop-Process -Id $p.Id -Force; throw "The updated app did not exit within 60 s" }
+          Write-Host "Updated app exit code: $($p.ExitCode)"
+          exit $p.ExitCode
+
+  # The Windows updater on real folders: valid update, damaged file, forged
+  # signature, path traversal, links, a file in use, an interrupted update.
+  updater:
+    name: Windows updater
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Windows PowerShell 5.1
+        shell: powershell
+        run: tests\updater\Test-Updater.ps1
+      - name: PowerShell 7
+        shell: pwsh
+        run: tests\updater\Test-Updater.ps1
+
   macos:
     name: macOS (Apple silicon)
     runs-on: macos-15
@@ -244,10 +384,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: brew install qt mpv libtorrent-rasterbar ninja pkgconf
+        run: brew install qt mpv boost openssl@3 ninja pkgconf
+
+      - uses: ./.github/actions/libtorrent
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCJ_WARNINGS_AS_ERRORS=ON -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCJ_WARNINGS_AS_ERRORS=ON -DCMAKE_PREFIX_PATH="$(brew --prefix qt);$CJ_LT_PREFIX" -DCJ_REQUIRE_PATCHED_LIBTORRENT=ON
 
       - name: Build
         run: cmake --build build
@@ -279,7 +421,7 @@ jobs:
           # The bundle ships only the cocoa platform plugin; the runner has a GUI session.
           ./dist/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test
           cp LICENSE dist/LICENSE.txt
-          packaging/macos/collect-licenses.sh dist
+          packaging/macos/collect-licenses.sh dist "$CJ_LT_PREFIX"
           ditto -c -k --keepParent dist CorporalJackie-macos-arm64.zip
 
       - uses: actions/upload-artifact@v4
@@ -294,16 +436,23 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
+        timeout-minutes: 15
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build pkg-config xvfb libgl1-mesa-dri \
+          # Plain HTTP to Ubuntu's mirrors timed out on every request on 2026-11-11
+          # (azure.archive.ubuntu.com and archive.ubuntu.com); HTTPS answered.
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/	priority:1' 'http://azure.archive.ubuntu.com/ubuntu/	priority:2' \
+            | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config xvfb libgl1-mesa-dri \
             qt6-base-dev qt6-declarative-dev qml6-module-qtquick qml6-module-qtquick-window qml6-module-qtqml-workerscript \
             qml6-module-qtquick-controls qml6-module-qtquick-templates qml6-module-qtquick-dialogs \
             qml6-module-qtquick-layouts qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-shapes \
-            libmpv-dev libtorrent-rasterbar-dev libsqlite3-dev
+            libmpv-dev libboost-dev libssl-dev libsqlite3-dev
+
+      - uses: ./.github/actions/libtorrent
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCJ_WARNINGS_AS_ERRORS=ON
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCJ_WARNINGS_AS_ERRORS=ON -DCMAKE_PREFIX_PATH="$CJ_LT_PREFIX" -DCJ_REQUIRE_PATCHED_LIBTORRENT=ON
 
       - name: Build
         run: cmake --build build
@@ -337,16 +486,23 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
+        timeout-minutes: 15
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build pkg-config \
+          # Plain HTTP to Ubuntu's mirrors timed out on every request on 2026-11-11
+          # (azure.archive.ubuntu.com and archive.ubuntu.com); HTTPS answered.
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/	priority:1' 'http://azure.archive.ubuntu.com/ubuntu/	priority:2' \
+            | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config \
             qt6-base-dev qt6-declarative-dev qml6-module-qtquick qml6-module-qtquick-window qml6-module-qtqml-workerscript \
             qml6-module-qtquick-controls qml6-module-qtquick-templates qml6-module-qtquick-dialogs \
             qml6-module-qtquick-layouts qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-shapes \
-            libmpv-dev libtorrent-rasterbar-dev libsqlite3-dev
+            libmpv-dev libboost-dev libssl-dev libsqlite3-dev
+
+      - uses: ./.github/actions/libtorrent
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCJ_WARNINGS_AS_ERRORS=ON -DCJ_SANITIZE=ON
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCJ_WARNINGS_AS_ERRORS=ON -DCJ_SANITIZE=ON -DCMAKE_PREFIX_PATH="$CJ_LT_PREFIX" -DCJ_REQUIRE_PATCHED_LIBTORRENT=ON
 
       - name: Build
         run: cmake --build build --target all
@@ -360,3 +516,181 @@ jobs:
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1:strict_string_checks=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
         run: ctest --test-dir build -LE bench --output-on-failure
+
+  # Data races between the broker's and the database's own threads. Qt, glib
+  # and libtorrent are not built with TSan, so hand-offs inside them are
+  # suppressed (tests/tsan.supp); the network code that hands work over
+  # through Qt's event queues is left to ASan and its tests.
+  thread-sanitizer:
+    name: Linux (broker and storage under TSan)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        timeout-minutes: 15
+        run: |
+          # Plain HTTP to Ubuntu's mirrors timed out on every request on 2026-11-11
+          # (azure.archive.ubuntu.com and archive.ubuntu.com); HTTPS answered.
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/	priority:1' 'http://azure.archive.ubuntu.com/ubuntu/	priority:2' \
+            | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config \
+            qt6-base-dev qt6-declarative-dev libmpv-dev libboost-dev libssl-dev libsqlite3-dev
+
+      - uses: ./.github/actions/libtorrent
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCJ_WARNINGS_AS_ERRORS=ON -DCJ_SANITIZE_THREAD=ON -DCMAKE_PREFIX_PATH="$CJ_LT_PREFIX" -DCJ_REQUIRE_PATCHED_LIBTORRENT=ON
+
+      - name: Build
+        run: cmake --build build --target tst_broker tst_storage
+
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QTEST_FUNCTION_TIMEOUT: "250000"
+          TSAN_OPTIONS: halt_on_error=1 second_deadlock_stack=1 suppressions=${{ github.workspace }}/tests/tsan.supp
+        run: |
+          build/tests/tst_broker
+          build/tests/tst_storage
+
+  # libFuzzer on the parsers of untrusted text (tests/fuzz/fuzz_parsers.cpp)
+  # with ASan and UBSan, for five minutes from the seed corpus.
+  fuzz:
+    name: Linux (parser fuzzing)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        timeout-minutes: 15
+        run: |
+          # Plain HTTP to Ubuntu's mirrors timed out on every request on 2026-11-11
+          # (azure.archive.ubuntu.com and archive.ubuntu.com); HTTPS answered.
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/	priority:1' 'http://azure.archive.ubuntu.com/ubuntu/	priority:2' \
+            | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config clang libclang-rt-dev \
+            qt6-base-dev qt6-declarative-dev libmpv-dev libboost-dev libssl-dev libsqlite3-dev
+
+      - uses: ./.github/actions/libtorrent
+
+      - name: Configure
+        env:
+          CC: clang
+          CXX: clang++
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCJ_BUILD_TESTS=OFF -DCJ_FUZZ=ON -DCMAKE_PREFIX_PATH="$CJ_LT_PREFIX" -DCJ_REQUIRE_PATCHED_LIBTORRENT=ON
+
+      - name: Build
+        run: cmake --build build --target fuzz_parsers
+
+      - name: Fuzz
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+        run: |
+          mkdir -p corpus findings
+          build/tests/fuzz/fuzz_parsers -max_total_time=300 -max_len=8192 -timeout=10 -rss_limit_mb=4096 \
+            -artifact_prefix=findings/ corpus tests/fuzz/corpus
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: fuzz-findings
+          path: findings/
+
+  # The torrent benchmark against other clients and against the release
+  # before the audit, on the same seeders and read pattern
+  # (tests/bench/competitor.cjs), on plain loopback and on a link with 40 ms
+  # round trips and 0.5 % loss (netem on lo). Clients run in a shuffled
+  # order, five runs per row, each tst_bench call after a warm-up run. Every
+  # run, failed ones included, goes into the summary and the artifact.
+  bench-compare:
+    name: Linux (benchmark against other clients)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      # The release before the audit fixes, built with the measurement
+      # counters (tests/bench/baseline-counters.patch, from 6948b5f) and
+      # nothing else.
+      BASELINE: c6557a3a345f20d7a38b6cbd4562b246e5c18122
+      STREMIO_IMAGE: stremio/server:v4.22.5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        timeout-minutes: 15
+        run: |
+          # Plain HTTP to Ubuntu's mirrors timed out on every request on 2026-11-11
+          # (azure.archive.ubuntu.com and archive.ubuntu.com); HTTPS answered.
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/	priority:1' 'http://azure.archive.ubuntu.com/ubuntu/	priority:2' \
+            | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config iproute2 qbittorrent-nox \
+            qt6-base-dev qt6-declarative-dev libmpv-dev libtorrent-rasterbar-dev libboost-dev libssl-dev libsqlite3-dev
+          npm install --prefix "$RUNNER_TEMP/contenders" --ignore-scripts --no-audit --no-fund \
+            webtorrent@3.0.21 webtorrent1@npm:webtorrent@1.9.7 torrent-stream@1.2.1
+          # WebTorrent 3 loads WebRTC at start; only this package's install
+          # script runs, to fetch its prebuilt binary.
+          npm rebuild --prefix "$RUNNER_TEMP/contenders" node-datachannel
+          docker pull "$STREMIO_IMAGE"
+
+      - uses: ./.github/actions/libtorrent
+
+      - name: Build
+        run: |
+          # The release under test uses the patched libtorrent; the previous
+          # release was measured with the distribution's.
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$CJ_LT_PREFIX" -DCJ_REQUIRE_PATCHED_LIBTORRENT=ON
+          cmake --build build --target tst_bench bench_player
+          git worktree add --detach "$RUNNER_TEMP/baseline" "$BASELINE"
+          git -C "$RUNNER_TEMP/baseline" apply "$GITHUB_WORKSPACE/tests/bench/baseline-counters.patch"
+          cmake -S "$RUNNER_TEMP/baseline" -B "$RUNNER_TEMP/baseline/build" -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/baseline/build" --target bench_player
+
+      - name: Benchmark
+        env:
+          QT_QPA_PLATFORM: offscreen
+          CJ_BENCH_RUNS: "5"
+          # One test function runs every row; on the lossy link Jackie's 20
+          # rows took past Qt's default 5 minutes and the last ones were lost.
+          QTEST_FUNCTION_TIMEOUT: "3600000"
+          CJ_BENCH_OUT: ${{ runner.temp }}/bench.jsonl
+          CJ_COMPETITOR_MODULES: ${{ runner.temp }}/contenders/node_modules
+          CJ_STREMIO_IMAGE: ${{ env.STREMIO_IMAGE }}
+        run: |
+          disk_rows=()
+          for i in 1 2 3 4 5; do disk_rows+=("run:disk $i" "run:swarm disk $i"); done
+          run_all() {
+            # Only the clients the work is measured against. The others (torrent-stream,
+            # qbittorrent, stremio) and the previous release (jackie-c6557a3) are still
+            # handled below: add one to this list to run it.
+            for engine in $(printf '%s\n' jackie webtorrent webtorrent1 | shuf); do
+              echo "::group::$CJ_BENCH_LINK: $engine"
+              case $engine in
+                jackie)
+                  ./build/tests/tst_bench || echo "$engine: some runs failed" ;;
+                jackie-c6557a3)
+                  CJ_BENCH_PLAYER_PATH="$RUNNER_TEMP/baseline/build/tests/bench_player" CJ_BENCH_LABEL=$engine \
+                    ./build/tests/tst_bench || echo "$engine: some runs failed" ;;
+                *)
+                  # The other clients keep everything on disk: no RAM rows.
+                  CJ_COMPETITOR=$engine CJ_BENCH_EXTERNAL=tests/bench/competitor.cjs ./build/tests/tst_bench \
+                    "${disk_rows[@]}" || echo "$engine: some runs failed" ;;
+              esac
+              echo "::endgroup::"
+            done
+          }
+          CJ_BENCH_LINK=loopback run_all
+          sudo tc qdisc add dev lo root netem delay 20ms loss 0.5%
+          CJ_BENCH_LINK="40ms RTT, 0.5% loss" run_all
+          sudo tc qdisc del dev lo root
+          python3 tests/bench/summarize.py "$CJ_BENCH_OUT" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results
+          path: ${{ runner.temp }}/bench.jsonl

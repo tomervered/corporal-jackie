@@ -54,6 +54,51 @@ private slots:
         QVERIFY(line.endsWith(QStringLiteral("no peers")));
     }
 
+    void redactUrlKeepsOnlyTheServer_data()
+    {
+        QTest::addColumn<QString>("url");
+        QTest::addColumn<QString>("expected");
+        QTest::newRow("query") << "https://cdn.example.com/v.mkv?token=s3cret" << "https://cdn.example.com/…";
+        QTest::newRow("userinfo") << "http://user:s3cret@example.com:8080/v.mkv" << "http://example.com:8080/…";
+        QTest::newRow("path") << "https://addon.example.com/s3cret/manifest.json" << "https://addon.example.com/…";
+        QTest::newRow("bare") << "https://example.com" << "https://example.com";
+        QTest::newRow("torrent") << "torrent://0123456789abcdef0123456789abcdef01234567/2"
+                                 << "torrent://0123456789abcdef0123456789abcdef01234567/2";
+    }
+
+    void redactUrlKeepsOnlyTheServer()
+    {
+        QFETCH(QString, url);
+        QFETCH(QString, expected);
+        QCOMPARE(cj::logging::redactUrl(QUrl(url)), expected);
+    }
+
+    void redactTextFindsLinksInMessages()
+    {
+        const QString text = cj::logging::redactText(
+            "ffmpeg: Failed to open 'https://u:p@cdn.example.com/a/b.mkv?sig=s3cret' (404)");
+        QVERIFY2(!text.contains("s3cret"), qPrintable(text));
+        QVERIFY2(!text.contains("u:p"), qPrintable(text));
+        QVERIFY(text.contains("cdn.example.com"));
+        QVERIFY(text.endsWith("(404)"));
+        QCOMPARE(cj::logging::redactUrl(QUrl::fromLocalFile("/home/someone/Movies/x.mkv")), "file:…/x.mkv");
+    }
+
+    // A link that reaches the log file by any route is cut down there too.
+    void logFileNeverKeepsATokenInALink()
+    {
+        QTemporaryDir dir;
+        QVERIFY(cj::logging::init(dir.path()));
+        qCInfo(lcStorage).noquote() << "GET https://example.com/path?token=s3cretToken failed";
+        const QString path = cj::logging::currentLogFile();
+        cj::logging::shutdown();
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QByteArray all = file.readAll();
+        QVERIFY(!all.contains("s3cretToken"));
+        QVERIFY(all.contains("https://example.com/…"));
+    }
+
     void logWritesToFile()
     {
         QTemporaryDir dir;

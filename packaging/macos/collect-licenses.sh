@@ -2,10 +2,13 @@
 # Adds the third-party notices, every bundled library's license files and
 # SOURCE.txt to the macOS package. Runs after macdeployqt.
 #
-# Usage: collect-licenses.sh <dist>   (the folder that holds CorporalJackie.app)
+# Usage: collect-licenses.sh <dist> <libtorrent-prefix>
+#   <dist>              the folder that holds CorporalJackie.app
+#   <libtorrent-prefix> where third_party/libtorrent/build.sh installed libtorrent
 set -euo pipefail
 
 DIST=$1
+TORRENT=$2
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 LIC="$DIST/licenses"
@@ -15,6 +18,8 @@ COMMIT="${GITHUB_SHA:-$(git -C "$ROOT" rev-parse HEAD)}"
 
 rm -rf "$LIC" && mkdir -p "$LIC"
 cp "$ROOT/packaging/THIRD_PARTY_NOTICES.txt" "$DIST/THIRD_PARTY_NOTICES.txt"
+# What the app sends and keeps, for the person who installs it.
+cp "$ROOT/docs/PRIVACY.md" "$DIST/PRIVACY.md"
 
 # Which Homebrew formula each bundled dylib or framework came from:
 # Cellar/<formula>/<version>/lib/<name>.
@@ -24,6 +29,12 @@ formulae=$(
         printf '%s\n' "$index" | grep -F "/lib/$name" | head -1 | sed -E "s|^$BREW/Cellar/([^/]+)/.*|\1|" || true
     done | sort -u
 )
+
+# libtorrent is linked into the app (static), patched by us.
+LIBTORRENT_VERSION=v$(sed -n 's/^VERSION=//p' "$ROOT/third_party/libtorrent/build.sh")
+mkdir -p "$LIC/libtorrent"
+cp "$TORRENT/share/corporal-jackie/libtorrent-COPYING" "$LIC/libtorrent/COPYING"
+cp "$TORRENT"/share/corporal-jackie/0*.patch "$LIC/libtorrent/"
 
 missing=""
 for f in $formulae; do
@@ -53,6 +64,10 @@ done
     echo
     echo "Corporal Jackie (GPL-3.0-or-later), the exact source of this build:"
     echo "  $REPO_URL/tree/$COMMIT"
+    echo
+    echo "libtorrent $LIBTORRENT_VERSION (BSD-3-Clause), linked into the app, with one patch of ours:"
+    echo "  https://github.com/arvidn/libtorrent/tree/$LIBTORRENT_VERSION"
+    echo "  $REPO_URL/tree/$COMMIT/third_party/libtorrent (build script and patch)"
     echo
     echo "Unmodified Homebrew packages. Each formula page links the upstream"
     echo "source archive for its version: https://formulae.brew.sh/formula/<name>"

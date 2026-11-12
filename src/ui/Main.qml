@@ -304,6 +304,7 @@ Window {
 
         DropArea {
             anchors.fill: parent
+            enabled: preferences.privacyChosen   // nothing opens before the first-run answer
             onDropped: drop => {
                 // A magnet link dragged from a browser arrives as text.
                 if (!drop.hasUrls) { if (drop.hasText) root.openText(drop.text); return }
@@ -432,5 +433,15 @@ Window {
         onSettingsRequested: root.toggleSettings()
         onShortcutsRequested: root.helpVisible = true
         onFullScreenRequested: root.toggleFullscreen()
+    }
+
+    // --- First run: what may be contacted -----------------------------------
+
+    PrivacyScreen {
+        id: privacyScreen
+        anchors.fill: parent
+        visible: !preferences.privacyChosen
+        onVisibleChanged: if (visible) forceActiveFocus(); else inputLayer.forceActiveFocus()
+        Component.onCompleted: if (visible) forceActiveFocus()
     }
 }

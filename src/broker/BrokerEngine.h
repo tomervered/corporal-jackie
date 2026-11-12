@@ -63,9 +63,6 @@ constexpr qint64 kTailBytes = 4 * 1024 * 1024;   // and the index at the end
 constexpr qint64 kPieceCacheBytes = 64 * 1024 * 1024;  // piece copies kept in memory per torrent
 constexpr qint64 kDiskReserve = 2LL * 1024 * 1024 * 1024; // free disk space the cache always leaves
 constexpr auto kStallAfter = std::chrono::seconds(10);    // no new data for the awaited piece
-// Pieces ahead of each reader, its own included, that get deadlines (see
-// Engine::schedule). The rest of the read-ahead comes in order.
-constexpr int kUrgentPieces = 3;
 // Beyond the urgent window, keep downloading at low priority, so spare
 // bandwidth builds a buffer: up to this many seconds of video ahead...
 constexpr double kBackgroundSeconds = 600;
@@ -93,6 +90,7 @@ constexpr const char* kLastUsedFile = ".last-used";
 // reopens at once instead of hashing everything on disk again first.
 constexpr const char* kResumeFile = "resume.dat";
 constexpr auto kResumeSaveWait = std::chrono::seconds(5);  // at shutdown, at most
+constexpr auto kDeleteWait = std::chrono::seconds(10);     // an open waits this long for an evicted copy to go
 // RAM only: what is kept behind each reader for
 // short seeks back, how far under the cap a trim goes, and the least time
 // between two reloads of one torrent.
@@ -150,6 +148,8 @@ struct Reader
     std::atomic<double> duration{0};
     std::atomic<bool> cancelled{false};
     std::atomic<bool> closed{false};
+    int nextReadPiece = -1;   // continuation of a read split at a piece boundary
+    int deadlinePiece = -1;   // first piece after opening or jumping to a different position
     int scheduledPiece = -1;  // the piece the last schedule was computed for
     // Progress on the piece this reader waits for, to tell slow from stuck.
     // Written by stats() only, which runs on one thread at a time per reader.
@@ -212,6 +212,7 @@ struct Torrent
     qint64 downloadRate = 0;
     Clock::time_point lastPieceAt = Clock::now();   // last piece finished, or a reader opened
     Clock::time_point peersSeenAt = Clock::now();   // last time it had a peer
+    BrokerCounters counters;
 
     // The libtorrent handle, read under `mutex`: a RAM-only reload replaces
     // it from the alert thread. Use the copy outside the lock.
@@ -304,8 +305,14 @@ public:
     // answer is wrong for pieces dropped from memory. t.mutex must be held.
     bool holds(Torrent& t, int piece);
 
+    // Applies the choices that can change while running: DHT, LAN discovery,
+    // port mapping, and the open trackers (added to or taken off the torrents
+    // already here). The rest of `settings` is fixed at start.
+    void applyNetwork(const BrokerSettings& s);
+
     BrokerSettings settings;
     std::vector<std::string> extraTrackers;  // for public torrents only
+    std::atomic<bool> publicTrackers{true};  // may extraTrackers be used?
     std::atomic<bool> closing{false};
 
 private:
@@ -315,12 +322,14 @@ private:
     void onMetadata(Torrent& t);  // t.mutex must be held
     void pauseIfIdle(Torrent& t);
     void dropExtraTrackers(lt::add_torrent_params& atp) const;
+    void syncOpenTrackers(Torrent& t);  // t.mutex must be held
     void reopen(Torrent& t, lt::add_torrent_params& atp, int fileIndex);
     void loadSaved(const Torrent& t, lt::add_torrent_params& atp) const;
     void onReadPiece(Torrent& t, const lt::read_piece_alert& rp);  // t.mutex must be held
     void onResumeData(const lt::save_resume_data_alert& rd);
     void saveResume(Torrent& t);
     void onCacheFlushed(const lt::torrent_handle& h);
+    void finishDelete(const QString& id);
     void trimMemory();
     void reload(const std::shared_ptr<Torrent>& t);
     std::shared_ptr<Torrent> find(const lt::torrent_handle& h);
@@ -330,6 +339,8 @@ private:
     std::mutex m_mutex;  // guards m_torrents
     std::unordered_map<std::string, std::shared_ptr<Torrent>> m_torrents;
     QHash<QString, QString> m_pendingDeletes;  // info hash -> folder, until libtorrent is done
+    std::condition_variable m_deletesDone;     // an entry left m_pendingDeletes
+    QSet<QString> m_deletesRunning;            // finishDelete is removing these folders now
     std::thread m_thread;
     std::atomic<int> m_pendingSaves{0};
     std::atomic<bool> m_shutdownStarted{false};

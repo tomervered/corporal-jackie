@@ -98,7 +98,7 @@ QVariantList Browser::addons() const
                            {"name", a.manifest.name},
                            {"version", a.manifest.version},
                            {"description", a.manifest.description},
-                           {"url", a.manifestUrl.toDisplayString()},
+                           {"url", logging::redactUrl(a.manifestUrl)},  // its path can hold a login
                            {"offers", offers.join(QStringLiteral(", "))},
                            {"error", a.lastError}};
     }
@@ -517,7 +517,7 @@ void Browser::play(int streamIndex)
         return;
     const StreamOption choice = m_streams[streamIndex];
     qCInfo(lcSources).noquote() << "Playing" << choice.source.title << "from" << choice.providerName
-                                << choice.source.url.toDisplayString(QUrl::RemoveQuery);
+                                << logging::redactUrl(choice.source.url);
     // Another source of the video that is playing: go on from the same
     // place instead of from the start.
     double start = 0;

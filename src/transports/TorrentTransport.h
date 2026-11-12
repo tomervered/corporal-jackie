@@ -62,6 +62,11 @@ public:
     // firewall prompt or an open port.
     StreamBroker& broker();
 
+    // What the engine may reach out to (DHT, LAN discovery, port mapping,
+    // open trackers: the same fields of BrokerSettings). Applies at once to a
+    // running engine, and is what a later start uses. Callable from any thread.
+    void setNetwork(const BrokerSettings& settings);
+
     // The disk cache: what it uses, and emptying it of everything not being
     // watched. Blocking (walks the folder); call off the UI thread.
     qint64 cacheUsage() const;

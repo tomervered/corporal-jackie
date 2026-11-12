@@ -1,7 +1,7 @@
 # The window and its parts, as one QML module (CorporalJackie). Used by the
 # app and by tst_ui, which loads the same window against a fake player.
 set(CJ_QML_FILES
-    Main.qml Pages.qml SettingsPanel.qml ContinueWatching.qml
+    Main.qml Pages.qml SettingsPanel.qml PrivacyScreen.qml ContinueWatching.qml
     # player
     ControlBar.qml BarButton.qml LinkPopup.qml Toast.qml StatsOverlay.qml ShortcutsOverlay.qml Format.js
     # pages

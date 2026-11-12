@@ -14,6 +14,7 @@ void Engine::reload(const std::shared_ptr<Torrent>& tp)
     t.reloadedAt = Clock::now();
     if (t.removed || !t.hasMetadata || !t.handle.is_valid() || closing)
         return;
+    ++t.counters.reloads;
 
     const int n = t.info->num_pieces();
     lt::add_torrent_params atp;
@@ -58,6 +59,13 @@ void Engine::reload(const std::shared_ptr<Torrent>& tp)
     atp.piece_priorities.assign(std::size_t(n), lt::dont_download);
 
     const std::size_t refetch = t.evicted.size();
+    try {
+        // The new handle counts from zero: keep what the old one received.
+        const lt::torrent_status st = t.handle.status({});
+        t.counters.wireBytes += st.total_payload_download;
+        t.counters.wastedBytes += st.total_redundant_bytes + st.total_failed_bytes;
+    } catch (const std::exception&) {
+    }
     m_session->remove_torrent(t.handle);
     lt::error_code ec;
     lt::torrent_handle fresh = m_session->add_torrent(std::move(atp), ec);

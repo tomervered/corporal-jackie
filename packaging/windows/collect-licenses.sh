@@ -3,13 +3,15 @@
 # SOURCE.txt to the Windows package. Runs in MSYS2 UCRT64 after the package
 # folder is complete.
 #
-# Usage: collect-licenses.sh <dist> <deps-prefix>
-#   <dist>         the package folder (holds app/)
-#   <deps-prefix>  where build-mpv.sh installed FFmpeg, libplacebo and mpv
+# Usage: collect-licenses.sh <dist> <deps-prefix> <libtorrent-prefix>
+#   <dist>              the package folder (holds app/)
+#   <deps-prefix>       where build-mpv.sh installed FFmpeg, libplacebo and mpv
+#   <libtorrent-prefix> where third_party/libtorrent/build.sh installed libtorrent
 set -euo pipefail
 
 DIST=$1
 DEPS=$2
+TORRENT=$3
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 LIC="$DIST/licenses"
@@ -20,6 +22,8 @@ COMMIT="${GITHUB_SHA:-$(git -C "$ROOT" rev-parse HEAD)}"
 
 rm -rf "$LIC" && mkdir -p "$LIC"
 cp "$ROOT/packaging/THIRD_PARTY_NOTICES.txt" "$DIST/THIRD_PARTY_NOTICES.txt"
+# What the app sends and keeps, for the person who installs it.
+cp "$ROOT/docs/PRIVACY.md" "$DIST/PRIVACY.md"
 
 # --- Libraries we build: license files from their sources at the same tags.
 version() { sed -n "s/^$1=//p" "$HERE/build-mpv.sh"; }
@@ -35,6 +39,11 @@ fetch() {  # fetch <folder> <github owner/repo> <tag> <file>...
         curl -fsSL --retry 3 -o "$dir/$f" "$url" || { echo "Could not fetch $url" >&2; exit 1; }
     done
 }
+# libtorrent is linked into the app (static), patched by us.
+LIBTORRENT_VERSION=v$(sed -n 's/^VERSION=//p' "$ROOT/third_party/libtorrent/build.sh")
+mkdir -p "$LIC/libtorrent"
+cp "$TORRENT/share/corporal-jackie/libtorrent-COPYING" "$LIC/libtorrent/COPYING"
+cp "$TORRENT"/share/corporal-jackie/0*.patch "$LIC/libtorrent/"
 fetch ffmpeg FFmpeg/FFmpeg "$FFMPEG_VERSION" LICENSE.md COPYING.GPLv3
 fetch libplacebo haasn/libplacebo "$LIBPLACEBO_VERSION" LICENSE
 fetch mpv mpv-player/mpv "$MPV_VERSION" Copyright LICENSE.GPL LICENSE.LGPL
@@ -80,6 +89,10 @@ done
     printf '  %-20s %s\n' "FFmpeg $FFMPEG_VERSION" "https://github.com/FFmpeg/FFmpeg/tree/$FFMPEG_VERSION" \
         "libplacebo $LIBPLACEBO_VERSION" "https://github.com/haasn/libplacebo/tree/$LIBPLACEBO_VERSION" \
         "mpv $MPV_VERSION" "https://github.com/mpv-player/mpv/tree/$MPV_VERSION"
+    echo
+    echo "libtorrent $LIBTORRENT_VERSION (BSD-3-Clause), linked into the app, with one patch of ours:"
+    echo "  https://github.com/arvidn/libtorrent/tree/$LIBTORRENT_VERSION"
+    echo "  $REPO_URL/tree/$COMMIT/third_party/libtorrent (build script and patch)"
     echo
     echo "Unmodified MSYS2 UCRT64 packages. Source archives for each version are at"
     echo "https://repo.msys2.org/mingw/sources/ and the build recipes at"

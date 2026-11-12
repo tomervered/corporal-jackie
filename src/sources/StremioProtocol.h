@@ -71,6 +71,12 @@ std::optional<MetaDetail> parseMeta(const QJsonObject& json);
 // are skipped: nothing in v1 plays them.
 QList<StreamOption> parseStreams(const QJsonObject& json, const QString& addonId, const QString& addonName);
 
+// Only http and https subtitle links are kept. A subtitle file the user picks
+// on this computer comes in through Session::addExternalSubtitle instead.
 QList<SubtitleSource> parseSubtitles(const QJsonObject& json);
+
+// A request header an add-on may set: a token name, and a value without
+// control characters (no CR or LF that would start another header).
+bool isSafeHeader(const QString& name, const QString& value);
 
 } // namespace cj::stremio

@@ -26,6 +26,7 @@ class StremioAdapter : public SourceAdapter
 
 public:
     static constexpr int kMaxAddons = 50;
+    static constexpr auto kCinemetaId = "com.linvo.cinemeta";
     static constexpr auto kCinemetaUrl = "https://v3-cinemeta.strem.io/manifest.json";
 
     // storeFile: a JSON file the installed list is kept in. Empty: no file;

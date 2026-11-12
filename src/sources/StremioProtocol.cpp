@@ -1,5 +1,7 @@
 #include "StremioProtocol.h"
 
+#include "Logging.h"
+
 #include "StreamRanking.h"
 
 #include <QJsonArray>
@@ -215,8 +217,10 @@ QList<StreamOption> parseStreams(const QJsonObject& json, const QString& addonId
             s.description = o.value("title").toString();  // the older field
         s.bingeGroup = hints.value("bingeGroup").toString();
         const QString filename = hints.value("filename").toString();
-        if (hints.contains("videoSize"))
-            s.sizeBytes = qint64(hints.value("videoSize").toDouble());
+        // Converting a double past qint64 is undefined: a size beyond 1 PiB
+        // (or not a number) is ignored.
+        if (const double size = hints.value("videoSize").toDouble(-1); size >= 0 && size <= 1125899906842624.0)
+            s.sizeBytes = qint64(size);
         s.source.adapter = QStringLiteral("stremio:") + addonId;
 
         const QString infoHash = o.value("infoHash").toString();
@@ -238,8 +242,14 @@ QList<StreamOption> parseStreams(const QJsonObject& json, const QString& addonId
             s.source.url = QUrl(url);
             s.source.kind = PlayableSource::Kind::Http;
             const QJsonObject request = hints.value("proxyHeaders").toObject().value("request").toObject();
-            for (auto it = request.begin(); it != request.end(); ++it)
-                s.source.headers.insert(it.key(), it.value().toString());
+            for (auto it = request.begin(); it != request.end(); ++it) {
+                // A line break in a header would write a header of the
+                // add-on's choosing, or a second request.
+                if (isSafeHeader(it.key(), it.value().toString()))
+                    s.source.headers.insert(it.key(), it.value().toString());
+                else
+                    qCWarning(lcSources) << "Dropping a stream header with control characters from" << addonId;
+            }
         } else {
             continue;  // ytId, externalUrl, or nothing playable
         }
@@ -251,13 +261,30 @@ QList<StreamOption> parseStreams(const QJsonObject& json, const QString& addonId
     return out;
 }
 
+bool isSafeHeader(const QString& name, const QString& value)
+{
+    if (name.isEmpty() || name.size() > 256 || value.size() > 8192)
+        return false;
+    for (QChar c : name)
+        if (c.unicode() <= 0x20 || c.unicode() >= 0x7f || c == QLatin1Char(':'))
+            return false;
+    for (QChar c : value)
+        if ((c.unicode() < 0x20 && c != QLatin1Char('\t')) || c.unicode() == 0x7f)
+            return false;
+    return true;
+}
+
 QList<SubtitleSource> parseSubtitles(const QJsonObject& json)
 {
     QList<SubtitleSource> out;
     for (const QJsonValue& v : json.value("subtitles").toArray()) {
         const QJsonObject o = v.toObject();
-        const QUrl url(o.value("url").toString());
-        if (!url.isValid() || url.isEmpty())
+        const QUrl url(o.value("url").toString(), QUrl::StrictMode);
+        // A web link and nothing else: an add-on must not point the player
+        // at a file on this computer, or at a protocol it would then try.
+        const QString scheme = url.scheme().toLower();
+        if (!url.isValid() || url.host().isEmpty()
+            || (scheme != QLatin1String("https") && scheme != QLatin1String("http")))
             continue;
         SubtitleSource s;
         s.url = url;

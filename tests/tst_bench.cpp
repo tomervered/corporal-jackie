@@ -5,7 +5,10 @@
 // spread between runs sets any threshold.
 //
 // CJ_BENCH_RUNS=n repeats each mode n times (default 1). CJ_BENCH_OUT=file
-// saves every run's JSON, one per line.
+// saves every run's JSON, one per line, failed runs included (summarize
+// them with tests/bench/summarize.py). CJ_BENCH_PLAYER_PATH runs another
+// build of bench_player; CJ_BENCH_EXTERNAL runs another client (see
+// tests/bench/competitor.cjs).
 
 #include "TorrentHarness.h"
 
@@ -66,7 +69,14 @@ private:
         // Slow reads say where they waited (StreamHandle::read).
         env.insert(QStringLiteral("QT_LOGGING_RULES"), QStringLiteral("cj.broker.debug=true"));
         p.setProcessEnvironment(env);
-        p.start(QStringLiteral(CJ_BENCH_PLAYER), args);
+        const QString external = qEnvironmentVariable("CJ_BENCH_EXTERNAL");
+        if (external.isEmpty())
+            // CJ_BENCH_PLAYER_PATH: another build of bench_player, to compare two versions.
+            p.start(qEnvironmentVariable("CJ_BENCH_PLAYER_PATH", QStringLiteral(CJ_BENCH_PLAYER)), args);
+        else {
+            args.prepend(external);
+            p.start(QStringLiteral("node"), args);
+        }
         const bool finished = p.waitForFinished(240000);
         if (!finished) {
             p.kill();
@@ -113,6 +123,19 @@ private:
         for (const char* kind : {"cached", "missing", "evicted"})
             print(QStringLiteral("BENCH %1:   seek to %2: %3")
                                      .arg(QLatin1String(mode), QLatin1String(kind), msLine(byKind[QLatin1String(kind)])));
+        print(QStringLiteral("BENCH %1:   CPU %2 ms; fetched %3 MiB (%4 reloads); schedule %5 passes, %6 sent, %7 ms")
+                  .arg(QLatin1String(mode))
+                  .arg(r[QStringLiteral("cpuMs")].toInteger())
+                  .arg(r[QStringLiteral("fetchedBytes")].toInteger() / MiB)
+                  .arg(r[QStringLiteral("reloads")].toInteger())
+                  .arg(r[QStringLiteral("schedulePasses")].toInteger())
+                  .arg(r[QStringLiteral("scheduleSent")].toInteger())
+                  .arg(r[QStringLiteral("scheduleMs")].toDouble(), 0, 'f', 1));
+        if (r.contains(QStringLiteral("wireBytes")))
+            print(QStringLiteral("BENCH %1:   received %2 MiB from peers (%3 MiB redundant or failed)")
+                      .arg(QLatin1String(mode))
+                      .arg(r[QStringLiteral("wireBytes")].toInteger() / MiB)
+                      .arg(r[QStringLiteral("wastedBytes")].toInteger() / MiB));
         print(QStringLiteral("BENCH %1:   peak memory: process %2 MiB, piece store %3 MiB, read cache %4 MiB")
                                  .arg(QLatin1String(mode))
                                  .arg(r[QStringLiteral("peakProcessBytes")].toInteger() / MiB)
@@ -127,8 +150,17 @@ private slots:
         QVERIFY(m_dir.isValid());
         m_torrent = harness::makeTorrent(m_dir.filePath(QStringLiteral("seed")), QStringLiteral("movie.mkv"),
                                          {kFileSize}, kPiece, 77);
-        m_seeder = std::make_unique<Seeder>(m_torrent, m_torrent.root, kSeederRate);
+        // Hashed up front (checkFiles), not in seed mode.
+        m_seeder = std::make_unique<Seeder>(m_torrent, m_torrent.root, kSeederRate, true);
+        QVERIFY(m_seeder->waitUntilSeeding());
         m_magnet = harness::magnet(m_torrent, {m_seeder->port()});
+        // One unrecorded run first. A fresh seeder's rate limiter has no
+        // quota saved, so each message waits for its next 100 ms tick and
+        // libtorrent's request pipeline starts small: the first run against
+        // it reached its first byte about 1 s later than the rest (1085 ms
+        // against 62-77 ms on Linux). Without this, whichever client ran
+        // first paid for it.
+        runPlayer(m_magnet, m_dir.filePath(QStringLiteral("cache-warmup")), 0);
     }
 
     void cleanupTestCase() { m_seeder.reset(); }
@@ -156,9 +188,12 @@ private slots:
         std::vector<std::unique_ptr<Seeder>> seeders;
         std::thread leaver;
         if (swarm) {
+            // New seeders each run, cold as above: the swarm's first byte
+            // includes their start-up, for every client alike.
             std::vector<int> ports;
             for (int i = 0; i < kSwarmSeeders; ++i) {
-                seeders.push_back(std::make_unique<Seeder>(m_torrent, m_torrent.root, kSwarmRate));
+                seeders.push_back(std::make_unique<Seeder>(m_torrent, m_torrent.root, kSwarmRate, true));
+                QVERIFY(seeders.back()->waitUntilSeeding());
                 ports.push_back(seeders.back()->port());
             }
             magnet = harness::magnet(m_torrent, ports);
@@ -172,9 +207,36 @@ private slots:
         const QJsonObject r = runPlayer(magnet, cache, ram ? kRamCap : 0);
         if (leaver.joinable())
             leaver.join();
+        // Every run is saved, failed and timed-out ones too, so a summary
+        // cannot leave out the bad runs.
+        QFile save(qEnvironmentVariable("CJ_BENCH_OUT"));
+        if (!save.fileName().isEmpty() && save.open(QIODevice::WriteOnly | QIODevice::Append)) {
+            QJsonObject tagged = r.isEmpty() ? QJsonObject{{"failed", true}} : r;
+            tagged.insert("scenario", swarm ? "peer-departure" : "single-seeder");
+            tagged.insert("ramOnly", ram);
+            const bool external = qEnvironmentVariableIsSet("CJ_BENCH_EXTERNAL");
+            tagged.insert("engine", external ? qEnvironmentVariable("CJ_COMPETITOR", "webtorrent")
+                                             : qEnvironmentVariable("CJ_BENCH_LABEL", "jackie"));
+            // CJ_BENCH_LINK names the network conditions (CI sets netem on lo).
+            tagged.insert("link", qEnvironmentVariable("CJ_BENCH_LINK", "loopback"));
+            save.write(QJsonDocument(tagged).toJson(QJsonDocument::Compact));
+            save.write("\n");
+        }
         QVERIFY2(!r.isEmpty(), ram ? "RAM run failed" : "disk run failed");
         QCOMPARE(r[QStringLiteral("seeks")].toArray().size(), 20);
         report(mode, r);
+        // The app itself, not a competitor or an older build, must recover
+        // from a seeder leaving: without the patched libtorrent a stall of
+        // about 3 s shows up in one run of four. The limit is far above a
+        // healthy run's, so a slow runner does not trip it.
+        if (swarm && !qEnvironmentVariableIsSet("CJ_BENCH_EXTERNAL") && !qEnvironmentVariableIsSet("CJ_BENCH_PLAYER_PATH")) {
+            const qint64 limit = qEnvironmentVariable("CJ_BENCH_MAX_DEPARTURE_STALL_MS", QStringLiteral("2500")).toLongLong();
+            const qint64 longest = r[QStringLiteral("longestStallMs")].toInteger();
+            if (longest > limit)
+                print(QStringLiteral("A stall of %1 ms after a seeder left. The player's log:\n%2")
+                          .arg(longest).arg(QString::fromLocal8Bit(m_lastLog)));
+            QVERIFY2(longest <= limit, "playback stalled for seconds after a seeder left");
+        }
         // A stall of seconds is worth a look: show what the broker logged.
         if (r[QStringLiteral("longestStallMs")].toInteger() > 3000) {
             print(QStringLiteral("A stall over 3 s. The player's log:\n%1").arg(QString::fromLocal8Bit(m_lastLog)));
@@ -183,11 +245,6 @@ private slots:
             for (const QByteArray& line : m_lastLog.split('\n'))
                 if (line.contains("Read of piece"))
                     print(QStringLiteral("BENCH %1:   %2").arg(QLatin1String(mode), QString::fromLocal8Bit(line.trimmed())));
-        }
-        QFile save(qEnvironmentVariable("CJ_BENCH_OUT"));
-        if (!save.fileName().isEmpty() && save.open(QIODevice::WriteOnly | QIODevice::Append)) {
-            save.write(QJsonDocument(r).toJson(QJsonDocument::Compact));
-            save.write("\n");
         }
     }
 

@@ -23,6 +23,9 @@ struct BrokerSettings
     bool localDiscovery = true;              // find peers on the LAN
     bool portMapping = true;                 // UPnP and NAT-PMP
     bool utp = true;                         // accept peers calling over uTP (we call over TCP)
+    // The app's own list of open trackers (kPublicTrackers) is added to public
+    // torrents. A torrent's own trackers are always asked. Off: only those.
+    bool publicTrackers = true;
     int connectionsLimit = 200;
     int downloadLimit = 0;                   // bytes/s, 0 = unlimited
     int uploadLimit = 0;                     // bytes/s, 0 = unlimited
@@ -36,6 +39,11 @@ struct BrokerSettings
     // Open trackers asked as well as a torrent's own, for public torrents
     // only. Empty: the built-in list (none with loopbackOnly). Tests set it.
     QStringList extraTrackers;
+    // Tests only: finishing a cache deletion waits this long, so a test can
+    // reopen the torrent while its old copy is still being deleted.
+    int deleteDelayMsForTests = 0;
+    // Tests only: an open waits this long for such a deletion (0: kDeleteWait).
+    int deleteWaitMsForTests = 0;
 };
 
 enum class BrokerError {
@@ -75,6 +83,18 @@ struct StreamStats
     double bufferedSeconds = 0;   // the same, at the file's bitrate
     int waitingPercent = 0;       // while buffering: how much of the piece at the read position is here
     bool paused = false;          // nobody has used it for BrokerSettings::idlePauseMs
+};
+
+// What the broker did for one torrent, for the benchmark and the log.
+struct BrokerCounters
+{
+    qint64 fetchedBytes = 0;   // verified piece bytes downloaded, counting a refetch of a dropped piece again
+    qint64 wireBytes = 0;      // payload bytes received from peers, across reloads (partial pieces included)
+    qint64 wastedBytes = 0;    // of those, bytes that were redundant or failed their hash check
+    int reloads = 0;           // RAM only: times the torrent was reloaded to refetch dropped pieces
+    int schedulePasses = 0;    // calls to Engine::schedule
+    int scheduleSent = 0;      // of those, the ones that sent priorities or deadlines
+    qint64 scheduleMicros = 0; // time spent in Engine::schedule
 };
 
 // Bytes per second assumed when the duration is not known yet (about 12 Mbit/s).

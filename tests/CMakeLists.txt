@@ -15,7 +15,7 @@ target_link_libraries(tst_session PRIVATE cj_session)
 
 # The real mpv target, headless, on a bundled clip.
 cj_add_test(tst_mpvtarget FakeHttpServer.h)
-target_link_libraries(tst_mpvtarget PRIVATE cj_targets Qt6::Network)
+target_link_libraries(tst_mpvtarget PRIVATE cj_targets cj::mpv Qt6::Network)
 target_compile_definitions(tst_mpvtarget PRIVATE CJ_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
 
 # The torrent stream broker against a local swarm.
@@ -88,3 +88,16 @@ set_tests_properties(tst_bench PROPERTIES TIMEOUT 600 LABELS bench)
 # while a magnet plays (also run, unlabelled, inside tst_torrentstream).
 add_test(NAME bench_mpv COMMAND tst_torrentstream magnetPlaysToTheEnd)
 set_tests_properties(bench_mpv PROPERTIES TIMEOUT 300 LABELS bench)
+
+# A diagnostic, not a test: Boost.Asio's Windows timers (see ci.yml).
+if(WIN32)
+    add_executable(asio_timer_probe diag/asio_timer_probe.cpp)
+    target_link_libraries(asio_timer_probe PRIVATE cj::libtorrent)
+    target_compile_definitions(asio_timer_probe PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+endif()
+# Also built on Linux, so the probe itself can be checked there.
+add_executable(session_churn_probe diag/session_churn_probe.cpp)
+target_link_libraries(session_churn_probe PRIVATE cj::libtorrent)
+if(WIN32)
+    target_compile_definitions(session_churn_probe PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+endif()

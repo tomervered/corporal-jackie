@@ -235,6 +235,34 @@ Rectangle {
             }
             Note { text: "While watching, G makes subtitles bigger and Shift+G smaller." }
 
+            // --- What may be contacted ------------------------------------------
+            Heading { text: "Privacy: what Corporal Jackie may contact" }
+            Note { text: "Each applies at once. Playing a torrent always shows your IP address and the torrent to its peers; a VPN hides the address. PRIVACY.md, next to the app, lists everything." }
+            Toggle {
+                title: "Browse and search with Cinemeta"
+                detail: "Stremio's catalog server sees your IP address and every title you search for or open. Off removes it from Add-ons."
+                checked: preferences.useCinemeta
+                onToggled: on => preferences.useCinemeta = on
+            }
+            Toggle {
+                title: "Find peers through the DHT and your local network"
+                detail: "Tells unrelated computers the torrent you open and your IP address."
+                checked: preferences.useDht
+                onToggled: on => preferences.useDht = on
+            }
+            Toggle {
+                title: "Ask eight public trackers for peers"
+                detail: "They learn your IP address and the torrent you open. A magnet link's own trackers are used either way."
+                checked: preferences.usePublicTrackers
+                onToggled: on => preferences.usePublicTrackers = on
+            }
+            Toggle {
+                title: "Let your router open a port (UPnP, NAT-PMP)"
+                detail: "Lets more peers connect to you."
+                checked: preferences.usePortMapping
+                onToggled: on => preferences.usePortMapping = on
+            }
+
             // --- Torrents --------------------------------------------------------
             Heading { text: "Torrent storage" }
             Toggle {
@@ -333,13 +361,18 @@ Rectangle {
 
             // --- History and library -------------------------------------------------
             Heading { text: "History and library" }
+            Toggle {
+                title: "Remember what I watch"
+                detail: "Off: nothing new goes into the history or Continue Watching. What is already there stays until you clear it."
+                checked: library.keepHistory
+                onToggled: on => library.keepHistory = on
+            }
             ActionRow {
                 title: "Watch history"
-                detail: (library.historyCount === 1 ? "1 video" : library.historyCount + " videos") + ". Continue Watching comes from this."
+                detail: (library.historyCount === 1 ? "1 video" : library.historyCount + " videos") + ". Continue Watching comes from this. Clearing it also clears the log files, which name what played."
                 Button {
                     text: panel.confirmClear ? "Clear all history?" : "Clear"
                     focusPolicy: Qt.NoFocus
-                    enabled: library.historyCount > 0
                     onClicked: {
                         if (!panel.confirmClear) { panel.confirmClear = true; return }
                         library.clearHistory()
@@ -349,11 +382,12 @@ Rectangle {
             }
             ActionRow {
                 title: "Back up or move"
-                detail: "One file with your library, history, add-ons and folders. Importing adds to what is here."
+                detail: "One file with your library, history, add-ons and folders. Importing adds to what is here. Logins, signed stream links and add-on settings are left out; add-ons with settings are listed in the file to set up again."
                 Button { text: "Export…"; focusPolicy: Qt.NoFocus; onClicked: exportDialog.open() }
                 Button { text: "Import…"; focusPolicy: Qt.NoFocus; onClicked: importDialog.open() }
             }
             Note { visible: panel.result !== ""; text: panel.result }
+            Note { visible: library.storageError !== ""; text: library.storageError }
         }
     }
 

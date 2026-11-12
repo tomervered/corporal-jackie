@@ -20,13 +20,17 @@ class JsonFetcher : public QObject
     Q_OBJECT
 
 public:
-    static constexpr int kDefaultTimeoutMs = 15000;
-    static constexpr qint64 kDefaultMaxBytes = 8 * 1024 * 1024;
+    static constexpr int kDefaultTimeoutMs = 15000;        // with no bytes arriving
+    static constexpr int kDefaultDeadlineMs = 45000;       // for the whole answer
+    static constexpr qint64 kDefaultMaxBytes = 8 * 1024 * 1024;  // after decompression
+    static constexpr int kMaxInFlight = 64;                // more fail at once
+    static constexpr int kMaxRedirects = 5;
 
     explicit JsonFetcher(QObject* parent = nullptr);
     ~JsonFetcher() override;
 
     void setTimeout(int ms) { m_timeoutMs = ms; }
+    void setDeadline(int ms) { m_deadlineMs = ms; }
     void setMaxBytes(qint64 bytes) { m_maxBytes = bytes; }
 
     // Answers exactly once, on this object's thread, unless the fetcher is
@@ -44,6 +48,7 @@ private:
     QNetworkAccessManager* m_net;
     Mailbox m_mailbox;
     int m_timeoutMs = kDefaultTimeoutMs;
+    int m_deadlineMs = kDefaultDeadlineMs;
     qint64 m_maxBytes = kDefaultMaxBytes;
     int m_inFlight = 0;
 };
