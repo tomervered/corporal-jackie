@@ -102,7 +102,7 @@ Rectangle {
             Item { width: 1; height: 2 }
             Text {
                 width: parent.width
-                text: "Playing a torrent always shows your IP address and the torrent to the people sharing it, and you upload to them while it plays. A VPN hides your address; this app does not. With all of these off, only the peers and trackers in a magnet link are used, so some torrents will not start. Posters come from the servers your add-ons name. The full list is in PRIVACY.md, next to the app."
+                text: "Playing a torrent always shows your IP address and the torrent to the people sharing it, and you upload to them while it plays. A VPN hides your address; this app does not. With all of these off, only the peers and trackers in a magnet link are used, so some torrents will not start. The servers and peers belong to others and may be in other countries. Posters come from the servers your add-ons name. The full list is in PRIVACY.md, next to the app."
                 color: Theme.muted
                 font.pixelSize: 12
                 wrapMode: Text.WordWrap
