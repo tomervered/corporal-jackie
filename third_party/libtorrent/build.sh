@@ -49,6 +49,13 @@ EXTRA=()
 if [ "$(uname -s)" = Darwin ] && command -v brew >/dev/null; then
     EXTRA+=(-DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)")
 fi
+# Windows: Boost 1.92's IOCP timer thread has crashed on freed memory when a
+# session ends (tests/diag/session_churn_probe.cpp reproduces it in seconds).
+# Use Asio's select-based reactor there instead; FD_SETSIZE lifts its default
+# limit of 64 sockets.
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) EXTRA+=("-DCMAKE_CXX_FLAGS=-DBOOST_ASIO_DISABLE_IOCP -DFD_SETSIZE=1024") ;;
+esac
 rm -rf "$PREFIX/include/libtorrent" "$PREFIX"/lib/libtorrent-rasterbar* "$PREFIX"/lib/cmake/LibtorrentRasterbar
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="$CMAKE_PREFIX" -DCMAKE_INSTALL_LIBDIR=lib \
