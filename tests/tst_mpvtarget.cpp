@@ -35,9 +35,17 @@ private slots:
     void playerRunsNoScriptsAndNoYtdl()
     {
         MpvTarget target(MpvTarget::Mode::Headless);
+        // A libmpv built without Lua (ours on Windows) has no ytdl or osc
+        // option at all, which is as good as "no": nothing can run.
+        char* osc = mpv_get_property_string(target.handle(), "osc");
+        const bool hasLua = osc != nullptr;
+        mpv_free(osc);
         for (const char* name : {"ytdl", "load-scripts"}) {
             char* value = mpv_get_property_string(target.handle(), name);
-            QVERIFY2(value, name);
+            if (!value) {
+                QVERIFY2(!hasLua, name);
+                continue;
+            }
             QCOMPARE(QString::fromUtf8(value), QStringLiteral("no"));
             mpv_free(value);
         }
