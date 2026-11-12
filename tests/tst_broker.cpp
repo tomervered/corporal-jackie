@@ -617,6 +617,9 @@ private slots:
         BrokerSettings off = s;
         off.publicTrackers = false;
         broker.applyNetwork(off);
+        // libtorrent applies the change on its own thread; an announce that was
+        // already on its way (the first torrent finishing) may still land.
+        QTest::qWait(1500);
         openTracker.requests.clear();
         Seeder otherSeeder(other, other.root);
         auto h2 = openLater(broker, harness::magnet(other, {otherSeeder.port()}));
