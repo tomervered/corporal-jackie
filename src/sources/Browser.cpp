@@ -491,7 +491,8 @@ void Browser::openVideo(int index)
 QVariantList Browser::streams() const
 {
     QVariantList out;
-    for (const StreamOption& s : m_streams) {
+    for (int i = 0; i < m_streams.size(); ++i) {
+        const StreamOption& s = m_streams[i];
         QStringList facts;
         if (s.seeders >= 0)
             facts << QStringLiteral("%1 seeders").arg(s.seeders);
@@ -502,7 +503,13 @@ QVariantList Browser::streams() const
                                                                  : QStringLiteral("file"));
         if (!s.source.subtitles.isEmpty())
             facts << QStringLiteral("%1 subtitles").arg(s.source.subtitles.size());
-        out << QVariantMap{{"group", ranking::qualityLabel(s.quality)},
+        // index: what play() takes. The page can sort and filter the list,
+        // so each row carries its place in the best-first order.
+        out << QVariantMap{{"index", i},
+                           {"group", ranking::qualityLabel(s.quality)},
+                           {"quality", s.quality},
+                           {"seeders", s.seeders},
+                           {"sizeBytes", double(s.sizeBytes)},
                            {"provider", s.providerName},
                            {"name", QString(s.name).replace(QLatin1Char('\n'), QLatin1Char(' '))},
                            {"description", s.description},

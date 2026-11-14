@@ -16,6 +16,7 @@
 
 #include <QDateTime>
 #include <QDir>
+#include <QJSValue>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlError>
@@ -79,7 +80,8 @@ private slots:
                          R"({"meta":{"id":"tt1","type":"movie","name":"First Film","description":"A film.",
                                      "releaseInfo":"2001","genres":["Drama"]}})");
         m_server.setJson("/films/stream/movie/tt1.json",
-                         R"({"streams":[{"name":"Films\n1080p","title":"first.mkv","url":"http:\/\/127.0.0.1:1\/first.mkv"}]})");
+                         R"({"streams":[{"name":"Films\n1080p","title":"first.mkv","url":"http:\/\/127.0.0.1:1\/first.mkv"},
+                                        {"name":"Films\n720p","title":"small.mkv\n💾 2 GB","url":"http:\/\/127.0.0.1:1\/small.mkv"}]})");
 
         QVERIFY(m_root.isValid());
         m_core = std::make_unique<AppCore>(m_root.filePath(QStringLiteral("data")), m_root.filePath(QStringLiteral("cache")));
@@ -186,18 +188,39 @@ private slots:
         call("go", "detail");
         QTRY_VERIFY(!m_core->browser().detailLoading());
         QCOMPARE(m_core->browser().detail().value("name").toString(), QStringLiteral("First Film"));
+        // A movie's ways to play are asked for and listed on its page, with
+        // no button to press first.
+        QTRY_COMPARE(m_core->browser().streams().size(), 2);
+        QCOMPARE(page(), QStringLiteral("detail"));
+        QQuickItem* list = m_window->findChild<QQuickItem*>(QStringLiteral("movieStreams"));
+        QVERIFY(list);
+        QTRY_VERIFY(list->isVisible());
+        const auto shownFiles = [list] {
+            QStringList out;
+            QVariant shown = list->property("shown");   // a JS array
+            if (shown.metaType() == QMetaType::fromType<QJSValue>())
+                shown = shown.value<QJSValue>().toVariant();
+            for (const QVariant& v : shown.toList())
+                out << v.toMap().value("description").toString().section(QLatin1Char('\n'), 0, 0);
+            return out;
+        };
+        QCOMPARE(shownFiles(), (QStringList{"first.mkv", "small.mkv"}));   // best first: 1080p
         shot("detail");
 
-        // Enter on the focused button asks for ways to play.
-        QTRY_VERIFY(m_window->activeFocusItem());
-        QTest::keyClick(m_window, Qt::Key_Return);
-        QTRY_COMPARE(page(), QStringLiteral("streams"));
-        QTRY_COMPARE(m_core->browser().streams().size(), 1);
-        shot("streams");
+        // Sorted by size, the one with a known size comes first.
+        m_pages->setProperty("streamSort", QStringLiteral("largest"));
+        QCOMPARE(shownFiles(), (QStringList{"small.mkv", "first.mkv"}));
+        // Hiding the add-on hides its ways to play.
+        m_pages->setProperty("hiddenProviders", QVariantList{QStringLiteral("Films")});
+        QCOMPARE(shownFiles(), QStringList{});
+        QCOMPARE(list->property("hiddenCount").toInt(), 2);
+        shot("detail-filtered");
+        m_pages->setProperty("streamSort", QStringLiteral("best"));
+        m_pages->setProperty("hiddenProviders", QVariantList{});
 
-        // Escape goes back to the details.
+        // Escape goes back.
         QTest::keyClick(m_window, Qt::Key_Escape);
-        QCOMPARE(page(), QStringLiteral("detail"));
+        QVERIFY(page() != QStringLiteral("detail"));
     }
 
     void libraryAndContinueWatching()

@@ -1,11 +1,35 @@
 import QtQuick
 import QtQuick.Controls.Basic
 
-// An item's details and, for a series, its episodes.
+// An item's details and, for a series, its episodes. For a movie, the ways
+// to play it are listed here at once: opening a movie is asking for them.
 Item {
     id: detailPage
     required property Item nav   // the Pages: go(), back(), openItem() and the picked types
-    function takeFocus() { (browser.detail.isSeries ? episodes : playButton).forceActiveFocus() }
+    readonly property bool isMovie: !browser.detail.isSeries && browser.detail.type !== "series"
+    function takeFocus() {
+        if (browser.detail.isSeries) episodes.forceActiveFocus()
+        else if (isMovie) movieStreams.takeFocus()
+        else libraryButton.forceActiveFocus()
+    }
+
+    // Asks for a movie's ways to play once its details are in. The key
+    // keeps a return to the page (after playing) from asking again.
+    property string streamsAskedFor: ""
+    function askForStreams() {
+        if (browser.detailLoading || !browser.detail.key) {
+            streamsAskedFor = ""
+            return
+        }
+        if (isMovie && streamsAskedFor !== browser.detail.key) {
+            streamsAskedFor = browser.detail.key
+            browser.openVideo(-1)
+        }
+    }
+    Connections {
+        target: browser
+        function onDetailChanged() { detailPage.askForStreams() }
+    }
 
 
     // The item's backdrop, faded into the page
@@ -61,13 +85,7 @@ Item {
             Row {
                 spacing: 8
                 Button {
-                    id: playButton
-                    visible: !browser.detail.isSeries && !browser.detailLoading
-                    text: "▶  Find ways to play"
-                    highlighted: true
-                    onClicked: { browser.openVideo(-1); nav.go("streams") }
-                }
-                Button {
+                    id: libraryButton
                     // Reads library.items so it updates when the library changes.
                     readonly property bool saved: library.items.length >= 0 && library.contains(browser.detail.key || "")
                     visible: (browser.detail.id || "") !== ""
@@ -81,6 +99,13 @@ Item {
                 text: browser.detailLoading ? "Loading details…" : browser.detailError !== "" ? "Details could not be loaded: " + browser.detailError : ""
             }
         }
+    }
+    StreamList {
+        id: movieStreams
+        objectName: "movieStreams"
+        nav: detailPage.nav
+        anchors { left: parent.left; right: parent.right; top: detailHeader.bottom; bottom: parent.bottom; topMargin: 16 }
+        visible: detailPage.isMovie && !browser.detailLoading
     }
     ListView {
         id: episodes
