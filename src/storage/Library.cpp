@@ -167,6 +167,10 @@ void Library::resume(const QString& key)
     // An item finished or barely started plays from the beginning.
     const double start = !e->finished && e->position >= Storage::kMinResumeSeconds ? e->position : 0;
     m_session.playSource(e->source, start);
+    // The player's episode list.
+    if (!e->adapter.isEmpty())
+        m_browser.setPlaying(MetaPreview{e->adapter, e->provider, e->itemId, e->itemType, e->itemName, e->poster, {}, {}},
+                             e->videoId);
 }
 
 void Library::saveNow()

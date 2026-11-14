@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import CorporalJackie.Player   // KeyedList
 
 // What a search of all the add-ons found, a row per list.
 Flickable {
@@ -46,18 +47,19 @@ Flickable {
                 : browser.searchRows.every(r => !r.loading && r.items.length === 0) ? "Nothing found for “" + browser.searchAllText + "”."
                 : ""
         }
+        KeyedList { id: searchRowsModel; keyRole: "catalog"; values: browser.searchRows }
         Repeater {
-            model: browser.searchRows
+            model: searchRowsModel
             PosterRow {
                 id: searchRow
-                required property var modelData
+                required property var entry
                 required property int index
                 // Lists with nothing found are left out once they answer.
-                visible: modelData.loading || modelData.items.length > 0
-                title: modelData.name
-                items: modelData.items
-                loading: modelData.loading
-                error: modelData.error
+                visible: entry.loading || entry.items.length > 0
+                title: entry.name
+                items: entry.items
+                loading: entry.loading
+                error: entry.error
                 onOpened: i => nav.openItem(() => browser.openRowItem(true, index, i))
                 onFocusedIn: nav.reveal(searchPage, searchRow)
             }

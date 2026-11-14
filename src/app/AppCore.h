@@ -41,6 +41,11 @@ class AppCore : public QObject
     Q_OBJECT
 
 public:
+    // The window is laid out left to right, in English. Under a right-to-left
+    // system language (Hebrew, Arabic) Qt would mirror every row and control.
+    // Call before the window loads.
+    static void useLeftToRight();
+
     // The database lives in dataDir; torrents and images are cached under
     // cacheDir unless the preferences say otherwise.
     AppCore(const QString& dataDir, const QString& cacheDir, QObject* parent = nullptr);

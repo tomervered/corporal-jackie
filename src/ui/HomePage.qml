@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import CorporalJackie.Player   // KeyedList
 
 // Home: search, what to go on watching, and a row from each list of every
 // add-on and folder.
@@ -69,20 +70,22 @@ Flickable {
             visible: browser.catalogs.length === 0
             text: "Nothing to browse yet. Install an add-on under Add-ons, or add a folder with videos under Your folders."
         }
+        // Updated in place: a row that finishes loading leaves the others be.
+        KeyedList { id: homeRowsModel; keyRole: "catalog"; values: browser.homeRows }
         Repeater {
             id: homeRows
-            model: browser.homeRows
+            model: homeRowsModel
             PosterRow {
                 id: homeRow
-                required property var modelData
+                required property var entry
                 required property int index
-                title: modelData.name
-                items: modelData.items
-                loading: modelData.loading
-                error: modelData.error
+                title: entry.name
+                items: entry.items
+                loading: entry.loading
+                error: entry.error
                 canSeeAll: true
                 onOpened: i => nav.openItem(() => browser.openRowItem(false, index, i))
-                onSeeAll: { browser.openCatalog(modelData.catalog); nav.discoverType = ""; nav.go("discover") }
+                onSeeAll: { browser.openCatalog(entry.catalog); nav.discoverType = ""; nav.go("discover") }
                 onFocusedIn: nav.reveal(homePage, homeRow)
             }
         }
