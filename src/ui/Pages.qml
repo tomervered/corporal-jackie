@@ -15,6 +15,8 @@ Rectangle {
     property var history: []
     property string searchType: ""     // the type picked on the search page; "" = all
     property string discoverType: ""   // the type picked on Discover
+    property string streamSort: "best" // how ways to play are ordered: best, seeders, largest, smallest
+    property var hiddenProviders: []   // add-ons whose ways to play are left out
     signal closeRequested()        // back to the video
     signal settingsRequested()
     signal openFileRequested()

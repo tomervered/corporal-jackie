@@ -5,7 +5,7 @@ set(CJ_QML_FILES
     # player
     ControlBar.qml BarButton.qml LinkPopup.qml Toast.qml StatsOverlay.qml ShortcutsOverlay.qml Format.js
     # pages
-    HomePage.qml SearchPage.qml DiscoverPage.qml DetailPage.qml StreamsPage.qml
+    HomePage.qml SearchPage.qml DiscoverPage.qml DetailPage.qml StreamsPage.qml StreamList.qml
     LibraryPage.qml AddonsPage.qml FoldersPage.qml
     # pieces
     Theme.qml Muted.qml Heading.qml PageTitle.qml SectionLabel.qml RowItem.qml
