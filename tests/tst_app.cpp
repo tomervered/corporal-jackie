@@ -300,16 +300,16 @@ private slots:
         {
             Run run(m_root->path());
             Preferences& p = run.core.preferences();
-            QVERIFY(p.torrentsInMemory());
+            QVERIFY(!p.torrentsInMemory());  // disk is the default
             QVERIFY(!p.restartNeeded());
             QSignalSpy changed(&p, &Preferences::changed);
-            p.setTorrentsInMemory(false);
+            p.setTorrentsInMemory(true);
             p.setDiskCacheGB(3);
             p.setMemoryCapMB(512);
             QVERIFY(changed.count() >= 3);
             QVERIFY(p.restartNeeded());
             // The engine keeps what it started with.
-            QVERIFY(run.core.brokerSettings().memoryOnly);
+            QVERIFY(!run.core.brokerSettings().memoryOnly);
             p.setCacheFolder(QUrl::fromLocalFile(m_root->path()));
             QVERIFY(p.customCacheFolder());
             // Torrents go in a folder of their own inside the one picked.
@@ -319,12 +319,31 @@ private slots:
         const Preferences& p = run.core.preferences();
         QVERIFY(!p.restartNeeded());
         const BrokerSettings s = run.core.brokerSettings();
-        QVERIFY(!s.memoryOnly);
+        QVERIFY(s.memoryOnly);
         QCOMPARE(s.cacheCapBytes, qint64(3) * 1024 * 1024 * 1024);
         QCOMPARE(s.memoryCapBytes, qint64(512) * 1024 * 1024);
         QCOMPARE(QDir(s.cacheDir), QDir(m_root->path() + QStringLiteral("/Corporal Jackie torrents")));
         run.core.preferences().resetCacheFolder();
         QVERIFY(!run.core.preferences().customCacheFolder());
+    }
+
+    void ramOnlyDefaultMovesToDiskOnce()
+    {
+        // An install from before disk became the default saved RAM only.
+        {
+            Run run(m_root->path());
+            run.core.storage().setSetting(QStringLiteral("torrents/defaultsVersion"), 1);
+            run.core.storage().setSetting(QStringLiteral("torrents/inMemory"), true);
+        }
+        {
+            Run run(m_root->path());
+            QVERIFY(!run.core.preferences().torrentsInMemory());
+            QVERIFY(!run.core.brokerSettings().memoryOnly);
+            run.core.preferences().setTorrentsInMemory(true);
+        }
+        // Moved once: a later choice of RAM only stays.
+        Run run(m_root->path());
+        QVERIFY(run.core.preferences().torrentsInMemory());
     }
 
     void preferencesClampValues()

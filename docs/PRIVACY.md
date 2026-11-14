@@ -50,8 +50,8 @@ The data folder is `QStandardPaths::AppDataLocation` and the cache folder `QStan
 | Library, add-on list with install links, local folders, settings | Same database | Removed by the user |
 | Logs: what played (file names, the info hash of each torrent opened, and servers as `https://host/…`, never paths, queries or logins), errors | `logs/corporal-jackie.log` in the data folder, and the previous run's `corporal-jackie.1.log` | Two runs; Clear history empties both |
 | Poster images | `images/` in the cache folder | The size cap in Settings (100 MB to 1 GB); Clear in Settings |
-| Torrent pieces (disk mode) | `torrents/` in the cache folder, or the folder chosen in Settings | The cache cap (10 GB default), oldest torrent first; Clear in Settings |
-| Torrent pieces (RAM mode, default) | Memory only; each torrent's file list is written to the torrent cache | Closing the torrent |
+| Torrent pieces (disk mode, default) | `torrents/` in the cache folder, or the folder chosen in Settings | The cache cap (10 GB default), oldest torrent first; Clear in Settings |
+| Torrent pieces (RAM mode) | Memory only; each torrent's file list is written to the torrent cache | Closing the torrent |
 | Exports | A file the user picks | The user deletes it |
 
 ### Turning history off

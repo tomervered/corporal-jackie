@@ -51,7 +51,7 @@ The plan asked for least recently used pieces. libtorrent cannot forget single p
 
 ### RAM only
 
-With `BrokerSettings::memoryOnly`, pieces are kept in memory and nothing from the video is written to disk (only each torrent's file list, a few KB, and its last-used time). The app turns it on by default to spare SSDs. It works through a libtorrent disk interface of our own (`MemoryStorage.h`).
+With `BrokerSettings::memoryOnly`, pieces are kept in memory and nothing from the video is written to disk (only each torrent's file list, a few KB, and its last-used time). It is off by default (on, it holds up to its whole cap in memory); the Settings panel turns it on. It works through a libtorrent disk interface of our own (`MemoryStorage.h`).
 
 Memory has its own cap (`memoryCapBytes`, 1 GB by default). Once a second, and whenever it is over, the broker drops verified pieces until memory is at 85% of the cap: first every piece of torrents nobody reads, then the pieces furthest from each reader, behind a reader before ahead of it. It never drops the pieces just behind a reader (an eighth of the cap, at most 64 MB), its read-ahead, or the first and last 4 MB of the file. The read-ahead and the background fill are limited to half the cap.
 
