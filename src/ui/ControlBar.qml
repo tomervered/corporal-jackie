@@ -4,7 +4,8 @@ import CorporalJackie.Player   // VideoSurface, Session and the Playback enums, 
 import "Format.js" as Format
 
 // The bar under the video: play, time, seek (with chapters and the A-B
-// range), volume, the Options menu, Browse, Open and full screen.
+// range), volume, the Options menu, Episodes (for a series), Browse, Open
+// and full screen.
 Rectangle {
     id: controlBar
     property bool shown: true
@@ -17,6 +18,7 @@ Rectangle {
     signal settingsRequested()
     signal shortcutsRequested()
     signal fullScreenRequested()
+    signal episodesRequested()
 
     height: 64
     opacity: shown ? 1 : 0
@@ -213,6 +215,11 @@ Rectangle {
                 MenuItem { text: "Settings…"; onTriggered: controlBar.settingsRequested() }
                 MenuItem { text: "Keyboard keys (mpv's)"; onTriggered: controlBar.shortcutsRequested() }
             }
+        }
+        BarButton {
+            visible: browser.playingEpisodes.length > 0
+            text: "Episodes"
+            onClicked: controlBar.episodesRequested()
         }
         BarButton {
             text: "Browse"

@@ -99,6 +99,7 @@ private:
     double m_pendingStart = 0;
     QString m_pendingShown;       // the pending link, as logs may show it
     std::unique_ptr<ScopedHttp> m_http;   // links with credentials, remote subtitles
+    bool m_cacheSizeFromEnv = false;      // CJ_MPV_OPTS set mpv's buffer size: leave it
     static constexpr qint64 kMaxSubtitleBytes = 20 * 1024 * 1024;  // a subtitle is small
     QList<SubtitleSource> m_pendingSubtitles;  // added once the file is loaded
 

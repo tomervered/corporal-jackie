@@ -174,14 +174,16 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
     setOption(m_mpv, "screenshot-template", "%{media-title} %wH-%wM-%wS");
     // Read ahead for every source, not only for what mpv sees as network
     // streams (torrent:// is not one): a torrent that slows down for a few
-    // seconds then plays on from memory instead of freezing.
+    // seconds then plays on from memory instead of freezing. How far ahead
+    // depends on the source, see startLoad().
     setOption(m_mpv, "cache", "yes");
-    setOption(m_mpv, "demuxer-max-bytes", "256MiB");
-    setOption(m_mpv, "demuxer-max-back-bytes", "64MiB");
     // CJ_MPV_OPTS="name=value,name=value" sets extra mpv options, for troubleshooting.
     for (const QByteArray& pair : qgetenv("CJ_MPV_OPTS").split(',')) {
-        if (const qsizetype eq = pair.indexOf('='); eq > 0)
+        if (const qsizetype eq = pair.indexOf('='); eq > 0) {
             setOption(m_mpv, pair.left(eq).constData(), pair.mid(eq + 1).constData());
+            if (pair.startsWith("demuxer-max-"))
+                m_cacheSizeFromEnv = true;
+        }
     }
 
     if (mpv_initialize(m_mpv) < 0) {
@@ -448,6 +450,17 @@ void MpvTarget::startLoad(const QByteArray& target, const QString& shown, double
     // "start" applies to the next file loaded; reset it every time.
     mpv_set_property_string(m_mpv, "start", startSeconds > 0 ? number(startSeconds).constData() : "none");
     mpv_set_property_string(m_mpv, "pause", "no");
+    if (!m_cacheSizeFromEnv) {
+        // mpv's buffer is memory on top of everything else. A web link has no
+        // other buffer, so it gets a big one. A torrent already has the
+        // broker's (minutes ahead, on disk or in RAM) and a local file needs
+        // none: 256 MB there was a second copy of what the broker holds
+        // (measured 2026-11-14 on a 1080p torrent in disk mode: the app held
+        // 810 MB with 256 MB, 590 MB with 64 MB).
+        const bool web = target.startsWith("http") || target.startsWith("cjhttp");
+        mpv_set_property_string(m_mpv, "demuxer-max-bytes", web ? "256MiB" : "64MiB");
+        mpv_set_property_string(m_mpv, "demuxer-max-back-bytes", web ? "64MiB" : "32MiB");
+    }
     ++m_loadsInFlight;
     command({"loadfile", target.constData(), "replace"});
 }

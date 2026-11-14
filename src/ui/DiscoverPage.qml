@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import CorporalJackie.Player   // KeyedList
 
 // Discover: one list at a time, by type and genre.
 Item {
@@ -82,6 +83,8 @@ Item {
                 : ""
         }
     }
+    // Updated in place: a new page adds posters without reloading the others.
+    KeyedList { id: gridModel; values: browser.items }
     GridView {
         id: grid
         anchors { left: parent.left; right: parent.right; top: discoverBar.bottom; bottom: parent.bottom; topMargin: 14 }
@@ -90,12 +93,12 @@ Item {
         clip: true
         activeFocusOnTab: true
         keyNavigationEnabled: true
-        model: browser.items
+        model: gridModel
         ScrollBar.vertical: ScrollBar {}
         delegate: PosterTile {
-            required property var modelData
+            required property var entry
             required property int index
-            item: modelData
+            item: entry
             current: GridView.isCurrentItem && grid.activeFocus
             onActivated: { grid.currentIndex = index; nav.openItem(() => browser.openItem(index)) }
         }

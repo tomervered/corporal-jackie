@@ -161,6 +161,9 @@ private slots:
         app.browser.play(app.streamOf(PlayableSource::Kind::Http));
         QTRY_VERIFY_WITH_TIMEOUT(app.session.hasMedia() && app.session.position() > 1.0, 20000);
         QCOMPARE(app.session.title(), title);
+        // The player's episode list: the show's, with this one playing.
+        QCOMPARE(app.browser.playingEpisodes().size(), series ? 2 : 0);
+        QCOMPARE(app.browser.playingEpisodeIndex(), series ? 0 : -1);
         bool sawHeader = false;
         for (const auto& r : server.requests)
             if (r.path == "/clip.mkv")

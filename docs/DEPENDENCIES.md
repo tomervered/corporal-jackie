@@ -27,6 +27,7 @@ On Windows the package holds exactly what `ldd` finds; each CI run prints the fu
 | GLib, PCRE2, libintl, libiconv | HarfBuzz / mpv | LGPL-2.1+, BSD-3-Clause, LGPL-2.1+, LGPL-2.1+ |
 | ICU 78 | Qt | Unicode License v3 |
 | libpng, libjpeg-turbo, zlib, zstd | Qt image plugins, FFmpeg | libpng License, IJG and BSD-3-Clause, zlib License, BSD-3-Clause |
+| libwebp (with libsharpyuv) | Qt image plugin for WebP posters (qt6-imageformats; only the WebP, JPEG, GIF and ICO plugins ship) | BSD-3-Clause |
 | OpenSSL 3 | libtorrent | Apache-2.0 |
 | Boost | libtorrent (headers) | BSL-1.0 |
 | GCC runtime (libstdc++, libgcc_s) | MinGW toolchain on Windows | GPL-3.0 with the GCC Runtime Library Exception |

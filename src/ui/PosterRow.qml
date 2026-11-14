@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import CorporalJackie.Player   // KeyedList
 
 // A titled, scrolling row of posters. Arrow keys move, Enter opens.
 Column {
@@ -30,6 +31,8 @@ Column {
         text: posterRow.loading ? "Loading…" : posterRow.error !== "" ? "Could not be loaded: " + posterRow.error
             : posterRow.items.length === 0 ? "Nothing here." : ""
     }
+    // Updated in place: a row that loads keeps the posters it has.
+    KeyedList { id: rowModel; values: posterRow.items }
     ListView {
         id: rowList
         visible: posterRow.items.length > 0
@@ -41,14 +44,14 @@ Column {
         activeFocusOnTab: true
         keyNavigationEnabled: true
         boundsBehavior: Flickable.StopAtBounds
-        model: posterRow.items
+        model: rowModel
         highlightFollowsCurrentItem: true
         highlightMoveDuration: 120
         ScrollBar.horizontal: ScrollBar { policy: rowList.contentWidth > rowList.width ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
         delegate: PosterTile {
-            required property var modelData
+            required property var entry
             required property int index
-            item: modelData
+            item: entry
             current: ListView.isCurrentItem && rowList.activeFocus
             onActivated: { rowList.currentIndex = index; posterRow.opened(index) }
         }

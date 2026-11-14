@@ -16,6 +16,8 @@
 #include <algorithm>
 #include <QDir>
 #include <QFile>
+#include <QGuiApplication>
+#include <QLocale>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -47,6 +49,15 @@ SubtitleStyle styleFromMap(const QVariantMap& m)
     return s;
 }
 } // namespace
+
+void AppCore::useLeftToRight()
+{
+    // Qt Quick Controls mirror themselves when the locale reads right to
+    // left, whatever the application's direction: the locale changes too.
+    // Sizes and numbers then read the same as the rest of the window.
+    QLocale::setDefault(QLocale(QLocale::English, QLocale::UnitedStates));
+    QGuiApplication::setLayoutDirection(Qt::LeftToRight);
+}
 
 AppCore::AppCore(const QString& dataDir, const QString& cacheDir, QObject* parent)
     : QObject(parent)

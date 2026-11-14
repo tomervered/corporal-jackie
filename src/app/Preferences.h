@@ -85,7 +85,7 @@ private:
 
     Storage& m_storage;
     QString m_defaultFolder;
-    bool m_inMemory = true;
+    bool m_inMemory = false;
     int m_memoryCapMB = 1024;
     int m_diskCacheGB = 10;
     QString m_cacheFolder;  // empty = default

@@ -43,7 +43,7 @@ jobs:
           # these are its dependencies.
           pacboy: >-
             toolchain:p cmake:p ninja:p pkgconf:p meson:p nasm:p
-            qt6-base:p qt6-declarative:p qt6-tools:p
+            qt6-base:p qt6-declarative:p qt6-tools:p qt6-imageformats:p
             boost:p openssl:p sqlite3:p mesa:p
             dav1d:p libass:p lcms2:p uchardet:p zimg:p libdovi:p libiconv:p
 
@@ -188,6 +188,15 @@ jobs:
             rm -f dist/app/Qt6QuickControls2${style}.dll dist/app/Qt6QuickControls2${style}StyleImpl.dll
           done
           rm -rf dist/app/qml/QtQuick/NativeStyle dist/app/Qt6QuickNativeStyle.dll
+          # Image formats: JPEG, GIF, icons, and WebP, which Cinemeta's
+          # poster server sends for many titles. The rest (TIFF, TGA,
+          # ICNS...) would pull in libraries nothing uses.
+          for f in dist/app/imageformats/*.dll; do
+            case "$(basename "$f")" in qjpeg.dll|qgif.dll|qico.dll|qwebp.dll) ;; *) rm -f "$f" ;; esac
+          done
+          for f in qjpeg qwebp; do
+            if [ ! -f "dist/app/imageformats/$f.dll" ]; then echo "imageformats/$f.dll missing: posters would not load"; exit 1; fi
+          done
           # Copy every DLL the app and its Qt plugins need: our mpv build, and
           # MSYS2's Qt, libtorrent and the rest.
           for f in dist/app/CorporalJackie.exe $(find dist/app -name '*.dll'); do
@@ -452,7 +461,7 @@ jobs:
             qt6-base-dev qt6-declarative-dev qml6-module-qtquick qml6-module-qtquick-window qml6-module-qtqml-workerscript \
             qml6-module-qtquick-controls qml6-module-qtquick-templates qml6-module-qtquick-dialogs \
             qml6-module-qtquick-layouts qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-shapes \
-            libmpv-dev libboost-dev libssl-dev libsqlite3-dev
+            libmpv-dev libboost-dev libssl-dev libsqlite3-dev qt6-image-formats-plugins
 
       - uses: ./.github/actions/libtorrent
 
@@ -502,7 +511,7 @@ jobs:
             qt6-base-dev qt6-declarative-dev qml6-module-qtquick qml6-module-qtquick-window qml6-module-qtqml-workerscript \
             qml6-module-qtquick-controls qml6-module-qtquick-templates qml6-module-qtquick-dialogs \
             qml6-module-qtquick-layouts qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-shapes \
-            libmpv-dev libboost-dev libssl-dev libsqlite3-dev
+            libmpv-dev libboost-dev libssl-dev libsqlite3-dev qt6-image-formats-plugins
 
       - uses: ./.github/actions/libtorrent
 

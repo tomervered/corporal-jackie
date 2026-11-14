@@ -2,10 +2,14 @@ import QtQuick
 import QtQuick.Controls.Basic
 
 // A poster with its name under it. Shows the name on a plain tile when
-// there is no poster.
+// there is no poster. A poster that fails to download (a busy image server
+// answers some of a burst of requests with an error) is asked for again a
+// few times, further apart each time.
 Item {
     id: tile
     property var item: ({})
+    property int attempt: 0
+    onItemChanged: { attempt = 0; retry.stop() }
     property bool current: false
     signal activated()
     width: Theme.posterWidth
@@ -37,6 +41,18 @@ Item {
             fillMode: Image.PreserveAspectCrop
             sourceSize.width: 264
             asynchronous: true
+            onStatusChanged: if (status === Image.Error && tile.attempt < 4) retry.start()
+        }
+        Timer {
+            id: retry
+            interval: 2000 * Math.pow(2, tile.attempt) + Math.random() * 1000
+            onTriggered: {
+                tile.attempt++
+                // Not from Qt's image cache, which may keep the failure.
+                poster.cache = false
+                poster.source = ""
+                poster.source = Qt.binding(() => tile.item.poster || "")
+            }
         }
         HoverHandler { id: tileHover; cursorShape: Qt.PointingHandCursor }
         TapHandler { onTapped: tile.activated() }
