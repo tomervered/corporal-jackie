@@ -8,6 +8,7 @@
 #include "Browser.h"
 #include "FakeHttpServer.h"
 #include "FakeTarget.h"
+#include "KeyedListModel.h"
 #include "Library.h"
 #include "Preferences.h"
 #include "Session.h"
@@ -15,6 +16,8 @@
 #include "TorrentTransport.h"
 
 #include <QDateTime>
+#include <QGuiApplication>
+#include <QLocale>
 #include <QDir>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -45,7 +48,7 @@ private:
 
 QByteArray manifest()
 {
-    return R"({"id":"org.example.films","version":"1.0.0","name":"Films","types":["movie"],"idPrefixes":["tt"],
+    return R"({"id":"org.example.films","version":"1.0.0","name":"Films","types":["movie","series"],"idPrefixes":["tt"],
                "resources":["catalog","meta","stream"],
                "catalogs":[{"type":"movie","id":"top","name":"Top",
                             "extra":[{"name":"search"},{"name":"skip"},{"name":"genre","options":["Drama","Comedy"]}]}]})";
@@ -60,9 +63,15 @@ class TestUi : public QObject
 private slots:
     void initTestCase()
     {
+        // As on a Windows set to Hebrew: the app must still read left to right.
+        QLocale::setDefault(QLocale(QLocale::Hebrew, QLocale::Israel));
+        QGuiApplication::setLayoutDirection(Qt::RightToLeft);
+        AppCore::useLeftToRight();
+
         // No GPU needed, and pictures can be taken of the window.
         QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
         qmlRegisterType<FakeVideoSurface>("CorporalJackie.Player", 1, 0, "VideoSurface");
+        qmlRegisterType<KeyedListModel>("CorporalJackie.Player", 1, 0, "KeyedList");
         qmlRegisterUncreatableType<Session>("CorporalJackie.Player", 1, 0, "Session", QStringLiteral("Use the app's session"));
         qmlRegisterUncreatableMetaObject(cj::staticMetaObject, "CorporalJackie.Player", 1, 0, "Playback",
                                          QStringLiteral("Enums only"));
@@ -78,6 +87,14 @@ private slots:
         m_server.setJson("/films/meta/movie/tt1.json",
                          R"({"meta":{"id":"tt1","type":"movie","name":"First Film","description":"A film.",
                                      "releaseInfo":"2001","genres":["Drama"]}})");
+        m_server.setJson("/films/meta/series/tt9.json",
+                         R"({"meta":{"id":"tt9","type":"series","name":"A Show","videos":[
+                               {"id":"tt9:1:1","season":1,"episode":1,"title":"Pilot"},
+                               {"id":"tt9:1:2","season":1,"episode":2,"title":"Second"}]}})");
+        m_server.setJson("/films/stream/series/tt9%3A1%3A1.json",
+                         R"({"streams":[{"name":"Films\n1080p","title":"ep1.mkv","url":"http:\/\/127.0.0.1:1\/ep1.mkv"}]})");
+        m_server.setJson("/films/stream/series/tt9%3A1%3A2.json",
+                         R"({"streams":[{"name":"Films\n1080p","title":"ep2.mkv","url":"http:\/\/127.0.0.1:1\/ep2.mkv"}]})");
         m_server.setJson("/films/stream/movie/tt1.json",
                          R"({"streams":[{"name":"Films\n1080p","title":"first.mkv","url":"http:\/\/127.0.0.1:1\/first.mkv"}]})");
 
@@ -145,6 +162,21 @@ private slots:
         // Cinemeta stayed out; only the fake add-on is here.
         QCOMPARE(m_core->browser().addons().size(), 1);
         noWarnings();
+    }
+
+    // Nothing in the window is mirrored, whatever the system language.
+    void leftToRightUnderAHebrewSystem()
+    {
+        QCOMPARE(QGuiApplication::layoutDirection(), Qt::LeftToRight);
+        int controls = 0;
+        for (QQuickItem* item : m_window->contentItem()->findChildren<QQuickItem*>()) {
+            const QVariant mirrored = item->property("mirrored");
+            if (!mirrored.isValid())
+                continue;
+            ++controls;
+            QVERIFY2(!mirrored.toBool(), item->metaObject()->className());
+        }
+        QVERIFY(controls > 0);
     }
 
     void homeShowsTheAddonsLists()
@@ -277,6 +309,47 @@ private slots:
         shot("pages-over-video");
         QTest::keyClick(m_window, Qt::Key_B);
         QVERIFY(!m_pages->isVisible());
+    }
+
+    // While an episode plays, the Episodes button lists the show's episodes
+    // over the video; picking one lists its streams there, and picking a
+    // stream plays it.
+    void episodesInThePlayer()
+    {
+        Browser& browser = m_core->browser();
+        Session& session = m_core->session();
+        const QVariantMap first = rows("homeRows").value(0).toMap().value("items").toList().value(0).toMap();
+        browser.openPreview(MetaPreview{first.value("adapter").toString(), first.value("provider").toString(),
+                                        QStringLiteral("tt9"), QStringLiteral("series"), QStringLiteral("A Show"), {}, {}, {}});
+        QTRY_VERIFY(!browser.detailLoading());
+        QCOMPARE(browser.videos().size(), 2);
+        browser.openVideo(0);
+        QTRY_COMPARE(browser.streams().size(), 1);
+        browser.play(0);
+        m_target.startPlaying(1200);
+        QTRY_VERIFY(session.hasMedia());
+        QCOMPARE(browser.playingEpisodes().size(), 2);
+        QCOMPARE(browser.playingEpisodeIndex(), 0);
+
+        QQuickItem* panel = m_window->findChild<QQuickItem*>(QStringLiteral("episodesPanel"));
+        QVERIFY(panel);
+        QVERIFY(QMetaObject::invokeMethod(m_window, "toggleEpisodes"));
+        QTRY_VERIFY(panel->isVisible());
+        shot("episodes");
+
+        QVERIFY(QMetaObject::invokeMethod(panel, "pick", Q_ARG(QVariant, 1)));
+        QTRY_COMPARE(browser.streamsTitle(), QStringLiteral("A Show 1x02"));
+        QTRY_COMPARE(browser.streams().size(), 1);
+        shot("episode-streams");
+        QVERIFY(QMetaObject::invokeMethod(panel, "play", Q_ARG(QVariant, 0)));
+        QTRY_VERIFY(!panel->isVisible());
+        QCOMPARE(browser.playingEpisodeIndex(), 1);
+        QCOMPARE(session.source(), QUrl(QStringLiteral("http://127.0.0.1:1/ep2.mkv")));
+
+        // A link that is not part of the show has no episodes.
+        session.openPath(QStringLiteral("http://127.0.0.1:1/clip.mkv"));
+        QTRY_VERIFY(browser.playingEpisodes().isEmpty());
+        QVERIFY(!QMetaObject::invokeMethod(m_window, "toggleEpisodes") || !panel->isVisible());
     }
 
 private:

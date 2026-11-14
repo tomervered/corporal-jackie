@@ -1,8 +1,8 @@
 # Everything but the window, as a library the tests link too.
-add_library(cj_app STATIC AppCore.cpp AppCore.h Preferences.cpp Preferences.h Caches.cpp Caches.h)
+add_library(cj_app STATIC AppCore.cpp AppCore.h KeyedListModel.cpp KeyedListModel.h Preferences.cpp Preferences.h Caches.cpp Caches.h)
 target_include_directories(cj_app PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(cj_app PUBLIC cj_common cj_session cj_targets cj_transports cj_sources cj_storage
-                      Qt6::Network Qt6::Qml)
+                      Qt6::Gui Qt6::Network Qt6::Qml)
 
 qt_add_executable(corporal-jackie WIN32 MACOSX_BUNDLE main.cpp)
 

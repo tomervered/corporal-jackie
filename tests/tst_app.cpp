@@ -7,6 +7,7 @@
 #include "Browser.h"
 #include "Caches.h"
 #include "FakeTarget.h"
+#include "KeyedListModel.h"
 #include "LocalLibrary.h"
 #include "Preferences.h"
 #include "Session.h"
@@ -92,6 +93,39 @@ private slots:
         QSettings().clear();
         m_root = std::make_unique<QTemporaryDir>();
         QVERIFY(m_root->isValid());
+    }
+
+    // A list that gains a page, or whose row finished loading, changes in
+    // place: the views keep their delegates and posters.
+    void keyedListChangesInPlace()
+    {
+        KeyedListModel model;
+        QSignalSpy resets(&model, &QAbstractItemModel::modelReset);
+        QSignalSpy inserts(&model, &QAbstractItemModel::rowsInserted);
+        QSignalSpy removes(&model, &QAbstractItemModel::rowsRemoved);
+        QSignalSpy changes(&model, &QAbstractItemModel::dataChanged);
+        const auto entry = [](const char* key, const char* name) {
+            return QVariantMap{{"key", QString::fromLatin1(key)}, {"name", QString::fromLatin1(name)}};
+        };
+
+        model.setValues({entry("a", "A"), entry("b", "B")});
+        QCOMPARE(model.rowCount(), 2);
+        QCOMPARE(inserts.size(), 1);
+
+        model.setValues({entry("a", "A"), entry("b", "B, loaded"), entry("c", "C")});
+        QCOMPARE(inserts.size(), 2);
+        QCOMPARE(changes.size(), 1);
+        QCOMPARE(model.data(model.index(1), KeyedListModel::kEntryRole).toMap().value("name").toString(),
+                 QStringLiteral("B, loaded"));
+
+        model.setValues({entry("a", "A")});
+        QCOMPARE(removes.size(), 1);
+        QCOMPARE(resets.size(), 0);
+
+        // Another list altogether.
+        model.setValues({entry("x", "X")});
+        QCOMPARE(resets.size(), 1);
+        QCOMPARE(model.rowCount(), 1);
     }
 
     void freshInstallGetsDefaults()

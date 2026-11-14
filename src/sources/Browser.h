@@ -48,6 +48,12 @@ class Browser : public QObject
     Q_PROPERTY(QVariantList streams READ streams NOTIFY streamsChanged)
     Q_PROPERTY(bool streamsLoading READ streamsLoading NOTIFY streamsChanged)
     Q_PROPERTY(QStringList streamProblems READ streamProblems NOTIFY streamsChanged)
+    // The series that is playing, for the episode list in the player. Empty
+    // for a movie, a file or a link.
+    Q_PROPERTY(QString playingShowName READ playingShowName NOTIFY playingShowChanged)
+    Q_PROPERTY(QString playingShowKey READ playingShowKey NOTIFY playingShowChanged)  // as library keys it
+    Q_PROPERTY(QVariantList playingEpisodes READ playingEpisodes NOTIFY playingShowChanged)
+    Q_PROPERTY(int playingEpisodeIndex READ playingEpisodeIndex NOTIFY playingShowChanged)
 
 public:
     static constexpr int kHomeRows = 20;
@@ -87,6 +93,13 @@ public:
     QVariantList streams() const;
     bool streamsLoading() const { return m_streamsLoading; }
     QStringList streamProblems() const { return m_streamProblems; }
+    QString playingShowName() const { return m_playingShow ? m_playingShow->preview.name : QString(); }
+    QString playingShowKey() const
+    {
+        return m_playingShow ? m_playingShow->preview.adapter + QLatin1Char(':') + m_playingShow->preview.id : QString();
+    }
+    QVariantList playingEpisodes() const;
+    int playingEpisodeIndex() const;
 
     Q_INVOKABLE void installAddon(const QString& link);
     Q_INVOKABLE void removeAddon(const QString& addonId);
@@ -112,6 +125,13 @@ public:
     // A video of the open item (an episode), or -1 for the item itself (a movie).
     Q_INVOKABLE void openVideo(int index);
     Q_INVOKABLE void play(int streamIndex);
+    // An episode of the series that is playing: its streams, as openVideo
+    // finds them for the open item.
+    Q_INVOKABLE void openPlayingEpisode(int index);
+    // Something started outside the browse panel (Continue Watching) is
+    // this item's video: fetch its episodes for the player. Call after the
+    // Session has the new source.
+    void setPlaying(const MetaPreview& item, const QString& videoId);
 
     // For tests and the app: the current state as plain types.
     QList<CatalogRef> catalogRefs() const { return m_catalogs; }
@@ -127,6 +147,7 @@ signals:
     void streamsChanged();
     void homeChanged();
     void searchRowsChanged();
+    void playingShowChanged();
     // Short messages for the panel: "Example installed", "Not an add-on link".
     void notice(const QString& text, bool isError);
     // A choice is about to be handed to the Session, then was.
@@ -193,6 +214,12 @@ private:
     // another source of the same video.
     QString m_playingVideoId;
     QUrl m_playingUrl;
+
+    // The series of the video that plays, and where it plays from: another
+    // source in the Session clears it.
+    std::optional<MetaDetail> m_playingShow;
+    QUrl m_playingShowUrl;
+    quint64 m_playingGen = 0;
 };
 
 } // namespace cj

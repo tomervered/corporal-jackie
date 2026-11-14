@@ -24,6 +24,7 @@ Window {
     // The pages fill the window when nothing plays, and cover the video on B.
     readonly property bool pagesVisible: browseVisible || (!session.hasMedia && !session.loading)
     property bool settingsVisible: false
+    property bool episodesVisible: false
     property string errorText: ""
     property string osdText: ""
     // When the pages close by themselves (a video started from them), the
@@ -73,6 +74,12 @@ Window {
         root.settingsVisible = !root.settingsVisible
         if (root.settingsVisible) settingsPanel.forceActiveFocus()
         else if (root.pagesVisible) pagesView.show()
+        else inputLayer.forceActiveFocus()
+    }
+
+    function toggleEpisodes() {
+        root.episodesVisible = !root.episodesVisible && browser.playingEpisodes.length > 0
+        if (root.episodesVisible) root.browseVisible = false
         else inputLayer.forceActiveFocus()
     }
 
@@ -156,7 +163,7 @@ Window {
     Timer {
         id: hideTimer
         interval: 2500
-        onTriggered: if (session.hasMedia && !session.paused && !controlBar.inUse) root.controlsVisible = false
+        onTriggered: if (session.hasMedia && !session.paused && !controlBar.inUse && !root.episodesVisible) root.controlsVisible = false
     }
 
     // --- Video --------------------------------------------------------------
@@ -217,6 +224,7 @@ Window {
             case Qt.Key_P:     root.toggleSettings(); break
             case Qt.Key_Escape:
                 if (root.settingsVisible) root.toggleSettings()
+                else if (root.episodesVisible) root.toggleEpisodes()
                 else if (root.browseVisible) root.toggleBrowse()
                 else if (root.helpVisible) root.helpVisible = false
                 else if (root.visibility === Window.FullScreen) root.visibility = Window.Windowed
@@ -360,6 +368,25 @@ Window {
         onCloseRequested: { root.settingsVisible = false; inputLayer.forceActiveFocus() }
     }
 
+    // --- Episodes of the series that is playing ---------------------------------
+
+    EpisodesPanel {
+        id: episodesPanel
+        objectName: "episodesPanel"
+        visible: root.episodesVisible && !root.pagesVisible && session.hasMedia
+        anchors { top: parent.top; bottom: parent.bottom; right: parent.right; margins: 16 }
+        // Above the control bar, which stays usable while it is open.
+        anchors.bottomMargin: 72
+        width: Math.min(440, parent.width - 32)
+        onCloseRequested: root.toggleEpisodes()
+        onStreamPicked: { root.episodesVisible = false; inputLayer.forceActiveFocus() }
+    }
+    // A movie, a file or a link has no episodes.
+    Connections {
+        target: browser
+        function onPlayingShowChanged() { if (browser.playingEpisodes.length === 0) root.episodesVisible = false }
+    }
+
     // --- Overlays ------------------------------------------------------------
 
     // Seek indicator, e.g. "+40 s", while tapping or holding an arrow key
@@ -433,6 +460,7 @@ Window {
         onSettingsRequested: root.toggleSettings()
         onShortcutsRequested: root.helpVisible = true
         onFullScreenRequested: root.toggleFullscreen()
+        onEpisodesRequested: root.toggleEpisodes()
     }
 
     // --- First run: what may be contacted -----------------------------------

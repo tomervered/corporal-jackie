@@ -1,4 +1,5 @@
 #include "AppCore.h"
+#include "KeyedListModel.h"
 #include "AppInfo.h"
 #include "AppPaths.h"
 #include "Caches.h"
@@ -49,6 +50,7 @@ int main(int argc, char* argv[])
     args.addOption(smokeTest);
     args.addPositionalArgument(QStringLiteral("file"), QStringLiteral("A video file to open."));
     args.process(app);
+    cj::AppCore::useLeftToRight();
 
     // mpv parses numbers with the C locale; Qt may have changed it.
     std::setlocale(LC_NUMERIC, "C");
@@ -99,6 +101,7 @@ int main(int argc, char* argv[])
     // The C++ types have a module of their own: sharing the QML files' URI
     // made Qt 6.12 call "CorporalJackie" ambiguous in the packaged app.
     qmlRegisterType<cj::MpvVideoItem>("CorporalJackie.Player", 1, 0, "VideoSurface");
+    qmlRegisterType<cj::KeyedListModel>("CorporalJackie.Player", 1, 0, "KeyedList");
     qmlRegisterUncreatableType<cj::Session>("CorporalJackie.Player", 1, 0, "Session",
                                             QStringLiteral("Use the app's session"));
     qmlRegisterUncreatableMetaObject(cj::staticMetaObject, "CorporalJackie.Player", 1, 0, "Playback",

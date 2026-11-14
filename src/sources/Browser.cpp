@@ -18,7 +18,7 @@ namespace {
 
 QString sizeText(qint64 bytes)
 {
-    return bytes > 0 ? QLocale::system().formattedDataSize(bytes, 1, QLocale::DataSizeTraditionalFormat) : QString();
+    return bytes > 0 ? QLocale().formattedDataSize(bytes, 1, QLocale::DataSizeTraditionalFormat) : QString();
 }
 
 QVariantMap previewMap(const MetaPreview& m)
@@ -36,6 +36,14 @@ Browser::Browser(Session* session, QObject* parent)
     : QObject(parent)
     , m_session(session)
 {
+    if (m_session)
+        connect(m_session, &Session::sourceChanged, this, [this] {
+            if (m_playingShow && m_session->source() != m_playingShowUrl) {
+                ++m_playingGen;
+                m_playingShow.reset();
+                emit playingShowChanged();
+            }
+        });
 }
 
 void Browser::addAdapter(SourceAdapter* adapter)
@@ -529,6 +537,13 @@ void Browser::play(int streamIndex)
     m_session->playSource(choice.source, start);
     m_playingVideoId = m_streamsVideoId;
     m_playingUrl = m_session->source();
+    ++m_playingGen;
+    if (m_detail && !m_detail->videos.isEmpty())
+        m_playingShow = m_detail;
+    else
+        m_playingShow.reset();
+    m_playingShowUrl = m_playingUrl;
+    emit playingShowChanged();
     emit playStarted(choice.source.title);
 
     // Subtitle add-ons answer after the video starts; their files are added
@@ -541,6 +556,65 @@ void Browser::play(int streamIndex)
                 session->addSubtitleTracks(subs, playing);
         });
     }
+}
+
+// --- The series that is playing ------------------------------------------------
+
+QVariantList Browser::playingEpisodes() const
+{
+    QVariantList out;
+    if (!m_playingShow)
+        return out;
+    for (const VideoEntry& v : m_playingShow->videos) {
+        const QString number = v.episode > 0 ? QStringLiteral("%1. ").arg(v.episode) : QString();
+        out << QVariantMap{{"id", v.id},
+                           {"label", number + v.title},
+                           {"season", v.season > 0 ? QStringLiteral("Season %1").arg(v.season) : QStringLiteral("Specials")}};
+    }
+    return out;
+}
+
+int Browser::playingEpisodeIndex() const
+{
+    if (!m_playingShow)
+        return -1;
+    for (int i = 0; i < m_playingShow->videos.size(); ++i)
+        if (m_playingShow->videos[i].id == m_playingVideoId)
+            return i;
+    return -1;
+}
+
+void Browser::openPlayingEpisode(int index)
+{
+    if (!m_playingShow || index < 0 || index >= m_playingShow->videos.size())
+        return;
+    // The episode's streams come from the show's own details, whatever
+    // item the browse pages have open now.
+    ++m_detailGen;
+    m_detail = m_playingShow;
+    m_detailLoading = false;
+    m_detailError.clear();
+    emit detailChanged();
+    openVideo(index);
+}
+
+void Browser::setPlaying(const MetaPreview& item, const QString& videoId)
+{
+    const quint64 gen = ++m_playingGen;
+    m_playingShow.reset();
+    m_playingVideoId = videoId;
+    m_playingUrl = m_session ? m_session->source() : QUrl();
+    m_playingShowUrl = m_playingUrl;
+    emit playingShowChanged();
+    SourceAdapter* adapter = adapterFor(item.adapter);
+    if (!adapter || videoId.isEmpty() || videoId == item.id)
+        return;  // a movie
+    adapter->fetchMeta(item, [this, gen](const std::optional<MetaDetail>& meta, const QString&) {
+        if (gen != m_playingGen || !meta || meta->videos.isEmpty())
+            return;
+        m_playingShow = meta;
+        emit playingShowChanged();
+    });
 }
 
 } // namespace cj
