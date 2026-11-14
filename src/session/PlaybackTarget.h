@@ -5,6 +5,7 @@
 #include "PlaybackTypes.h"
 
 #include <QObject>
+#include <QVariant>
 
 namespace cj {
 
@@ -53,6 +54,13 @@ public:
     virtual void setCrop(const QString&) {}
     virtual void setVideoEqualizer(const VideoEqualizer&) {}
     virtual void setHardwareDecoding(bool) {}
+    // NativeKeys: a key pressed or released over the video, as Qt names it.
+    // The target runs its own binding for it. False if it has no name for
+    // the key (a lone Shift, say).
+    virtual bool keyEvent(int /*key*/, Qt::KeyboardModifiers, const QString& /*text*/, bool /*pressed*/) { return false; }
+    // Full screen is the window's business; a target with its own key for it
+    // (mpv's F) is told, so that key and the window agree.
+    virtual void setFullScreen(bool) {}
 
 signals:
     void stateChanged(cj::PlaybackState state);
@@ -66,6 +74,16 @@ signals:
     void errorOccurred(cj::PlaybackError error, const QString& message);
     void statsChanged(const QMap<QString, QString>& stats);
     void screenshotSaved(const QString& filePath);
+    // The target changed one of its settings by itself (its own key bindings
+    // did). Names and values: "speed", "subtitleDelay", "audioDelay",
+    // "subtitleScale" (double); "abLoopA", "abLoopB" (seconds, -1 = unset);
+    // "aspectRatio" (width/height, 0 = the file's own); "brightness",
+    // "contrast", "saturation", "gamma", "hue" (int); "hardwareDecoding",
+    // "fullScreen" (bool).
+    void settingChanged(const QString& name, const QVariant& value);
+    // Its own key bindings asked for something only the app can do:
+    // "stop" (close the video) or "stats" (show or hide the stats).
+    void appActionRequested(const QString& action);
 };
 
 } // namespace cj

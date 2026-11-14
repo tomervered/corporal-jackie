@@ -24,6 +24,26 @@ QString next(const QStringList& list, const QString& current)
     return list.at((list.indexOf(current) + 1) % list.size());
 }
 
+// "16:9" or "2.35:1" -> width/height.
+double ratioOf(const QString& text)
+{
+    const QStringList parts = text.split(QLatin1Char(':'));
+    const double b = parts.size() > 1 ? parts.at(1).toDouble() : 1.0;
+    return b > 0 ? parts.at(0).toDouble() / b : 0.0;
+}
+
+// A ratio the target reports, as one of the names the app cycles through
+// when it is one of them, else as a number.
+QString aspectName(double ratio)
+{
+    if (ratio <= 0)
+        return {};
+    for (const QString& name : kAspectRatios)
+        if (!name.isEmpty() && qAbs(ratioOf(name) - ratio) < 0.01)
+            return name;
+    return QString::number(ratio, 'f', 2);
+}
+
 } // namespace
 
 Session::Session(PlaybackTarget* target, QObject* parent)
@@ -88,6 +108,13 @@ Session::Session(PlaybackTarget* target, QObject* parent)
         emit statsChanged();
     });
     connect(target, &PlaybackTarget::screenshotSaved, this, &Session::screenshotSaved);
+    connect(target, &PlaybackTarget::settingChanged, this, &Session::applyTargetSetting);
+    connect(target, &PlaybackTarget::appActionRequested, this, [this](const QString& action) {
+        if (action == QLatin1String("stop"))
+            stop();
+        else
+            emit appActionRequested(action);
+    });
 
     target->setVolume(m_volume);
     target->setSpeed(m_speed);
@@ -449,6 +476,13 @@ void Session::nextChapter()
         m_target->seekChapter(next);
 }
 
+void Session::goToChapter(int index)
+{
+    if (!require(Capability::Chapters, "Chapters") || index < 0 || index >= m_chapters.size())
+        return;
+    m_target->seekChapter(index);
+}
+
 void Session::previousChapter()
 {
     if (!require(Capability::Chapters, "Chapters") || m_chapters.isEmpty())
@@ -467,14 +501,19 @@ void Session::frameStep(bool forward)
         m_target->frameStep(forward);
 }
 
+QString Session::screenshotFolder()
+{
+    QString dir = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
+    if (dir.isEmpty())
+        dir = QDir::homePath();
+    return QDir(dir).filePath(QStringLiteral("Corporal Jackie"));
+}
+
 void Session::screenshot()
 {
     if (!hasMedia() || !require(Capability::Screenshot, "Screenshots"))
         return;
-    QString dir = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
-    if (dir.isEmpty())
-        dir = QDir::homePath();
-    dir = QDir(dir).filePath(QStringLiteral("Corporal Jackie"));
+    const QString dir = screenshotFolder();
     QDir().mkpath(dir);
     QString name = m_title.isEmpty() ? QStringLiteral("screenshot") : m_title;
     name.replace(QRegularExpression(QStringLiteral(R"([\\/:*?"<>|])")), QStringLiteral("_"));
@@ -547,6 +586,64 @@ void Session::resetEqualizer()
     m_eq = {};
     m_target->setVideoEqualizer(m_eq);
     emit equalizerChanged();
+}
+
+void Session::setFullScreen(bool on)
+{
+    if (on == m_fullScreen)
+        return;
+    m_fullScreen = on;
+    m_target->setFullScreen(on);
+    emit fullScreenChanged();
+}
+
+bool Session::keyEvent(int key, int modifiers, const QString& text, bool pressed)
+{
+    if (!m_target->supports(Capability::NativeKeys))
+        return false;
+    return m_target->keyEvent(key, Qt::KeyboardModifiers(modifiers), text, pressed);
+}
+
+// The target changed a setting by itself (mpv's own keys did): take its word
+// for it, without sending it back.
+void Session::applyTargetSetting(const QString& name, const QVariant& value)
+{
+    const auto update = [](auto& field, auto v, auto signal, Session* self) {
+        if (field == v)
+            return;
+        field = v;
+        emit (self->*signal)();
+    };
+    if (name == QLatin1String("speed"))
+        update(m_speed, value.toDouble(), &Session::speedChanged, this);
+    else if (name == QLatin1String("subtitleDelay"))
+        update(m_subtitleDelay, value.toDouble(), &Session::subtitleDelayChanged, this);
+    else if (name == QLatin1String("audioDelay"))
+        update(m_audioDelay, value.toDouble(), &Session::audioDelayChanged, this);
+    else if (name == QLatin1String("subtitleScale"))
+        update(m_subtitleScale, value.toDouble(), &Session::subtitleScaleChanged, this);
+    else if (name == QLatin1String("abLoopA"))
+        update(m_abA, value.toDouble() < 0 ? -1.0 : value.toDouble(), &Session::abLoopChanged, this);
+    else if (name == QLatin1String("abLoopB"))
+        update(m_abB, value.toDouble() < 0 ? -1.0 : value.toDouble(), &Session::abLoopChanged, this);
+    else if (name == QLatin1String("aspectRatio"))
+        update(m_aspect, aspectName(value.toDouble()), &Session::aspectRatioChanged, this);
+    else if (name == QLatin1String("brightness"))
+        update(m_eq.brightness, value.toInt(), &Session::equalizerChanged, this);
+    else if (name == QLatin1String("contrast"))
+        update(m_eq.contrast, value.toInt(), &Session::equalizerChanged, this);
+    else if (name == QLatin1String("saturation"))
+        update(m_eq.saturation, value.toInt(), &Session::equalizerChanged, this);
+    else if (name == QLatin1String("gamma"))
+        update(m_eq.gamma, value.toInt(), &Session::equalizerChanged, this);
+    else if (name == QLatin1String("hue"))
+        update(m_eq.hue, value.toInt(), &Session::equalizerChanged, this);
+    else if (name == QLatin1String("hardwareDecoding"))
+        update(m_hardwareDecoding, value.toBool(), &Session::hardwareDecodingChanged, this);
+    else if (name == QLatin1String("fullScreen"))
+        update(m_fullScreen, value.toBool(), &Session::fullScreenChanged, this);
+    else
+        qCInfo(lcSession) << "Unknown setting from the target:" << name;
 }
 
 void Session::setHardwareDecoding(bool enabled)

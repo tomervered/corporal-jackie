@@ -3,6 +3,8 @@
 #include "Logging.h"
 #include "ScopedHttp.h"
 
+#include "Session.h"
+
 #include <QFile>
 #include <QFileInfo>
 #include <QMetaObject>
@@ -37,6 +39,21 @@ enum PropertyId : uint64_t {
     PropDecoderDropped,
     PropDelayed,
     PropMistimed,
+    // Settings mpv's own keys change; passed on as settingChanged.
+    PropSpeed,
+    PropSubDelay,
+    PropAudioDelay,
+    PropSubScale,
+    PropAbLoopA,
+    PropAbLoopB,
+    PropAspect,
+    PropBrightness,
+    PropContrast,
+    PropSaturation,
+    PropGamma,
+    PropHue,
+    PropHwdec,
+    PropFullscreen,
 };
 
 void wakeup(void* ctx)
@@ -139,7 +156,10 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
     setOption(m_mpv, "keep-open", "yes");      // stay on the last frame at the end
     setOption(m_mpv, "idle", "yes");
     setOption(m_mpv, "terminal", "no");
-    setOption(m_mpv, "input-default-bindings", "no");
+    // mpv's own key bindings (its input.conf defaults). The window passes
+    // every key over the video to mpv; the app has no shortcuts of its own
+    // there, so the two never disagree about a key.
+    setOption(m_mpv, "input-default-bindings", "yes");
     setOption(m_mpv, "osc", "no");
     setOption(m_mpv, "config", "no");          // ignore any mpv.conf on the user's machine
     // Links come from add-ons and pasted text. Distro builds of libmpv (Homebrew,
@@ -148,6 +168,10 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
     setOption(m_mpv, "ytdl", "no");
     setOption(m_mpv, "load-scripts", "no");
     setOption(m_mpv, "screenshot-format", "png");
+    // mpv's S key saves here too (mpv makes the folder), named like the
+    // app's own screenshots: "<title> 01-02-03.png".
+    setOption(m_mpv, "screenshot-dir", Session::screenshotFolder().toUtf8().constData());  // mpv takes UTF-8
+    setOption(m_mpv, "screenshot-template", "%{media-title} %wH-%wM-%wS");
     // Read ahead for every source, not only for what mpv sees as network
     // streams (torrent:// is not one): a torrent that slows down for a few
     // seconds then plays on from memory instead of freezing.
@@ -196,9 +220,24 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
         {PropDecoderDropped, "decoder-frame-drop-count", MPV_FORMAT_INT64},
         {PropDelayed,        "vo-delayed-frame-count", MPV_FORMAT_INT64},
         {PropMistimed,       "mistimed-frame-count",   MPV_FORMAT_INT64},
+        {PropSpeed,          "speed",                  MPV_FORMAT_DOUBLE},
+        {PropSubDelay,       "sub-delay",              MPV_FORMAT_DOUBLE},
+        {PropAudioDelay,     "audio-delay",            MPV_FORMAT_DOUBLE},
+        {PropSubScale,       "sub-scale",              MPV_FORMAT_DOUBLE},
+        {PropAbLoopA,        "ab-loop-a",              MPV_FORMAT_DOUBLE},
+        {PropAbLoopB,        "ab-loop-b",              MPV_FORMAT_DOUBLE},
+        {PropAspect,         "video-aspect-override",  MPV_FORMAT_STRING},
+        {PropBrightness,     "brightness",             MPV_FORMAT_INT64},
+        {PropContrast,       "contrast",               MPV_FORMAT_INT64},
+        {PropSaturation,     "saturation",             MPV_FORMAT_INT64},
+        {PropGamma,          "gamma",                  MPV_FORMAT_INT64},
+        {PropHue,            "hue",                    MPV_FORMAT_INT64},
+        {PropHwdec,          "hwdec",                  MPV_FORMAT_STRING},
+        {PropFullscreen,     "fullscreen",             MPV_FORMAT_FLAG},
     };
     for (const auto& o : observed)
         mpv_observe_property(m_mpv, o.id, o.name, o.format);
+    bindAppKeys();
 
     mpv_set_wakeup_callback(m_mpv, wakeup, this);
 }
@@ -220,8 +259,132 @@ Capabilities MpvTarget::capabilities() const
     return Capability::SubtitleDelay | Capability::SubtitleStyle | Capability::AudioDelay
          | Capability::Chapters | Capability::FrameStep | Capability::Screenshot
          | Capability::AbLoop | Capability::AspectRatio | Capability::Crop
-         | Capability::VideoEqualizer | Capability::HardwareDecoding;
+         | Capability::VideoEqualizer | Capability::HardwareDecoding | Capability::NativeKeys;
 }
+
+// mpv's defaults, except where a binding would end mpv itself or needs a Lua
+// script this build does not run. q and the other quit keys close the video
+// (in mpv they close the player, which here would leave a window with no
+// player in it); i shows the app's stats, as mpv's stats script would.
+void MpvTarget::bindAppKeys()
+{
+    const auto bind = [this](const char* key, const char* cmd) {
+        const char* args[] = {"keybind", key, cmd, nullptr};
+        if (const int err = mpv_command(m_mpv, args); err < 0)
+            qCWarning(lcTargets) << "mpv could not bind" << key << ":" << mpv_error_string(err);
+    };
+    for (const char* key : {"q", "Q", "Ctrl+w", "Ctrl+c", "STOP", "POWER", "CLOSE_WIN"})
+        bind(key, "script-message cj-app stop");
+    for (const char* key : {"i", "I"})
+        bind(key, "script-message cj-app stats");
+    // Lua-only bindings (the on-screen controller and the console): nothing
+    // to run, so nothing should be tried.
+    for (const char* key : {"DEL", "`"})
+        bind(key, "ignore");
+}
+
+QString MpvTarget::keyName(int key, Qt::KeyboardModifiers modifiers, const QString& text)
+{
+    // Keys mpv names in words. A keypad key counts only for digits and
+    // operators: macOS marks the arrow keys as keypad keys too.
+    static const QHash<int, const char*> named = {
+        {Qt::Key_Left, "LEFT"}, {Qt::Key_Right, "RIGHT"}, {Qt::Key_Up, "UP"}, {Qt::Key_Down, "DOWN"},
+        {Qt::Key_PageUp, "PGUP"}, {Qt::Key_PageDown, "PGDWN"}, {Qt::Key_Home, "HOME"}, {Qt::Key_End, "END"},
+        {Qt::Key_Insert, "INS"}, {Qt::Key_Delete, "DEL"}, {Qt::Key_Escape, "ESC"},
+        {Qt::Key_Return, "ENTER"}, {Qt::Key_Enter, "ENTER"}, {Qt::Key_Backspace, "BS"},
+        {Qt::Key_Tab, "TAB"}, {Qt::Key_Space, "SPACE"},
+        {Qt::Key_Menu, "MENU"}, {Qt::Key_PowerOff, "POWER"},
+        {Qt::Key_MediaPlay, "PLAY"}, {Qt::Key_MediaPause, "PAUSE"}, {Qt::Key_MediaTogglePlayPause, "PLAYPAUSE"},
+        {Qt::Key_MediaStop, "STOP"}, {Qt::Key_MediaNext, "NEXT"}, {Qt::Key_MediaPrevious, "PREV"},
+        {Qt::Key_AudioForward, "FORWARD"}, {Qt::Key_AudioRewind, "REWIND"},
+        {Qt::Key_VolumeUp, "VOLUME_UP"}, {Qt::Key_VolumeDown, "VOLUME_DOWN"}, {Qt::Key_VolumeMute, "MUTE"},
+    };
+    static const QHash<int, const char*> keypad = {
+        {Qt::Key_Plus, "KP_ADD"}, {Qt::Key_Minus, "KP_SUBTRACT"}, {Qt::Key_Asterisk, "KP_MULTIPLY"},
+        {Qt::Key_Slash, "KP_DIVIDE"}, {Qt::Key_Period, "KP_DEC"}, {Qt::Key_Comma, "KP_DEC"},
+        {Qt::Key_Enter, "KP_ENTER"},
+    };
+
+    QString base;
+    bool shiftInName = false;  // printable keys carry Shift in the character itself
+    if (modifiers.testFlag(Qt::KeypadModifier) && key >= Qt::Key_0 && key <= Qt::Key_9) {
+        base = QStringLiteral("KP%1").arg(key - Qt::Key_0);
+    } else if (modifiers.testFlag(Qt::KeypadModifier) && keypad.contains(key)) {
+        base = QLatin1String(keypad.value(key));
+    } else if (named.contains(key)) {
+        base = QLatin1String(named.value(key));
+        shiftInName = true;
+    } else if (key == Qt::Key_Backtab) {
+        base = QStringLiteral("TAB");
+        shiftInName = true;
+        modifiers |= Qt::ShiftModifier;
+    } else if (key >= Qt::Key_F1 && key <= Qt::Key_F24) {
+        base = QStringLiteral("F%1").arg(key - Qt::Key_F1 + 1);
+        shiftInName = true;
+    } else if (key >= Qt::Key_A && key <= Qt::Key_Z) {
+        // From the key, not the text: with a Hebrew (or any non-Latin)
+        // layout the text is a Hebrew letter, but mpv binds Latin ones.
+        const QChar c(key);
+        base = modifiers.testFlag(Qt::ShiftModifier) ? QString(c) : QString(c.toLower());
+    } else {
+        const bool chorded = modifiers.testAnyFlags(Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
+        // Without Ctrl or Alt the text is the character as typed (Shift
+        // already applied: "{", "!"). With them it is often a control code,
+        // so the key's own character is used.
+        if (!chorded && text.size() == 1 && text.at(0).isPrint() && !text.at(0).isSpace())
+            base = text;
+        else if (key > 0x20 && key < 0x7f)
+            base = QString(QChar(key));
+        else if (!chorded && !text.isEmpty() && text.at(0).isPrint())
+            base = text;
+    }
+    if (base.isEmpty())
+        return {};
+    if (base == QLatin1String("#"))
+        base = QStringLiteral("SHARP");  // "#" starts a comment in input.conf
+
+    // Qt on macOS reports Cmd as Control and Control as Meta; mpv calls
+    // Cmd "Meta", as it does the Windows key elsewhere.
+#ifdef Q_OS_MACOS
+    const bool ctrl = modifiers.testFlag(Qt::MetaModifier);
+    const bool meta = modifiers.testFlag(Qt::ControlModifier);
+#else
+    const bool ctrl = modifiers.testFlag(Qt::ControlModifier);
+    const bool meta = modifiers.testFlag(Qt::MetaModifier);
+#endif
+    QString name;
+    if (ctrl) name += QLatin1String("Ctrl+");
+    if (modifiers.testFlag(Qt::AltModifier)) name += QLatin1String("Alt+");
+    if (meta) name += QLatin1String("Meta+");
+    if (shiftInName && modifiers.testFlag(Qt::ShiftModifier)) name += QLatin1String("Shift+");
+    return name + base;
+}
+
+bool MpvTarget::keyEvent(int key, Qt::KeyboardModifiers modifiers, const QString& text, bool pressed)
+{
+    if (!pressed) {
+        // Stops whatever mpv repeats while the key is held. Released under
+        // the name it was pressed with: the modifiers may have been let go
+        // first. Key 0 releases them all. (A bare "keyup" would do that, but
+        // crashes mpv 0.37.)
+        const QList<QByteArray> names = key == 0 ? m_heldKeys.values() : QList<QByteArray>{m_heldKeys.take(key)};
+        if (key == 0)
+            m_heldKeys.clear();
+        for (const QByteArray& name : names)
+            if (!name.isEmpty())
+                command({"keyup", name.constData()});
+        return true;
+    }
+    const QString name = keyName(key, modifiers, text);
+    if (name.isEmpty())
+        return false;
+    const QByteArray utf8 = name.toUtf8();
+    m_heldKeys.insert(key, utf8);
+    command({"keydown", utf8.constData()});
+    return true;
+}
+
+void MpvTarget::setFullScreen(bool on) { setProperty("fullscreen", on ? "yes" : "no"); }
 
 // --- Plumbing -----------------------------------------------------------------
 
@@ -526,6 +689,12 @@ void MpvTarget::processEvents()
                                            << logging::redactText(QString::fromUtf8(msg->text).trimmed());
             break;
         }
+        case MPV_EVENT_CLIENT_MESSAGE: {
+            const auto* msg = static_cast<mpv_event_client_message*>(event->data);
+            if (msg->num_args == 2 && qstrcmp(msg->args[0], "cj-app") == 0)
+                emit appActionRequested(QString::fromUtf8(msg->args[1]));
+            break;
+        }
         case MPV_EVENT_SHUTDOWN:
             qCWarning(lcTargets) << "mpv shut down unexpectedly";
             emit errorOccurred(PlaybackError::Internal, QStringLiteral("mpv shut down"));
@@ -630,6 +799,49 @@ void MpvTarget::handleProperty(uint64_t id, const mpv_event_property* p)
     case PropMistimed:
         m_mistimed = intOf(p);
         emitStats();
+        break;
+    case PropSpeed:
+        if (p->format == MPV_FORMAT_DOUBLE) emit settingChanged(QStringLiteral("speed"), doubleOf(p));
+        break;
+    case PropSubDelay:
+        if (p->format == MPV_FORMAT_DOUBLE) emit settingChanged(QStringLiteral("subtitleDelay"), doubleOf(p));
+        break;
+    case PropAudioDelay:
+        if (p->format == MPV_FORMAT_DOUBLE) emit settingChanged(QStringLiteral("audioDelay"), doubleOf(p));
+        break;
+    case PropSubScale:
+        if (p->format == MPV_FORMAT_DOUBLE) emit settingChanged(QStringLiteral("subtitleScale"), doubleOf(p));
+        break;
+    case PropAbLoopA:
+    case PropAbLoopB: {
+        // "no" (unset) has no number: format NONE.
+        const double v = p->format == MPV_FORMAT_DOUBLE ? doubleOf(p) : -1.0;
+        emit settingChanged(id == PropAbLoopA ? QStringLiteral("abLoopA") : QStringLiteral("abLoopB"), v < 0 ? -1.0 : v);
+        break;
+    }
+    case PropAspect:
+        // "16:9", "1.777778", or "-1"/"no" for the file's own.
+        emit settingChanged(QStringLiteral("aspectRatio"), qMax(0.0, parseRatio(stringOf(p))));
+        break;
+    case PropBrightness: emit settingChanged(QStringLiteral("brightness"), int(intOf(p))); break;
+    case PropContrast:   emit settingChanged(QStringLiteral("contrast"), int(intOf(p))); break;
+    case PropSaturation: emit settingChanged(QStringLiteral("saturation"), int(intOf(p))); break;
+    case PropGamma:      emit settingChanged(QStringLiteral("gamma"), int(intOf(p))); break;
+    case PropHue:        emit settingChanged(QStringLiteral("hue"), int(intOf(p))); break;
+    case PropHwdec: {
+        const QString hwdec = stringOf(p);
+        if (hwdec.isEmpty())
+            break;
+        const bool enabled = hwdec != QLatin1String("no");
+        if (enabled != m_hwdecEnabled) {
+            m_hwdecEnabled = enabled;
+            emitStats();
+        }
+        emit settingChanged(QStringLiteral("hardwareDecoding"), enabled);
+        break;
+    }
+    case PropFullscreen:
+        emit settingChanged(QStringLiteral("fullScreen"), flagOf(p));
         break;
     }
 }

@@ -1,6 +1,7 @@
 // The window as the app shows it, against the fake player and a fake add-on:
 // every page opens, the keys do what the shortcut list says, and nothing in
 // QML warns along the way (a warning is a broken binding or a missing name).
+// Over the video, every key goes to the player's own bindings.
 //
 // Set CJ_UI_SHOTS to a folder to save a picture of each page there.
 
@@ -254,28 +255,46 @@ private slots:
         QTRY_VERIFY(!m_pages->isVisible());   // the video shows
         m_target.commands.clear();
 
+        // Every key goes to the player's own bindings; the window acts on none.
         QTest::keyClick(m_window, Qt::Key_Space);
-        QVERIFY(m_target.sent(QStringLiteral("pause")));
-        QTest::keyClick(m_window, Qt::Key_Right);
-        QVERIFY(m_target.sent(QStringLiteral("seek")));
-        QTest::keyClick(m_window, Qt::Key_BracketRight);
-        QCOMPARE(session.speed(), 1.25);
-        QTest::keyClick(m_window, Qt::Key_Backspace);
+        QVERIFY(m_target.sent(QStringLiteral("keydown %1").arg(int(Qt::Key_Space))));
+        QVERIFY(m_target.sent(QStringLiteral("keyup")));
+        QVERIFY(!m_target.sent(QStringLiteral("pause")));
+        for (int key : {Qt::Key_B, Qt::Key_P, Qt::Key_BracketRight, Qt::Key_I}) {
+            QTest::keyClick(m_window, Qt::Key(key));
+            QVERIFY(m_target.sent(QStringLiteral("keydown %1").arg(key)));
+        }
+        QVERIFY(!m_pages->isVisible());
+        QVERIFY(!m_window->property("settingsVisible").toBool());
         QCOMPARE(session.speed(), 1.0);
-        QTest::keyClick(m_window, Qt::Key_M);
-        QVERIFY(session.muted());
-        QTest::keyClick(m_window, Qt::Key_X);
-        QCOMPARE(session.subtitleDelay(), 0.1);
-        QTest::keyClick(m_window, Qt::Key_I);
-        QVERIFY(m_window->property("statsVisible").toBool());
-        shot("player");
-        QTest::keyClick(m_window, Qt::Key_I);
 
-        // B opens the pages over the video, and again closes them.
-        QTest::keyClick(m_window, Qt::Key_B);
+        // What the player's keys change shows in the window.
+        m_target.requestAppAction(QStringLiteral("stats"));
+        QVERIFY(m_window->property("statsVisible").toBool());
+        m_target.changeSetting(QStringLiteral("speed"), 1.5);
+        QCOMPARE(session.speed(), 1.5);
+
+        // A video with chapters gets the next-track button and the list.
+        emit m_target.chaptersChanged({{0, QStringLiteral("Intro")}, {30, QStringLiteral("Song")}, {60, QString()}});
+        QQuickItem* next = m_window->findChild<QQuickItem*>(QStringLiteral("nextTrack"));
+        QQuickItem* list = m_window->findChild<QQuickItem*>(QStringLiteral("trackList"));
+        QVERIFY(next && list);
+        QTRY_VERIFY(next->isVisible() && list->isVisible());
+        m_window->setProperty("controlsVisible", true);
+        QTest::qWait(250);  // the bar fades in
+        m_target.commands.clear();
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, next->mapToScene(QPointF(next->width() / 2, next->height() / 2)).toPoint());
+        QTRY_COMPARE(m_target.last(), QStringLiteral("chapter 1"));
+        shot("player");
+        m_target.requestAppAction(QStringLiteral("stats"));
+        emit m_target.chaptersChanged({});
+        QTRY_VERIFY(!next->isVisible());
+
+        // The pages still open over the video (from the Browse button).
+        m_window->setProperty("browseVisible", true);
         QVERIFY(m_pages->isVisible());
         shot("pages-over-video");
-        QTest::keyClick(m_window, Qt::Key_B);
+        m_window->setProperty("browseVisible", false);
         QVERIFY(!m_pages->isVisible());
     }
 

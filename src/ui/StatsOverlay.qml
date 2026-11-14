@@ -18,7 +18,7 @@ Rectangle {
             let lines = ["Playing on: " + session.targetName]
             for (const key in session.stats)
                 lines.push(key + ": " + session.stats[key])
-            lines.push("Speed: " + session.speed + "×")
+            lines.push("Speed: " + Math.round(session.speed * 100) / 100 + "×")
             if (parent.streaming) lines.push("Torrent: " + session.streamPeers + " peers, " + Format.rate(session.streamRate)
                                              + ", " + session.streamBufferedSeconds.toFixed(1) + " s buffered ahead")
             if (session.subtitleDelay !== 0) lines.push("Subtitle delay: " + Format.signedMs(session.subtitleDelay))

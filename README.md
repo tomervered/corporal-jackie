@@ -6,7 +6,7 @@ Built with C++20, Qt 6/QML, libmpv, libtorrent-rasterbar and SQLite. Windows and
 
 **Status:** Step 6 (library and watch history) done. Browses Stremio add-on catalogs and your own folders, and plays local video files, web links, magnet links, torrent info hashes and .torrent files. The interface talks only to the Session, which sends commands to the mpv target; the contract between them is in [docs/TARGET_CONTRACT.md](docs/TARGET_CONTRACT.md). Torrents reach mpv through a `torrent://` stream protocol backed by the stream broker, with no local HTTP server; the broker's contract is in [docs/BROKER_CONTRACT.md](docs/BROKER_CONTRACT.md) and the protocol is described in [src/transports/README.md](src/transports/README.md). [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) maps the layers, the threads, and how a byte gets from a peer to the screen.
 
-When nothing plays, the window shows Home: Continue Watching, then a row for each list of your add-ons and folders. The side bar has Discover (one list at a time, by type and genre), Library, Add-ons (install, order, remove) and Your folders; the search box on Home searches every add-on at once. Pick an item, then an episode, then one of the ways to play it, best first. Press B while watching to open the same pages over the video. Everything works by keyboard: Tab moves between controls and rows, arrow keys move inside them, Enter opens and Escape goes back. Cinemeta (Stremio's catalog server) gives lists and details if you allow it on the first-run screen; streams need a stream add-on. Subtitle files next to a video load with it. How it works: [src/sources/README.md](src/sources/README.md).
+When nothing plays, the window shows Home: Continue Watching, then a row for each list of your add-ons and folders. The side bar has Discover (one list at a time, by type and genre), Library, Add-ons (install, order, remove) and Your folders; the search box on Home searches every add-on at once. Pick an item, then an episode, then one of the ways to play it, best first. Press **Browse** while watching to open the same pages over the video. Everything works by keyboard: Tab moves between controls and rows, arrow keys move inside them, Enter opens and Escape goes back. Cinemeta (Stremio's catalog server) gives lists and details if you allow it on the first-run screen; streams need a stream add-on. Subtitle files next to a video load with it. How it works: [src/sources/README.md](src/sources/README.md).
 
 What the app sends and keeps is listed in [docs/PRIVACY.md](docs/PRIVACY.md), which also ships in the Windows and macOS packages.
 
@@ -14,38 +14,23 @@ Corporal Jackie is a hobby project. It is not affiliated with, endorsed by or sp
 
 Corporal Jackie comes with no streams of its own. Use it only for videos you have the right to watch and share. While a torrent plays, the app also uploads it to other peers, and they can see your IP address.
 
-To play a torrent, press U (or "Open a link…") and paste a magnet link, press Ctrl+V with one copied, drop it on the window, or pass it on the command line. While it loads, the window says what it is doing: looking for peers, getting the file list, buffering with a percentage, or waiting for peers when the swarm goes quiet.
+To play a torrent, choose "Open a link…" (U on the pages) and paste a magnet link, drop it on the window, or pass it on the command line. While it loads, the window says what it is doing: looking for peers, getting the file list, buffering with a percentage, or waiting for peers when the swarm goes quiet.
 
 ## Using it
 
-Open a file with the **Open** button, by dropping it on the window, or by passing its path on the command line. Drop a subtitle file on a playing video to add it. Press **?** in the app for this list.
+Open a file with the **Open** button, by dropping it on the window, or by passing its path on the command line. Drop a subtitle file on a playing video to add it.
+
+Over the video, the keyboard is mpv's: every key goes to mpv and does what mpv's standard [input.conf](https://github.com/mpv-player/mpv/blob/master/etc/input.conf) says, so the app's keys and mpv's never clash. Options › "Keyboard keys (mpv's)" lists the common ones. Three keys differ from mpv, because in mpv they need a Lua script or end the player:
 
 | Key | Action |
 | --- | --- |
-| Space or K | Play / pause |
-| ← / → | Tap to jump 10 seconds; hold to keep jumping, faster the longer you hold |
-| ↑ / ↓ | Volume |
-| M | Mute |
-| F or double-click | Full screen |
-| I | Debug overlay: decoder, codec, resolution, FPS, dropped frames |
-| H | Hardware decoding on/off (remembered) |
-| O | Open a file |
-| B | While watching: Home, Discover, Library, Add-ons and Your folders over the video |
-| P | Settings: hardware decoding, subtitle look, torrent storage, caches, history, export and import |
-| U | Open a link (magnet link, info hash, web address) |
-| Ctrl+V | Open the copied link |
-| [ / ] , Backspace | Slower / faster, normal speed |
-| J / Y | Next subtitle track (including off) / next audio track |
-| Z / X | Subtitle delay −/+ 100 ms (with Shift: audio delay) |
-| G | Bigger subtitles (Shift+G: smaller) |
-| PgUp / PgDn | Previous / next chapter |
-| , / . | One frame back / forward |
-| S | Screenshot, saved to Pictures/Corporal Jackie |
-| L | A-B repeat: first press marks A, second marks B, third clears |
-| A / C | Cycle aspect ratio / crop |
-| 1 to 0 | Contrast, brightness, gamma, saturation, hue (down, up) |
-| R | Reset picture |
-| Esc | Close a panel, or leave full screen |
+| Q, Ctrl+W | Close the video and go back to Home (mpv quits) |
+| I | The app's stats: decoder, codec, resolution, FPS, dropped frames |
+| Del, ` | Nothing (mpv's on-screen controller and console) |
+
+Browse, Settings and Open are buttons on the bar. On the pages (Home, Discover, Library...), P opens Settings, O opens a file, U a link, and B or Esc closes them over a playing video.
+
+When a video has chapters, the bar shows **⏭** (next track) and **Tracks**, a list of every chapter with its start time; pick one to jump there.
 
 ## Layout
 

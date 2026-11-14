@@ -24,7 +24,8 @@ public:
         for (Capability x : {Capability::SubtitleDelay, Capability::SubtitleStyle, Capability::AudioDelay,
                              Capability::Chapters, Capability::FrameStep, Capability::Screenshot,
                              Capability::AbLoop, Capability::AspectRatio, Capability::Crop,
-                             Capability::VideoEqualizer, Capability::HardwareDecoding})
+                             Capability::VideoEqualizer, Capability::HardwareDecoding,
+                             Capability::NativeKeys})
             c |= x;
         return c;
     }
@@ -72,6 +73,12 @@ public:
         log("equalizer", e.brightness, e.contrast, e.saturation, e.gamma, e.hue);
     }
     void setHardwareDecoding(bool on) override { log("hwdec", on); }
+    bool keyEvent(int key, Qt::KeyboardModifiers m, const QString&, bool pressed) override
+    {
+        log(pressed ? "keydown" : "keyup", key, int(m));
+        return true;
+    }
+    void setFullScreen(bool on) override { log("fullScreen", on); }
 
     // --- Events, as a real target would send them ---------------------------
     void startPlaying(double duration = 100)
@@ -81,6 +88,9 @@ public:
     }
     void movePosition(double s) { emit positionChanged(s); }
     void setState(PlaybackState s) { emit stateChanged(s); }
+    // As if the target's own key bindings had done it.
+    void changeSetting(const QString& name, const QVariant& value) { emit settingChanged(name, value); }
+    void requestAppAction(const QString& action) { emit appActionRequested(action); }
 
 private:
     template<typename... Args>
