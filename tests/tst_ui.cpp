@@ -17,6 +17,7 @@
 
 #include <QDateTime>
 #include <QGuiApplication>
+#include <QImageReader>
 #include <QLocale>
 #include <QDir>
 #include <QQmlApplicationEngine>
@@ -177,6 +178,14 @@ private slots:
             QVERIFY2(!mirrored.toBool(), item->metaObject()->className());
         }
         QVERIFY(controls > 0);
+    }
+
+    // Cinemeta's poster server sends WebP for many titles: without the
+    // decoder, those posters show as plain tiles with only the name.
+    void postersInWebPCanBeDecoded()
+    {
+        QVERIFY(QImageReader::supportedImageFormats().contains("webp"));
+        QVERIFY(QImageReader::supportedImageFormats().contains("jpeg"));
     }
 
     void homeShowsTheAddonsLists()
