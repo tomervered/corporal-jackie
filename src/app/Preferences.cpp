@@ -9,6 +9,10 @@ namespace cj {
 
 namespace {
 const QString kInMemory = QStringLiteral("torrents/inMemory");
+// Bumped when a storage default changes, so installs that saved the old one
+// move to the new one once. 2: disk instead of RAM only (2026-11-14).
+const QString kStorageDefaults = QStringLiteral("torrents/defaultsVersion");
+constexpr int kStorageDefaultsVersion = 2;
 const QString kMemoryCap = QStringLiteral("torrents/memoryCapMB");
 const QString kDiskCap = QStringLiteral("torrents/diskCacheGB");
 const QString kFolder = QStringLiteral("torrents/cacheFolder");
@@ -25,7 +29,14 @@ Preferences::Preferences(Storage& storage, const QString& defaultCacheFolder, QO
     , m_defaultFolder(defaultCacheFolder)
 {
     const auto value = [&](const QString& key, const QVariant& fallback) { return storage.setting(key, fallback); };
-    m_inMemory = value(kInMemory, true).toBool();
+    m_inMemory = value(kInMemory, false).toBool();
+    if (value(kStorageDefaults, 1).toInt() < kStorageDefaultsVersion) {
+        // RAM only was the default and held up to its whole cap (1 GB) on top
+        // of mpv's own buffer; disk mode keeps the app's memory flat.
+        m_inMemory = false;
+        storage.setSetting(kInMemory, false);
+        storage.setSetting(kStorageDefaults, kStorageDefaultsVersion);
+    }
     m_memoryCapMB = qBound(256, value(kMemoryCap, 1024).toInt(), 16384);
     m_diskCacheGB = qBound(1, value(kDiskCap, 10).toInt(), 1000);
     m_cacheFolder = value(kFolder, QString()).toString();
