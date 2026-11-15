@@ -42,6 +42,9 @@ Every target implements `cj::PlaybackTarget` (`src/session/PlaybackTarget.h`). T
 | `Crop` | `setCrop(text)` | Crop to an aspect, e.g. `"2.39:1"`; `""` = none. **Local only.** |
 | `VideoEqualizer` | `setVideoEqualizer(eq)` | Brightness, contrast, saturation, gamma, hue, each −100…100. **Local only.** |
 | `HardwareDecoding` | `setHardwareDecoding(bool)` | Allow GPU decoding. **Local only.** |
+| `NativeKeys` | `keyEvent(key, modifiers, text, pressed)` | A key over the video, in Qt's terms. The target runs its own binding for it (mpv's input.conf) and reports what changed with `settingChanged`. `key` 0 with `pressed` false releases every held key. |
+
+`setFullScreen(bool)` has no capability: the window owns full screen, and a target with its own key for it hears about every change so the two agree.
 
 "Local only" marks features that need the video to be decoded and drawn on this computer. A Cast target will not have them, because the TV does the decoding.
 
@@ -58,6 +61,8 @@ Every target implements `cj::PlaybackTarget` (`src/session/PlaybackTarget.h`). T
 | `volumeChanged(volume, muted)` | When output volume or mute changes, from any cause. |
 | `errorOccurred(error, message)` | Something failed. `error` is a `PlaybackError` (see below). |
 | `statsChanged(stats)` | Free-form diagnostics for the debug overlay, as name → text. |
+| `settingChanged(name, value)` | The target changed a setting by itself, from its own keys: `speed`, `subtitleDelay`, `audioDelay`, `subtitleScale`, `abLoopA`, `abLoopB` (−1 = unset), `aspectRatio` (width ÷ height, 0 = the file's own), `brightness`, `contrast`, `saturation`, `gamma`, `hue`, `hardwareDecoding`, `fullScreen`. The Session takes the value and does not send it back. |
+| `appActionRequested(action)` | The target's own keys asked for something only the app does: `stop` (close the video) or `stats` (show or hide the stats). |
 
 When the item reaches its end the target sends `stateChanged(Ended)` and keeps the last frame. It does not unload.
 

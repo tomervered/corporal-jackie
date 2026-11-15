@@ -155,7 +155,7 @@ Rectangle {
     }
     Text {
         anchors { left: sideBar.left; bottom: parent.bottom; margins: 0; leftMargin: 8; bottomMargin: 16 }
-        text: "Build " + appVersion + " · ? for shortcuts"
+        text: "Build " + appVersion
         color: Theme.faint
         font.pixelSize: 11
     }

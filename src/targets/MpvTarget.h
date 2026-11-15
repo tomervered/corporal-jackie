@@ -68,6 +68,12 @@ public:
     void setCrop(const QString& ratio) override;
     void setVideoEqualizer(const VideoEqualizer& eq) override;
     void setHardwareDecoding(bool enabled) override;
+    bool keyEvent(int key, Qt::KeyboardModifiers modifiers, const QString& text, bool pressed) override;
+    void setFullScreen(bool on) override;
+
+    // A Qt key as mpv's input.conf names it ("SPACE", "Ctrl+s", "Shift+LEFT",
+    // "F"), or empty if mpv has no name for it.
+    static QString keyName(int key, Qt::KeyboardModifiers modifiers, const QString& text);
 
 private:
     Q_INVOKABLE void processEvents();
@@ -80,6 +86,7 @@ private:
     void setState(PlaybackState s);
     void updateState();
     void applyCrop();
+    void bindAppKeys();
     void emitStats();
     static QList<Track> parseTracks(const ::mpv_node* node);
     static QList<Chapter> parseChapters(const ::mpv_node* node);
@@ -118,6 +125,7 @@ private:
 
     uint64_t m_nextReplyId = 1000;
     QHash<uint64_t, QString> m_pendingScreenshots;
+    QHash<int, QByteArray> m_heldKeys;  // Qt key -> the mpv name it went down as
 };
 
 } // namespace cj

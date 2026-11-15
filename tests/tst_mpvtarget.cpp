@@ -133,6 +133,67 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(s.state(), PlaybackState::Playing, 5000);
     }
 
+    // Qt's keys as mpv's input.conf names them.
+    void namesKeysTheWayMpvDoes()
+    {
+        const auto name = [](int key, Qt::KeyboardModifiers m, const char* text) {
+            return MpvTarget::keyName(key, m, QString::fromUtf8(text));
+        };
+        QCOMPARE(name(Qt::Key_Space, {}, " "), QStringLiteral("SPACE"));
+        QCOMPARE(name(Qt::Key_F, {}, "f"), QStringLiteral("f"));
+        QCOMPARE(name(Qt::Key_F, Qt::ShiftModifier, "F"), QStringLiteral("F"));
+        // A Hebrew layout: the text is a Hebrew letter, the key is still F.
+        QCOMPARE(name(Qt::Key_F, {}, "כ"), QStringLiteral("f"));
+        QCOMPARE(name(Qt::Key_Right, Qt::ShiftModifier, ""), QStringLiteral("Shift+RIGHT"));
+        QCOMPARE(name(Qt::Key_BraceLeft, Qt::ShiftModifier, "{"), QStringLiteral("{"));
+        QCOMPARE(name(Qt::Key_NumberSign, Qt::ShiftModifier, "#"), QStringLiteral("SHARP"));
+        QCOMPARE(name(Qt::Key_Exclam, Qt::ShiftModifier, "!"), QStringLiteral("!"));
+        QCOMPARE(name(Qt::Key_PageDown, {}, ""), QStringLiteral("PGDWN"));
+        QCOMPARE(name(Qt::Key_Backspace, {}, "\b"), QStringLiteral("BS"));
+        QCOMPARE(name(Qt::Key_9, Qt::KeypadModifier, "9"), QStringLiteral("KP9"));
+        QCOMPARE(name(Qt::Key_F9, {}, ""), QStringLiteral("F9"));
+        QCOMPARE(name(Qt::Key_MediaTogglePlayPause, {}, ""), QStringLiteral("PLAYPAUSE"));
+        QCOMPARE(name(Qt::Key_Shift, Qt::ShiftModifier, ""), QString());
+#ifndef Q_OS_MACOS
+        QCOMPARE(name(Qt::Key_H, Qt::ControlModifier, "\x08"), QStringLiteral("Ctrl+h"));
+        QCOMPARE(name(Qt::Key_Plus, Qt::ControlModifier | Qt::ShiftModifier, "+"), QStringLiteral("Ctrl++"));
+#endif
+        QCOMPARE(name(Qt::Key_Left, Qt::KeypadModifier, ""), QStringLiteral("LEFT"));  // macOS arrows
+    }
+
+    // The keys run mpv's own bindings, and what they change reaches the
+    // Session. q closes the video instead of ending mpv.
+    void keysRunMpvsBindings()
+    {
+        MpvTarget target(MpvTarget::Mode::Headless);
+        Session s(&target);
+        s.openPath(kTestPattern);
+        QTRY_VERIFY_WITH_TIMEOUT(s.hasMedia(), 10000);
+        const auto press = [&](int key, const char* text, Qt::KeyboardModifiers m = {}) {
+            QVERIFY(s.keyEvent(key, int(m), QString::fromUtf8(text), true));
+            s.keyEvent(key, int(m), QString::fromUtf8(text), false);
+        };
+        press(Qt::Key_M, "m");
+        QTRY_VERIFY_WITH_TIMEOUT(s.muted(), 5000);
+        press(Qt::Key_BracketRight, "]");
+        QTRY_VERIFY_WITH_TIMEOUT(qAbs(s.speed() - 1.1) < 0.001, 5000);
+        press(Qt::Key_X, "x");
+        QTRY_VERIFY_WITH_TIMEOUT(qAbs(s.subtitleDelay() - 0.1) < 0.001, 5000);
+        press(Qt::Key_F, "f");
+        QTRY_VERIFY_WITH_TIMEOUT(s.fullScreen(), 5000);
+        press(Qt::Key_Escape, "");
+        QTRY_VERIFY_WITH_TIMEOUT(!s.fullScreen(), 5000);
+        QSignalSpy actions(&s, &Session::appActionRequested);
+        press(Qt::Key_I, "i");
+        QTRY_COMPARE_WITH_TIMEOUT(actions.count(), 1, 5000);
+        QCOMPARE(actions.first().first().toString(), QStringLiteral("stats"));
+        press(Qt::Key_Q, "q");
+        QTRY_COMPARE_WITH_TIMEOUT(s.state(), PlaybackState::Idle, 5000);
+        // mpv is still there for the next item.
+        s.openPath(kTestPattern);
+        QTRY_VERIFY_WITH_TIMEOUT(s.hasMedia(), 10000);
+    }
+
     void missingFileIsATypedError()
     {
         MpvTarget target(MpvTarget::Mode::Headless);

@@ -43,6 +43,7 @@ enum class Capability : unsigned {
     Crop             = 1u << 8,   // local only
     VideoEqualizer   = 1u << 9,   // local only
     HardwareDecoding = 1u << 10,  // local only
+    NativeKeys       = 1u << 11,  // the target has its own key bindings (mpv's)
 };
 Q_ENUM_NS(Capability)
 Q_DECLARE_FLAGS(Capabilities, Capability)

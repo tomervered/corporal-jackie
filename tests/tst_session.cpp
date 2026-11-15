@@ -270,6 +270,71 @@ private slots:
         const int before = t.commands.size();
         s.nextChapter();  // already in the last chapter
         QCOMPARE(t.commands.size(), before);
+
+        // The track list jumps straight to one; out of range does nothing.
+        s.goToChapter(1);
+        QCOMPARE(t.last(), QStringLiteral("chapter 1"));
+        s.goToChapter(3);
+        s.goToChapter(-1);
+        QCOMPARE(t.last(), QStringLiteral("chapter 1"));
+    }
+
+    // mpv's own keys change settings behind the Session's back: it follows
+    // them, and does not send them back.
+    void followsSettingsTheTargetChanged()
+    {
+        FakeTarget t;
+        Session s(&t);
+        startItem(s, t);
+        t.commands.clear();
+        QSignalSpy speed(&s, &Session::speedChanged);
+        t.changeSetting(QStringLiteral("speed"), 1.1);
+        QCOMPARE(s.speed(), 1.1);
+        QCOMPARE(speed.count(), 1);
+        t.changeSetting(QStringLiteral("speed"), 1.1);
+        QCOMPARE(speed.count(), 1);
+        t.changeSetting(QStringLiteral("subtitleDelay"), 0.1);
+        QCOMPARE(s.subtitleDelay(), 0.1);
+        t.changeSetting(QStringLiteral("abLoopA"), 4.0);
+        QCOMPARE(s.abLoopA(), 4.0);
+        t.changeSetting(QStringLiteral("abLoopA"), -9e18);
+        QCOMPARE(s.abLoopA(), -1.0);
+        t.changeSetting(QStringLiteral("aspectRatio"), 16.0 / 9);
+        QCOMPARE(s.aspectRatio(), QStringLiteral("16:9"));
+        t.changeSetting(QStringLiteral("aspectRatio"), 0.0);
+        QCOMPARE(s.aspectRatio(), QString());
+        t.changeSetting(QStringLiteral("contrast"), 3);
+        QCOMPARE(s.contrast(), 3);
+        t.changeSetting(QStringLiteral("hardwareDecoding"), false);
+        QVERIFY(!s.hardwareDecoding());
+        t.changeSetting(QStringLiteral("fullScreen"), true);
+        QVERIFY(s.fullScreen());
+        QVERIFY(t.commands.isEmpty());
+
+        // Set from the window, it reaches the target.
+        s.setFullScreen(false);
+        QCOMPARE(t.last(), QStringLiteral("fullScreen false"));
+    }
+
+    void keysGoToTheTarget()
+    {
+        FakeTarget t;
+        Session s(&t);
+        QSignalSpy actions(&s, &Session::appActionRequested);
+        QVERIFY(s.keyEvent(Qt::Key_F, 0, QStringLiteral("f"), true));
+        QCOMPARE(t.last(), QStringLiteral("keydown %1 0").arg(int(Qt::Key_F)));
+        // mpv's q closes the video; I asks the window for the stats.
+        startItem(s, t);
+        t.requestAppAction(QStringLiteral("stop"));
+        QCOMPARE(t.last(), QStringLiteral("stop"));
+        QCOMPARE(actions.count(), 0);
+        t.requestAppAction(QStringLiteral("stats"));
+        QCOMPARE(actions.count(), 1);
+
+        FakeTarget cast(Capabilities{});  // no keys of its own
+        Session c(&cast);
+        QVERIFY(!c.keyEvent(Qt::Key_F, 0, QStringLiteral("f"), true));
+        QVERIFY(cast.commands.filter(QStringLiteral("key")).isEmpty());
     }
 
     void resumePoints()

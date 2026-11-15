@@ -38,6 +38,18 @@ Rectangle {
             font.pixelSize: 16
             onClicked: session.togglePause()
         }
+        // Next track: the video's next chapter (a song in a concert, a
+        // scene in a film). Shown only when the video has chapters.
+        BarButton {
+            objectName: "nextTrack"
+            visible: session.chapters.length > 1
+            enabled: session.currentChapter < session.chapters.length - 1
+            text: "⏭\uFE0E"
+            font.pixelSize: 16
+            ToolTip.visible: hovered
+            ToolTip.text: "Next track"
+            onClicked: session.nextChapter()
+        }
         Text {
             anchors.verticalCenter: parent.verticalCenter
             text: Format.time(seek.pressed ? seek.value : session.position) + " / " + Format.time(session.duration)
@@ -92,6 +104,30 @@ Rectangle {
             onMoved: { session.volume = value; if (session.muted) session.muted = false }
         }
         BarButton {
+            objectName: "trackList"
+            visible: session.chapters.length > 1
+            text: "Tracks"
+            onClicked: trackMenu.open()
+
+            // Every chapter with where it starts; the one playing is ticked.
+            Menu {
+                id: trackMenu
+                y: -height
+                Repeater {
+                    model: session.chapters
+                    MenuItem {
+                        required property var modelData
+                        required property int index
+                        text: (index + 1) + ".  " + (modelData.title || "Track " + (index + 1))
+                              + "    " + Format.time(modelData.start)
+                        checkable: true
+                        checked: index === session.currentChapter
+                        onTriggered: session.goToChapter(index)
+                    }
+                }
+            }
+        }
+        BarButton {
             id: moreButton
             text: "Options"
             onClicked: moreMenu.open()
@@ -142,7 +178,7 @@ Rectangle {
                 }
 
                 Menu {
-                    title: "Speed (" + session.speed + "×)"
+                    title: "Speed (" + Math.round(session.speed * 100) / 100 + "×)"
                     Repeater {
                         model: [0.5, 0.75, 1, 1.25, 1.5, 2]
                         MenuItem {
@@ -177,7 +213,7 @@ Rectangle {
                 }
                 MenuSeparator {}
                 MenuItem { text: "Settings…"; onTriggered: controlBar.settingsRequested() }
-                MenuItem { text: "Keyboard shortcuts"; onTriggered: controlBar.shortcutsRequested() }
+                MenuItem { text: "Keyboard keys (mpv's)"; onTriggered: controlBar.shortcutsRequested() }
             }
         }
         BarButton {

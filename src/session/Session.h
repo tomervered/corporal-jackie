@@ -54,6 +54,7 @@ class Session : public QObject
     Q_PROPERTY(int gamma READ gamma NOTIFY equalizerChanged)
     Q_PROPERTY(int hue READ hue NOTIFY equalizerChanged)
     Q_PROPERTY(bool hardwareDecoding READ hardwareDecoding WRITE setHardwareDecoding NOTIFY hardwareDecodingChanged)
+    Q_PROPERTY(bool fullScreen READ fullScreen WRITE setFullScreen NOTIFY fullScreenChanged)
     Q_PROPERTY(QVariantMap stats READ stats NOTIFY statsChanged)
     Q_PROPERTY(cj::StreamPhase streamPhase READ streamPhase NOTIFY streamStatusChanged)
     Q_PROPERTY(int streamPercent READ streamPercent NOTIFY streamStatusChanged)
@@ -103,6 +104,7 @@ public:
     int gamma() const { return m_eq.gamma; }
     int hue() const { return m_eq.hue; }
     bool hardwareDecoding() const { return m_hardwareDecoding; }
+    bool fullScreen() const { return m_fullScreen; }
     StreamPhase streamPhase() const { return m_stream.phase; }
     int streamPercent() const { return m_stream.percent; }
     int streamPeers() const { return m_stream.peers; }
@@ -132,6 +134,9 @@ public:
 
     // How often a resume point is emitted while playing. Default 5 s.
     void setResumeInterval(int ms) { m_resumeTimer.setInterval(ms); }
+
+    // Where screenshots go: Pictures/Corporal Jackie.
+    static QString screenshotFolder();
 
     // Capability check by name, for QML, e.g. supports("FrameStep").
     Q_INVOKABLE bool supports(const QString& capability) const;
@@ -163,6 +168,7 @@ public:
     void setSubtitleStyle(const SubtitleStyle& style);
     void setAudioDelay(double seconds);
     Q_INVOKABLE void nextChapter();
+    Q_INVOKABLE void goToChapter(int index);
     Q_INVOKABLE void previousChapter();
     Q_INVOKABLE void frameStep(bool forward);
     Q_INVOKABLE void screenshot();
@@ -174,6 +180,10 @@ public:
     Q_INVOKABLE void setEqualizer(const QString& name, int value);
     Q_INVOKABLE void resetEqualizer();
     void setHardwareDecoding(bool enabled);
+    void setFullScreen(bool on);
+    // A key over the video, passed to the target's own bindings (mpv's).
+    // modifiers is Qt::KeyboardModifiers. False if the target has none.
+    Q_INVOKABLE bool keyEvent(int key, int modifiers, const QString& text, bool pressed);
 
 signals:
     void stateChanged();
@@ -195,6 +205,9 @@ signals:
     void cropChanged();
     void equalizerChanged();
     void hardwareDecodingChanged();
+    void fullScreenChanged();
+    // The target's key bindings asked the window for something ("stats").
+    void appActionRequested(const QString& action);
     void statsChanged();
     void streamStatusChanged();
     void ended();
@@ -209,6 +222,7 @@ private:
     void emitResumePoint();
     void setState(PlaybackState s);
     void applyItemSettings();
+    void applyTargetSetting(const QString& name, const QVariant& value);
     QVariantList tracksOf(Track::Type type) const;
     int selectedOf(Track::Type type) const;
     std::optional<PlayableSource> resolve(const QString& input) const;
@@ -236,6 +250,7 @@ private:
     QString m_crop;
     VideoEqualizer m_eq;
     bool m_hardwareDecoding = true;
+    bool m_fullScreen = false;
     QVariantMap m_stats;
     StreamStatus m_stream;
     bool m_sourceErrorReported = false;

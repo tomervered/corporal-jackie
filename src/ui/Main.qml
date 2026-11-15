@@ -83,56 +83,18 @@ Window {
         else inputLayer.forceActiveFocus()
     }
 
-    function toggleFullscreen() {
-        root.visibility = root.visibility === Window.FullScreen ? Window.Windowed : Window.FullScreen
+    // Full screen lives in the Session, so mpv's F and Esc keys and the
+    // window agree on it.
+    function toggleFullscreen() { session.fullScreen = !session.fullScreen }
+    onVisibilityChanged: {
+        if (root.visibility === Window.FullScreen || root.visibility === Window.Windowed
+                || root.visibility === Window.Maximized)
+            session.fullScreen = root.visibility === Window.FullScreen
     }
 
     function showControls() {
         root.controlsVisible = true
         hideTimer.restart()
-    }
-
-    function cycleTrack(tracks, current, allowOff) {
-        const ids = tracks.map(t => t.id)
-        if (allowOff) ids.push(-1)
-        if (ids.length === 0) return undefined
-        const i = ids.indexOf(current)
-        return ids[(i + 1) % ids.length]
-    }
-
-    function trackLabel(tracks, id) {
-        if (id < 0) return "Off"
-        const t = tracks.find(t => t.id === id)
-        return t ? t.label : "Track " + id
-    }
-
-    // Arrow-key seeking: a tap jumps 10 s. Holding keeps jumping every 250 ms,
-    // further the longer it is held: 10 s steps, then 30 s, then 60 s.
-    property int seekSteps: 0
-    property real seekTotal: 0
-    property real lastSeekAt: 0
-
-    function arrowSeek(direction, isAutoRepeat) {
-        if (!session.hasMedia) return
-        if (!isAutoRepeat) {
-            seekSteps = 0
-            seekTotal = 0
-        } else if (Date.now() - lastSeekAt < 250) {
-            return
-        }
-        const step = seekSteps < 5 ? 10 : seekSteps < 12 ? 30 : 60
-        seekSteps++
-        lastSeekAt = Date.now()
-        seekTotal += direction * step
-        session.seekRelative(direction * step)
-        seekToastTimer.restart()
-    }
-
-    // name: brightness, contrast, saturation, gamma, hue
-    function nudgeEqualizer(name, delta) {
-        if (!session.supports("VideoEqualizer")) return
-        session.setEqualizer(name, session[name] + delta)
-        osd(name.charAt(0).toUpperCase() + name.slice(1) + " " + session[name])
     }
 
     // --- Session events ---------------------------------------------------
@@ -155,10 +117,15 @@ Window {
         }
         function onStateChanged() { if (session.hasMedia) root.errorText = "" }
         function onScreenshotSaved(path) { root.osd("Screenshot saved to Pictures › Corporal Jackie") }
+        function onFullScreenChanged() {
+            if ((root.visibility === Window.FullScreen) !== session.fullScreen)
+                root.visibility = session.fullScreen ? Window.FullScreen : Window.Windowed
+        }
+        // mpv's I key: mpv's own stats need a script, so the app shows its own.
+        function onAppActionRequested(action) { if (action === "stats") root.statsVisible = !root.statsVisible }
     }
 
     Timer { id: errorTimer; interval: 8000; onTriggered: root.errorText = "" }
-    Timer { id: seekToastTimer; interval: 900; onTriggered: root.seekTotal = 0 }
     Timer { id: osdTimer; interval: 1600; onTriggered: root.osdText = "" }
     Timer {
         id: hideTimer
@@ -188,14 +155,6 @@ Window {
         onClosed: inputLayer.forceActiveFocus()
     }
 
-    // Reads the clipboard: QML has no clipboard API, but a text field can paste.
-    TextInput { id: clipboardReader; visible: false }
-    function pasteAndOpen() {
-        clipboardReader.text = ""
-        clipboardReader.paste()
-        if (!root.openText(clipboardReader.text)) linkPopup.open()
-    }
-
     FileDialog {
         id: subtitleDialog
         title: "Load a subtitle file"
@@ -210,96 +169,22 @@ Window {
         anchors.fill: parent
         focus: true
 
+        // Every key goes to mpv, which runs its own bindings (its standard
+        // input.conf: Space, arrows, F, M, J...). The app adds none here.
+        // mpv repeats a held key itself, so Qt's repeats are dropped.
         Keys.onPressed: event => {
-            const shift = event.modifiers & Qt.ShiftModifier
-            switch (event.key) {
-            case Qt.Key_Space: case Qt.Key_K: session.togglePause(); break
-            case Qt.Key_Left:  root.arrowSeek(-1, event.isAutoRepeat); break
-            case Qt.Key_Right: root.arrowSeek(1, event.isAutoRepeat); break
-            case Qt.Key_Up:    session.volume = Math.min(100, session.volume + 5); root.osd("Volume " + Math.round(session.volume)); break
-            case Qt.Key_Down:  session.volume = Math.max(0, session.volume - 5); root.osd("Volume " + Math.round(session.volume)); break
-            case Qt.Key_M:     session.muted = !session.muted; root.osd(session.muted ? "Muted" : "Sound on"); break
-            case Qt.Key_F:     root.toggleFullscreen(); break
-            case Qt.Key_B:     root.toggleBrowse(); break
-            case Qt.Key_P:     root.toggleSettings(); break
-            case Qt.Key_Escape:
-                if (root.settingsVisible) root.toggleSettings()
-                else if (root.episodesVisible) root.toggleEpisodes()
-                else if (root.browseVisible) root.toggleBrowse()
-                else if (root.helpVisible) root.helpVisible = false
-                else if (root.visibility === Window.FullScreen) root.visibility = Window.Windowed
-                break
-            case Qt.Key_I:     root.statsVisible = !root.statsVisible; break
-            case Qt.Key_H:
-                session.hardwareDecoding = !session.hardwareDecoding
-                root.osd("Hardware decoding " + (session.hardwareDecoding ? "on" : "off"))
-                break
-            case Qt.Key_O:     openDialog.open(); break
-            case Qt.Key_U:     linkPopup.open(); break
-            case Qt.Key_V:
-                if (!(event.modifiers & Qt.ControlModifier)) return
-                root.pasteAndOpen()
-                break
-            case Qt.Key_Question: case Qt.Key_Slash: root.helpVisible = !root.helpVisible; break
-            // Speed
-            case Qt.Key_BracketLeft:  session.speed = session.speed - 0.25; root.osd("Speed " + session.speed + "×"); break
-            case Qt.Key_BracketRight: session.speed = session.speed + 0.25; root.osd("Speed " + session.speed + "×"); break
-            case Qt.Key_Backspace:    session.speed = 1; root.osd("Speed 1×"); break
-            // Tracks
-            case Qt.Key_J: {
-                const id = root.cycleTrack(session.subtitleTracks, session.subtitleTrack, true)
-                if (id !== undefined) { session.setSubtitleTrack(id); root.osd("Subtitles: " + root.trackLabel(session.subtitleTracks, id)) }
-                break
-            }
-            case Qt.Key_Y: {
-                const id = root.cycleTrack(session.audioTracks, session.audioTrack, false)
-                if (id !== undefined) { session.setAudioTrack(id); root.osd("Audio: " + root.trackLabel(session.audioTracks, id)) }
-                break
-            }
-            // Subtitle and audio sync (Shift = audio)
-            case Qt.Key_Z:
-                if (shift) { session.audioDelay = session.audioDelay - 0.1; root.osd("Audio delay " + Format.signedMs(session.audioDelay)) }
-                else { session.subtitleDelay = session.subtitleDelay - 0.1; root.osd("Subtitle delay " + Format.signedMs(session.subtitleDelay)) }
-                break
-            case Qt.Key_X:
-                if (shift) { session.audioDelay = session.audioDelay + 0.1; root.osd("Audio delay " + Format.signedMs(session.audioDelay)) }
-                else { session.subtitleDelay = session.subtitleDelay + 0.1; root.osd("Subtitle delay " + Format.signedMs(session.subtitleDelay)) }
-                break
-            case Qt.Key_G:
-                session.subtitleScale = session.subtitleScale + (shift ? -0.1 : 0.1)
-                root.osd("Subtitle size " + Math.round(session.subtitleScale * 100) + "%")
-                break
-            // Chapters, frames, screenshots, A-B
-            case Qt.Key_PageDown: session.nextChapter(); break
-            case Qt.Key_PageUp:   session.previousChapter(); break
-            case Qt.Key_Period:   session.frameStep(true); break
-            case Qt.Key_Comma:    session.frameStep(false); break
-            case Qt.Key_S:        session.screenshot(); break
-            case Qt.Key_L:
-                session.toggleAbLoop()
-                root.osd(session.abLoopA < 0 ? "A-B repeat off"
-                         : session.abLoopB < 0 ? "A-B repeat: start set at " + Format.time(session.abLoopA)
-                         : "A-B repeat " + Format.time(session.abLoopA) + " – " + Format.time(session.abLoopB))
-                break
-            // Picture
-            case Qt.Key_A: session.cycleAspectRatio(); root.osd("Aspect: " + (session.aspectRatio || "automatic")); break
-            case Qt.Key_C: session.cycleCrop(); root.osd("Crop: " + (session.crop || "none")); break
-            case Qt.Key_1: root.nudgeEqualizer("contrast", -5); break
-            case Qt.Key_2: root.nudgeEqualizer("contrast", 5); break
-            case Qt.Key_3: root.nudgeEqualizer("brightness", -5); break
-            case Qt.Key_4: root.nudgeEqualizer("brightness", 5); break
-            case Qt.Key_5: root.nudgeEqualizer("gamma", -5); break
-            case Qt.Key_6: root.nudgeEqualizer("gamma", 5); break
-            case Qt.Key_7: root.nudgeEqualizer("saturation", -5); break
-            case Qt.Key_8: root.nudgeEqualizer("saturation", 5); break
-            case Qt.Key_9: root.nudgeEqualizer("hue", -5); break
-            case Qt.Key_0: root.nudgeEqualizer("hue", 5); break
-            case Qt.Key_R: session.resetEqualizer(); root.osd("Picture reset"); break
-            default: return
-            }
-            root.showControls()
+            if (!event.isAutoRepeat)
+                session.keyEvent(event.key, event.modifiers, event.text, true)
             event.accepted = true
         }
+        Keys.onReleased: event => {
+            if (!event.isAutoRepeat)
+                session.keyEvent(event.key, event.modifiers, event.text, false)
+            event.accepted = true
+        }
+        // A key held while a panel opens is never released here: stop mpv
+        // repeating it.
+        onActiveFocusChanged: if (!activeFocus) session.keyEvent(0, 0, "", false)
 
         MouseArea {
             anchors.fill: parent
@@ -389,16 +274,7 @@ Window {
 
     // --- Overlays ------------------------------------------------------------
 
-    // Seek indicator, e.g. "+40 s", while tapping or holding an arrow key
-    Toast {
-        anchors.centerIn: parent
-        visible: root.seekTotal !== 0
-        text: (root.seekTotal > 0 ? "» +" : "« −") + Format.time(Math.abs(root.seekTotal))
-        fontSize: 28
-        bold: true
-    }
-
-    // Short messages for shortcuts, top centre
+    // Short messages, top centre
     Toast {
         anchors { top: parent.top; horizontalCenter: parent.horizontalCenter; topMargin: 24 }
         visible: root.osdText !== "" && root.errorText === ""
@@ -410,7 +286,7 @@ Window {
     // mpv's own buffer runs out.
     Toast {
         anchors.centerIn: parent
-        visible: root.seekTotal === 0 && session.hasMedia
+        visible: session.hasMedia
                  && (session.buffering || session.streamPhase === Playback.Stalled)
         text: root.streaming ? root.streamText : "Buffering… " + session.bufferPercent + "%"
     }
@@ -441,9 +317,12 @@ Window {
         streaming: root.streaming
     }
 
-    ShortcutsOverlay {
-        anchors.centerIn: parent
+    // mpv's keys, from the Options menu. A click anywhere closes it.
+    MouseArea {
+        anchors.fill: parent
         visible: root.helpVisible
+        onClicked: { root.helpVisible = false; inputLayer.forceActiveFocus() }
+        ShortcutsOverlay { anchors.centerIn: parent }
     }
 
     // --- Controls bar ---------------------------------------------------------
