@@ -6,5 +6,5 @@ inline constexpr const char* kName       = "@CJ_APP_NAME@";
 inline constexpr const char* kId         = "@CJ_APP_ID@";
 inline constexpr const char* kOrgDomain  = "@CJ_ORG_DOMAIN@";
 inline constexpr const char* kBundleId   = "@CJ_BUNDLE_ID@";
-inline constexpr const char* kVersion    = "@PROJECT_VERSION@";
+inline constexpr const char* kVersion    = "@CJ_VERSION_LABEL@";
 }
