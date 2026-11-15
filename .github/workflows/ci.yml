@@ -9,6 +9,10 @@ on:
         description: "Run on main with a tag such as v0.1.0 to publish a GitHub release from this run's Windows and macOS builds"
         required: false
         default: ""
+      unpublish_tag:
+        description: "With release_tag: turn this older release (such as v0.1.0) back into a draft once the new one is out. The draft keeps its files."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -772,7 +776,7 @@ jobs:
         run: |
           (cd windows && zip -qr ../CorporalJackie-windows-x64.zip .)
           cat > notes.md <<EOF
-          First public build of Corporal Jackie, a hobby media player (GPL-3.0). Commit ${GITHUB_SHA::7}.
+          Corporal Jackie $TAG, a hobby media player (GPL-3.0). Commit ${GITHUB_SHA::7}.
 
           - **Not code-signed.** Windows SmartScreen and macOS Gatekeeper will warn on first run. Updates are manual: download the new build.
           - **Windows:** unzip CorporalJackie-windows-x64.zip and run CorporalJackie.exe.
@@ -782,3 +786,9 @@ jobs:
           EOF
           gh release create "$TAG" CorporalJackie-windows-x64.zip macos/CorporalJackie-macos-arm64.zip \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Corporal Jackie $TAG" --notes-file notes.md
+      - name: Unpublish the older release
+        if: inputs.unpublish_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OLD: ${{ inputs.unpublish_tag }}
+        run: gh release edit "$OLD" --repo "$GITHUB_REPOSITORY" --draft=true
