@@ -11,6 +11,9 @@
 #include <mpv/client.h>
 #include <mpv/stream_cb.h>
 
+#include <mutex>
+#include <unordered_map>
+
 namespace cj {
 
 namespace {
@@ -95,6 +98,62 @@ struct TorrentTransport::Stream
     QUrl url;
     bool errorReported = false;
 };
+
+namespace {
+
+// Open streams by cookie number. Never destroyed: mpv may close a stream
+// while the program exits.
+struct StreamTable
+{
+    std::mutex mutex;
+    std::uintptr_t next = 1;
+    std::unordered_map<std::uintptr_t, TorrentTransport::Stream*> streams;
+};
+
+StreamTable& streamTable()
+{
+    static auto* table = new StreamTable;
+    return *table;
+}
+
+std::uintptr_t addStream(TorrentTransport::Stream* stream)
+{
+    StreamTable& t = streamTable();
+    std::lock_guard lock(t.mutex);
+    const std::uintptr_t id = t.next++;
+    t.streams.emplace(id, stream);
+    return id;
+}
+
+// For read, seek and size, which mpv calls only between open and close.
+TorrentTransport::Stream* streamOf(void* cookie)
+{
+    StreamTable& t = streamTable();
+    std::lock_guard lock(t.mutex);
+    return t.streams.at(reinterpret_cast<std::uintptr_t>(cookie));
+}
+
+std::shared_ptr<StreamHandle> handleOf(void* cookie)
+{
+    StreamTable& t = streamTable();
+    std::lock_guard lock(t.mutex);
+    const auto it = t.streams.find(reinterpret_cast<std::uintptr_t>(cookie));
+    return it == t.streams.end() ? nullptr : it->second->handle;
+}
+
+TorrentTransport::Stream* takeStream(void* cookie)
+{
+    StreamTable& t = streamTable();
+    std::lock_guard lock(t.mutex);
+    const auto it = t.streams.find(reinterpret_cast<std::uintptr_t>(cookie));
+    if (it == t.streams.end())
+        return nullptr;
+    TorrentTransport::Stream* s = it->second;
+    t.streams.erase(it);
+    return s;
+}
+
+} // namespace
 
 TorrentTransport::TorrentTransport(const BrokerSettings& settings, QObject* parent)
     : QObject(parent)
@@ -347,10 +406,14 @@ int TorrentTransport::open(const char* uri, mpv_stream_cb_info* info)
                                                                                     : MPV_ERROR_LOADING_FAILED;
     }
 
-    auto* stream = new Stream{handle, 0, this, url};
-    info->cookie = stream;
+    // The cookie is a number, not the Stream: mpv can call cancel_fn after
+    // close_fn. Its stream_cb frees the cancel hook only after close_fn
+    // returns, and the core thread can trigger it in between when the next
+    // file starts. A pointer would be freed by then (the macOS crash in
+    // StreamHandle::cancel); a number that is gone from the table is ignored.
+    info->cookie = reinterpret_cast<void*>(addStream(new Stream{handle, 0, this, url}));
     info->read_fn = [](void* cookie, char* buf, uint64_t nbytes) -> int64_t {
-        auto* s = static_cast<Stream*>(cookie);
+        Stream* s = streamOf(cookie);
         const qint64 n = s->handle->read(s->position, buf, qint64(nbytes));
         if (n == -2 && !s->errorReported) {
             // A torrent error mid-play (a full disk): mpv would just see the
@@ -365,15 +428,18 @@ int TorrentTransport::open(const char* uri, mpv_stream_cb_info* info)
         return n;
     };
     info->seek_fn = [](void* cookie, int64_t offset) -> int64_t {
-        auto* s = static_cast<Stream*>(cookie);
+        Stream* s = streamOf(cookie);
         if (offset < 0)
             return MPV_ERROR_GENERIC;
         s->position = offset;  // the next read moves the download window
         return offset;
     };
-    info->size_fn = [](void* cookie) -> int64_t { return static_cast<Stream*>(cookie)->handle->size(); };
-    info->close_fn = [](void* cookie) { delete static_cast<Stream*>(cookie); };
-    info->cancel_fn = [](void* cookie) { static_cast<Stream*>(cookie)->handle->cancel(); };
+    info->size_fn = [](void* cookie) -> int64_t { return streamOf(cookie)->handle->size(); };
+    info->close_fn = [](void* cookie) { delete takeStream(cookie); };
+    info->cancel_fn = [](void* cookie) {
+        if (const std::shared_ptr<StreamHandle> h = handleOf(cookie))
+            h->cancel();
+    };
     qCInfo(lcTransports).noquote() << "Streaming" << handle->fileName() << "to mpv";
     return 0;
 }
