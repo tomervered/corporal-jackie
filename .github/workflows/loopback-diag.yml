@@ -1,11 +1,10 @@
 name: Loopback diagnostic
 
-# Windows only: why tests sometimes get no metadata from a seeder on
+# Windows: why tests sometimes get no metadata from a seeder on
 # 127.0.0.1. Runs tests/diag/loopback_probe and the torrent tests with
 # libtorrent's peer logging on.
+# Start it by hand (Actions > Loopback diagnostic > Run workflow).
 on:
-  push:
-    branches: [claude/project-thread-vsy33n]
   workflow_dispatch:
 
 permissions:
