@@ -233,6 +233,13 @@ void Session::addSubtitleTracks(const QList<SubtitleSource>& subtitles, const QU
 
 void Session::load(const PlayableSource& source, double startSeconds)
 {
+    if (m_sourceCheck) {
+        if (const auto refusal = m_sourceCheck(source)) {
+            qCInfo(lcSession).noquote() << "Not loading" << logging::redactUrl(source.url) << ":" << refusal->second;
+            emit errorOccurred(refusal->first, refusal->second);
+            return;
+        }
+    }
     emitResumePoint();  // remember where the previous item was left
 
     if (startSeconds <= 0 && m_resumeLookup)

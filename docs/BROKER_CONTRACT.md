@@ -43,7 +43,7 @@ Each torrent lives in its own folder under the cache folder, named by its info h
 
 The cap is 10 GB by default, and smaller when the disk is short of space: the cache always leaves 2 GB free.
 
-A torrent that stops being in use is paused `idlePauseMs` later (2 minutes by default): it stops uploading and drops its peers. Pausing the film in the player keeps its handle open, so it does not count. Opening the torrent again resumes it at once and looks for peers again; cached bytes are readable straight away, missing ones wait for peers. Seeding on purpose is not part of this; it would be a separate, opt-in mode.
+A torrent that stops being in use is paused `idlePauseMs` later (2 minutes by default), or within a second when uploads are on: it stops uploading and drops its peers. With `upload` off (the app's default) the broker sends no piece data at all; `UploadGuard` chokes every peer and drops their requests. Pausing the film in the player keeps its handle open, so it does not count. Opening the torrent again resumes it at once and looks for peers again; cached bytes are readable straight away, missing ones wait for peers. Seeding on purpose is not part of this; it would be a separate, opt-in mode.
 
 When the last handle on a torrent closes, and when the broker shuts down (waiting at most 3 s), libtorrent's resume data is saved as `resume.dat` in the torrent's folder. It records the file list and which pieces are verified, so a torrent watched before reopens at once: no wait for peers and no re-check of the files on disk.
 

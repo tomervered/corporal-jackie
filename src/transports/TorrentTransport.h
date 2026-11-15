@@ -61,9 +61,11 @@ public:
     // Started on first use, so people who never open a torrent never get a
     // firewall prompt or an open port.
     StreamBroker& broker();
+    // Whether broker() has started the engine (for tests and the log).
+    bool engineStarted();
 
-    // What the engine may reach out to (DHT, LAN discovery, port mapping,
-    // open trackers: the same fields of BrokerSettings). Applies at once to a
+    // What the engine may reach out to (torrents at all, uploads, DHT, LAN
+    // discovery, port mapping, open trackers: the same fields of BrokerSettings). Applies at once to a
     // running engine, and is what a later start uses. Callable from any thread.
     void setNetwork(const BrokerSettings& settings);
 

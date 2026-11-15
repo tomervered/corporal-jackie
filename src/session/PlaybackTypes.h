@@ -24,6 +24,7 @@ enum class PlaybackError {
     Internal,           // a bug or an unexpected failure inside the player
     NoPeers,            // a torrent: nobody sharing it was found in time
     StreamFailed,       // a torrent stopped with an error (a full disk, say)
+    TorrentsOff,        // a torrent, and the person has not turned torrents on
 };
 Q_ENUM_NS(PlaybackError)
 

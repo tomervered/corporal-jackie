@@ -84,6 +84,8 @@ BrokerSettings AppCore::brokerSettings() const
     s.localDiscovery = m_preferences->useDht();
     s.portMapping = m_preferences->usePortMapping();
     s.publicTrackers = m_preferences->usePublicTrackers();
+    s.torrents = m_preferences->useTorrents();
+    s.upload = m_preferences->allowUploads();
     return s;
 }
 
@@ -94,6 +96,13 @@ void AppCore::start(PlaybackTarget* target, TorrentTransport& torrents, bool reg
     m_session = std::make_unique<Session>(target);
     Session* session = m_session.get();
 
+    // Torrents while the person has not turned them on: refused here with
+    // their own message (the transport refuses too, if one gets past).
+    session->setSourceCheck([this](const PlayableSource& s) -> std::optional<std::pair<PlaybackError, QString>> {
+        if (s.kind == PlayableSource::Kind::Torrent && !m_preferences->useTorrents())
+            return std::pair{PlaybackError::TorrentsOff, QStringLiteral("Torrent playback is off.")};
+        return std::nullopt;
+    });
     if (registerTorrents) {
         session->addSourceResolver([&torrents](const QString& input) { return torrents.resolve(input); });
         connect(session, &Session::sourceChanged, &torrents, [session, &torrents] {

@@ -151,6 +151,32 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(p.session.position() > 3.0, 15000);
     }
 
+    // With torrents off, the transport refuses a torrent without starting
+    // the engine: no port is opened and no peer is called. (The app refuses
+    // it earlier, before mpv; tst_app.) mpv's own error may come first.
+    void torrentsOffStartsNothing()
+    {
+        QTemporaryDir dir;
+        const TestTorrent t = harness::makeTorrentOfFile(dir.filePath("seed"), "clip.mkv", kClip, kPiece);
+        Seeder seeder(t, t.root);
+        Player p(dir.filePath("cache"));
+        BrokerSettings off = Player::settings(dir.filePath("cache"));
+        off.torrents = false;
+        p.transport.setNetwork(off);
+        QSignalSpy errors(&p.session, &Session::errorOccurred);
+        p.session.openPath(harness::magnet(t, {seeder.port()}));
+        const auto refused = [&errors] {
+            for (const QList<QVariant>& e : errors)
+                if (e.first().value<PlaybackError>() == PlaybackError::TorrentsOff)
+                    return true;
+            return false;
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(refused(), 10000);
+        QVERIFY(!p.transport.engineStarted());
+        QTest::qWait(500);
+        QCOMPARE(seeder.status().num_peers, 0);
+    }
+
     // The first torrent has no peers at all; switching to a local file must
     // not wait for it.
     void switchingAwayMidBufferDoesNotHang()

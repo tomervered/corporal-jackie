@@ -21,6 +21,12 @@ const QString kCinemeta = QStringLiteral("privacy/cinemeta");
 const QString kDht = QStringLiteral("privacy/dht");
 const QString kTrackers = QStringLiteral("privacy/publicTrackers");
 const QString kPortMapping = QStringLiteral("privacy/portMapping");
+const QString kTorrents = QStringLiteral("privacy/torrents");
+const QString kUploads = QStringLiteral("privacy/uploads");
+// Bumped when the first-run screen gains a question, so it asks once more.
+// 2: playing torrents and uploading (2026-11-15).
+const QString kPrivacyVersion = QStringLiteral("privacy/version");
+constexpr int kPrivacyScreenVersion = 2;
 } // namespace
 
 Preferences::Preferences(Storage& storage, const QString& defaultCacheFolder, QObject* parent)
@@ -44,12 +50,19 @@ Preferences::Preferences(Storage& storage, const QString& defaultCacheFolder, QO
         qCWarning(lcApp).noquote() << "Torrent cache folder" << m_cacheFolder << "is not usable; using the default";
         m_cacheFolder.clear();
     }
-    m_privacyChosen = value(kPrivacyChosen, false).toBool();
+    m_earlier = {{QStringLiteral("cinemeta"), value(kCinemeta, false).toBool()},
+                 {QStringLiteral("dht"), value(kDht, false).toBool()},
+                 {QStringLiteral("trackers"), value(kTrackers, false).toBool()},
+                 {QStringLiteral("portMapping"), value(kPortMapping, false).toBool()}};
+    m_privacyChosen = value(kPrivacyChosen, false).toBool()
+        && value(kPrivacyVersion, 1).toInt() >= kPrivacyScreenVersion;
     // Off unless the person said yes: a missing answer is a no.
     m_cinemeta = m_privacyChosen && value(kCinemeta, false).toBool();
     m_dht = m_privacyChosen && value(kDht, false).toBool();
     m_publicTrackers = m_privacyChosen && value(kTrackers, false).toBool();
     m_portMapping = m_privacyChosen && value(kPortMapping, false).toBool();
+    m_torrents = m_privacyChosen && value(kTorrents, false).toBool();
+    m_uploads = m_privacyChosen && value(kUploads, false).toBool();
     m_started = {m_inMemory, m_memoryCapMB, m_diskCacheGB, effectiveFolder()};
 }
 
@@ -121,13 +134,32 @@ void Preferences::setUsePortMapping(bool on)
     savePrivacy(m_cinemeta);
 }
 
-void Preferences::choosePrivacy(bool cinemeta, bool dht, bool publicTrackers, bool portMapping)
+void Preferences::setUseTorrents(bool on)
+{
+    if (on == m_torrents)
+        return;
+    m_torrents = on;
+    savePrivacy(m_cinemeta);
+}
+
+void Preferences::setAllowUploads(bool on)
+{
+    if (on == m_uploads)
+        return;
+    m_uploads = on;
+    savePrivacy(m_cinemeta);
+}
+
+void Preferences::choosePrivacy(bool cinemeta, bool dht, bool publicTrackers, bool portMapping, bool torrents,
+                                bool uploads)
 {
     const bool cinemetaBefore = m_cinemeta;
     m_cinemeta = cinemeta;
     m_dht = dht;
     m_publicTrackers = publicTrackers;
     m_portMapping = portMapping;
+    m_torrents = torrents;
+    m_uploads = uploads;
     m_privacyChosen = true;
     savePrivacy(cinemetaBefore);
 }
@@ -138,12 +170,16 @@ void Preferences::savePrivacy(bool cinemetaBefore)
     // Choosing from Settings is choosing: the first-run screen is not needed after.
     m_privacyChosen = true;
     m_storage.setSetting(kPrivacyChosen, true);
+    m_storage.setSetting(kPrivacyVersion, kPrivacyScreenVersion);
+    m_storage.setSetting(kTorrents, m_torrents);
+    m_storage.setSetting(kUploads, m_uploads);
     m_storage.setSetting(kCinemeta, m_cinemeta);
     m_storage.setSetting(kDht, m_dht);
     m_storage.setSetting(kTrackers, m_publicTrackers);
     m_storage.setSetting(kPortMapping, m_portMapping);
     qCInfo(lcApp).noquote() << "Network choices: Cinemeta" << m_cinemeta << "DHT and LAN discovery" << m_dht
-                            << "open trackers" << m_publicTrackers << "port mapping" << m_portMapping;
+                            << "open trackers" << m_publicTrackers << "port mapping" << m_portMapping
+                            << "torrents" << m_torrents << "uploads" << m_uploads;
     emit privacyChanged();
     if (cinemetaBefore != m_cinemeta)
         emit cinemetaChoiceChanged(m_cinemeta);

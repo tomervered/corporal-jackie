@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import "Notices.js" as Notices
 import QtQuick.Dialogs
 
 // Settings (press P): hardware decoding, applied at once; where torrents are
@@ -250,9 +251,31 @@ Rectangle {
             }
             Note { text: "While watching, G makes subtitles bigger and Shift+G smaller." }
 
+            // --- Torrents and copyright -----------------------------------------
+            Heading { text: "Torrents and copyright" }
+            Note { text: Notices.copyright }
+            Toggle {
+                objectName: "settingsTorrents"
+                title: Notices.torrentsTitle
+                detail: Notices.torrentsDetail
+                checked: preferences.useTorrents
+                onToggled: on => {
+                    preferences.useTorrents = on
+                    if (!on) preferences.allowUploads = false
+                }
+            }
+            Toggle {
+                objectName: "settingsUploads"
+                title: Notices.uploadsTitle
+                detail: Notices.uploadsDetail
+                enabledHere: preferences.useTorrents
+                checked: preferences.allowUploads
+                onToggled: on => preferences.allowUploads = on
+            }
+
             // --- What may be contacted ------------------------------------------
             Heading { text: "Privacy: what Corporal Jackie may contact" }
-            Note { text: "Each applies at once. Playing a torrent always shows your IP address and the torrent to its peers; a VPN hides the address. PRIVACY.md, next to the app, lists everything." }
+            Note { text: "Each applies at once. A VPN hides your IP address from torrent peers; this app does not. PRIVACY.md, next to the app, lists everything." }
             Toggle {
                 title: "Browse and search with Cinemeta"
                 detail: "Stremio's catalog server sees your IP address and every title you search for or open. Off removes it from Add-ons."

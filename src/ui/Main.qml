@@ -4,6 +4,7 @@ import QtQuick.Controls.Basic
 import QtQuick.Dialogs
 import CorporalJackie.Player   // VideoSurface, Session and the Playback enums, from C++
 import "Format.js" as Format
+import "Notices.js" as Notices
 
 // The main window. It binds only to `session` (the Playback Session) and never
 // to the player behind it, so a Cast target can replace it later.
@@ -112,6 +113,8 @@ Window {
                         ? "Nobody sharing this torrent was found. Try again later, or pick another source."
                     : error === Playback.StreamFailed
                         ? "The torrent stopped with an error (a full disk, maybe). The log has details."
+                    : error === Playback.TorrentsOff
+                        ? Notices.torrentsOff
                         : "Something went wrong inside the player (" + message + "). The log has details."
             errorTimer.restart()
         }

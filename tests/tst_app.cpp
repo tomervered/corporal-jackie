@@ -150,7 +150,64 @@ private slots:
         QVERIFY(!p.useCinemeta() && !p.useDht() && !p.usePublicTrackers() && !p.usePortMapping());
         const BrokerSettings s = run.core.brokerSettings();
         QVERIFY(!s.dht && !s.localDiscovery && !s.portMapping && !s.publicTrackers);
+        QVERIFY(!s.torrents && !s.upload);
         QVERIFY(run.core.addons().addons().isEmpty());
+    }
+
+    // Torrents and uploading are their own answers, off unless given.
+    void torrentsAndUploadsAreAskedForAndKept()
+    {
+        {
+            Run run(m_root->path());
+            Preferences& p = run.core.preferences();
+            p.choosePrivacy(false, false, false, false);
+            QVERIFY(!run.core.brokerSettings().torrents && !run.core.brokerSettings().upload);
+            p.choosePrivacy(false, false, false, false, true, false);
+            QVERIFY(run.core.brokerSettings().torrents && !run.core.brokerSettings().upload);
+            p.setAllowUploads(true);
+            QVERIFY(run.core.brokerSettings().upload);
+        }
+        Run run(m_root->path());
+        QVERIFY(run.core.preferences().useTorrents() && run.core.preferences().allowUploads());
+    }
+
+    // A torrent while torrents are off never reaches the player.
+    void torrentsOffAreRefusedBeforeThePlayer()
+    {
+        Run run(m_root->path());
+        Session& session = run.core.session();
+        QSignalSpy errors(&session, &Session::errorOccurred);
+        const QUrl torrent(QStringLiteral("torrent://0123456789abcdef0123456789abcdef01234567"));
+        session.open(torrent);
+        QCOMPARE(errors.count(), 1);
+        QCOMPARE(errors.first().first().value<PlaybackError>(), PlaybackError::TorrentsOff);
+        QVERIFY(!run.target.sent(QStringLiteral("load")));
+        QVERIFY(!session.loading());
+        // Local files and web links are not affected.
+        session.open(QUrl(QStringLiteral("http://127.0.0.1:1/clip.mkv")));
+        QVERIFY(run.target.sent(QStringLiteral("load http://127.0.0.1:1/clip.mkv")));
+        run.core.preferences().choosePrivacy(false, false, false, false, true, false);
+        session.open(torrent);
+        QVERIFY(run.target.sent(QStringLiteral("load ") + torrent.toString()));
+        QCOMPARE(errors.count(), 1);
+    }
+
+    // An answer given before the screen asked about torrents is asked again,
+    // starting from the earlier answers; torrents stay off until then.
+    void theScreenAsksAgainAfterNewQuestions()
+    {
+        {
+            Run run(m_root->path());
+            run.core.preferences().choosePrivacy(true, true, false, false, true, true);
+            run.core.storage().setSetting(QStringLiteral("privacy/version"), 1);
+        }
+        Run run(m_root->path());
+        const Preferences& p = run.core.preferences();
+        QVERIFY(!p.privacyChosen());
+        QVERIFY(!p.useTorrents() && !p.allowUploads() && !p.useDht());
+        QCOMPARE(p.earlierChoices().value(QStringLiteral("cinemeta")).toBool(), true);
+        QCOMPARE(p.earlierChoices().value(QStringLiteral("dht")).toBool(), true);
+        QCOMPARE(p.earlierChoices().value(QStringLiteral("trackers")).toBool(), false);
     }
 
     void theAnswerAppliesAtOnceAndIsKept()

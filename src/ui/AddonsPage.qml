@@ -1,10 +1,21 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import "Notices.js" as Notices
 
-// Add-ons: install by link, order, remove.
+// Add-ons: install by link, order, remove. Installing asks first: the
+// add-on is contacted only after the person agrees to the notice.
 Column {
+    id: addonsPage
+    objectName: "addonsPage"
     required property Item nav   // the Pages: go(), back(), openItem() and the picked types
     function takeFocus() { addonField.forceActiveFocus() }
+
+    property string pendingLink: ""
+    // scheme://host of a link: the rest can hold an add-on's settings or a login.
+    function siteOf(link) {
+        const m = /^\s*([a-z][a-z0-9+.-]*:\/\/[^\/?#]+)/i.exec(link)
+        return m ? m[1] : link.trim()
+    }
 
     spacing: 10
     PageTitle { text: "Add-ons" }
@@ -25,7 +36,42 @@ Column {
             id: installButton
             text: browser.installing ? "Installing…" : "Install"
             enabled: !browser.installing && addonField.text.trim() !== ""
-            onClicked: { browser.installAddon(addonField.text); addonField.text = "" }
+            onClicked: { addonsPage.pendingLink = addonField.text.trim(); addonField.text = "" }
+        }
+    }
+    Rectangle {
+        objectName: "addonConsent"
+        visible: addonsPage.pendingLink !== ""
+        width: parent.width
+        height: visible ? consentColumn.implicitHeight + 24 : 0
+        radius: 8
+        color: "#1fffffff"
+        Column {
+            id: consentColumn
+            x: 12; y: 12
+            width: parent.width - 24
+            spacing: 10
+            Text {
+                textFormat: Text.PlainText
+                width: parent.width
+                text: Notices.addonConsent(addonsPage.siteOf(addonsPage.pendingLink))
+                color: Theme.text
+                font.pixelSize: 13
+                wrapMode: Text.WordWrap
+            }
+            Row {
+                spacing: 8
+                Button {
+                    objectName: "addonConsentInstall"
+                    text: "Install"
+                    onClicked: { browser.installAddon(addonsPage.pendingLink); addonsPage.pendingLink = "" }
+                }
+                Button {
+                    objectName: "addonConsentCancel"
+                    text: "Cancel"
+                    onClicked: addonsPage.pendingLink = ""
+                }
+            }
         }
     }
     ListView {

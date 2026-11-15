@@ -781,8 +781,8 @@ jobs:
           - **Not code-signed.** Windows SmartScreen and macOS Gatekeeper will warn on first run. Updates are manual: download the new build.
           - **Windows:** unzip CorporalJackie-windows-x64.zip and run CorporalJackie.exe.
           - **macOS (Apple silicon):** unzip CorporalJackie-macos-arm64.zip, then right-click the app and choose Open the first time.
-          - Nothing contacts Cinemeta, the DHT or open trackers until you answer the first-run screen. What the app sends and keeps: docs/PRIVACY.md.
-          - Use it only for videos you have the right to watch and share. Not affiliated with Stremio.
+          - Playing torrents and uploading to other peers are off until you turn them on. Nothing contacts Cinemeta, the DHT or open trackers until you answer the first-run screen. What the app sends and keeps: docs/PRIVACY.md.
+          - Corporal Jackie does not provide, host or sell any movies or shows. Play only what you have the right to watch, and share only what you have the right to share: docs/COPYRIGHT_POLICY.md. Not affiliated with Stremio.
           EOF
           gh release create "$TAG" CorporalJackie-windows-x64.zip macos/CorporalJackie-macos-arm64.zip \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Corporal Jackie $TAG" --notes-file notes.md

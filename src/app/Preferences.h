@@ -9,6 +9,7 @@
 #include <QObject>
 #include <QString>
 #include <QUrl>
+#include <QVariantMap>
 
 namespace cj {
 
@@ -30,6 +31,14 @@ class Preferences : public QObject
     Q_PROPERTY(bool useDht READ useDht WRITE setUseDht NOTIFY privacyChanged)
     Q_PROPERTY(bool usePublicTrackers READ usePublicTrackers WRITE setUsePublicTrackers NOTIFY privacyChanged)
     Q_PROPERTY(bool usePortMapping READ usePortMapping WRITE setUsePortMapping NOTIFY privacyChanged)
+    // Playing torrents at all. Off: the torrent engine never starts.
+    Q_PROPERTY(bool useTorrents READ useTorrents WRITE setUseTorrents NOTIFY privacyChanged)
+    // Sending pieces of a torrent to other peers while it plays. Off until
+    // the person turns it on; applies at once.
+    Q_PROPERTY(bool allowUploads READ allowUploads WRITE setAllowUploads NOTIFY privacyChanged)
+    // The answers saved before the screen was last changed, to start it from
+    // when it asks again: {cinemeta, dht, trackers, portMapping}.
+    Q_PROPERTY(QVariantMap earlierChoices READ earlierChoices CONSTANT)
 
 public:
     // defaultCacheFolder: the torrent cache under the app's cache folder.
@@ -55,9 +64,15 @@ public:
     void setUseDht(bool on);
     void setUsePublicTrackers(bool on);
     void setUsePortMapping(bool on);
-    // The first-run screen's answer: records all four and that the person
-    // has chosen. Nothing is applied before this.
-    Q_INVOKABLE void choosePrivacy(bool cinemeta, bool dht, bool publicTrackers, bool portMapping);
+    bool useTorrents() const { return m_torrents; }
+    void setUseTorrents(bool on);
+    bool allowUploads() const { return m_uploads; }
+    void setAllowUploads(bool on);
+    QVariantMap earlierChoices() const { return m_earlier; }
+    // The first-run screen's answer: records every choice and that the
+    // person has chosen. Nothing is applied before this.
+    Q_INVOKABLE void choosePrivacy(bool cinemeta, bool dht, bool publicTrackers, bool portMapping,
+                                   bool torrents = false, bool uploads = false);
 
     void setTorrentsInMemory(bool on);
     void setMemoryCapMB(int mb);
@@ -94,6 +109,9 @@ private:
     bool m_dht = false;
     bool m_publicTrackers = false;
     bool m_portMapping = false;
+    bool m_torrents = false;
+    bool m_uploads = false;
+    QVariantMap m_earlier;
     struct Started { bool inMemory; int memoryCapMB; int diskCacheGB; QString folder; } m_started;
 };
 
