@@ -83,6 +83,10 @@ constexpr const char* kPublicTrackers[] = {
     "udp://tracker.openbittorrent.com:6969/announce",
 };
 constexpr auto kReannounceAfter = std::chrono::seconds(15); // no peers: ask trackers and DHT again
+// Waiting for metadata with no connection at all, not even one being made:
+// call the known peers again after this long, not after libtorrent's
+// reconnect delay (two minutes after one failure).
+constexpr auto kRecallIdlePeersAfter = std::chrono::seconds(3);
 constexpr auto kCacheCheckEvery = std::chrono::seconds(60);
 constexpr const char* kMetadataFile = "metadata.torrent";
 constexpr const char* kLastUsedFile = ".last-used";
@@ -212,6 +216,7 @@ struct Torrent
     qint64 downloadRate = 0;
     Clock::time_point lastPieceAt = Clock::now();   // last piece finished, or a reader opened
     Clock::time_point peersSeenAt = Clock::now();   // last time it had a peer
+    Clock::time_point connectingSeenAt = Clock::now(); // last time it had a connection, or one being made
     BrokerCounters counters;
 
     // The libtorrent handle, read under `mutex`: a RAM-only reload replaces

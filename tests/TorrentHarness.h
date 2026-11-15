@@ -9,6 +9,7 @@
 #include <QFile>
 #include <QString>
 
+#include <libtorrent/alert_types.hpp>
 #include <libtorrent/create_torrent.hpp>
 #include <libtorrent/load_torrent.hpp>
 #include <libtorrent/ip_filter.hpp>
@@ -17,6 +18,7 @@
 #include <libtorrent/session_params.hpp>
 #include <libtorrent/torrent_info.hpp>
 
+#include <atomic>
 #include <memory>
 #include <random>
 #include <thread>
@@ -134,16 +136,21 @@ class Seeder
 public:
     // `contentRoot` holds the files. With `checkFiles`, libtorrent hashes them
     // first, so a seeder whose files are partly zeroed has only some pieces.
-    Seeder(const TestTorrent& torrent, const QString& contentRoot, int uploadLimit = 0, bool checkFiles = false)
+    // `listenPort` 0: the system picks one.
+    Seeder(const TestTorrent& torrent, const QString& contentRoot, int uploadLimit = 0, bool checkFiles = false,
+           int listenPort = 0)
     {
         lt::settings_pack pack;
-        pack.set_str(lt::settings_pack::listen_interfaces, "127.0.0.1:0");
+        pack.set_str(lt::settings_pack::listen_interfaces, "127.0.0.1:" + std::to_string(listenPort));
         pack.set_bool(lt::settings_pack::enable_dht, false);
         pack.set_bool(lt::settings_pack::enable_lsd, false);
         pack.set_bool(lt::settings_pack::enable_upnp, false);
         pack.set_bool(lt::settings_pack::enable_natpmp, false);
         pack.set_bool(lt::settings_pack::allow_multiple_connections_per_ip, true);
-        pack.set_int(lt::settings_pack::alert_mask, 0);
+        // With CJ_TORRENT_LOG set, the seeder logs its alerts too, so a
+        // connection that fails shows from both ends.
+        const bool log = qEnvironmentVariableIsSet("CJ_TORRENT_LOG");
+        pack.set_int(lt::settings_pack::alert_mask, log ? lt::alert_category::all : lt::alert_category_t{});
         // Hand out upload bandwidth every 100 ms rather than 500 ms, closer to
         // a real link than bursts twice a second.
         pack.set_int(lt::settings_pack::tick_interval, 100);
@@ -169,6 +176,24 @@ public:
             atp.flags |= lt::torrent_flags::seed_mode;
         atp.flags &= ~(lt::torrent_flags::auto_managed | lt::torrent_flags::paused);
         m_handle = m_session->add_torrent(std::move(atp));
+        if (log)
+            m_logger = std::thread([this] {
+                while (!m_stopLog) {
+                    m_session->wait_for_alert(std::chrono::milliseconds(100));
+                    std::vector<lt::alert*> alerts;
+                    m_session->pop_alerts(&alerts);
+                    const int port = m_session->listen_port();
+                    for (lt::alert* a : alerts)
+                        qInfo("seeder %d: [%s] %s", port, a->what(), a->message().c_str());
+                }
+            });
+    }
+
+    ~Seeder()
+    {
+        m_stopLog = true;
+        if (m_logger.joinable())
+            m_logger.join();
     }
 
     // The listen socket opens in the background; wait for it.
@@ -197,6 +222,8 @@ public:
 private:
     std::unique_ptr<lt::session> m_session;
     lt::torrent_handle m_handle;
+    std::atomic<bool> m_stopLog{false};
+    std::thread m_logger;
 };
 
 inline QString magnet(const TestTorrent& t, const std::vector<int>& ports)

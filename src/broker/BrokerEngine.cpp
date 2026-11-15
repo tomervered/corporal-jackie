@@ -620,8 +620,26 @@ void Engine::refresh(Torrent& t)
         return;
     t.downloadRate = st.download_payload_rate;
     const auto now = Clock::now();
-    if (st.num_peers > 0 || t.openHandles == 0) {
+    // An open still waiting for the metadata counts as someone waiting:
+    // without peers it can never get it.
+    const bool waiting = t.inUse();
+    if (st.num_connections > 0 || !waiting)
+        t.connectingSeenAt = now;
+    if (st.num_peers > 0 || !waiting) {
         t.peersSeenAt = now;
+    } else if (!t.hasMetadata && now - t.connectingSeenAt >= kRecallIdlePeersAfter
+               && now - t.peersSeenAt < kReannounceAfter) {
+        // Every known peer failed and now waits out libtorrent's reconnect
+        // delay, longer than an open waits for the metadata. Nothing is
+        // being connected, so clearing the list cuts nothing short: call
+        // them again now. A peer that refused once (a seeder still starting
+        // up, a connection reset) usually answers the second time.
+        qCInfo(lcBroker).noquote() << "No connections for" << QString::fromStdString(t.id)
+                                   << "while waiting for its metadata: calling its peers again";
+        t.handle.clear_peers();
+        for (const auto& peer : t.linkPeers)
+            t.handle.connect_peer(peer);
+        t.connectingSeenAt = now;
     } else if (now - t.peersSeenAt >= kReannounceAfter) {
         qCInfo(lcBroker).noquote() << "No peers for" << QString::fromStdString(t.id) << ": asking again";
         t.handle.force_reannounce();
@@ -633,6 +651,7 @@ void Engine::refresh(Torrent& t)
         for (const auto& peer : t.linkPeers)
             t.handle.connect_peer(peer);
         t.peersSeenAt = now;
+        t.connectingSeenAt = now;
     }
     schedule(t, true);
 }
