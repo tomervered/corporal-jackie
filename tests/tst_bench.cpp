@@ -87,7 +87,9 @@ private:
         if (!finished || p.exitStatus() != QProcess::NormalExit || p.exitCode() != 0) {
             const QList<QByteArray> log = m_lastLog.split('\n');
             QByteArray tail;
-            for (qsizetype i = qMax<qsizetype>(0, log.size() - 60); i < log.size(); ++i)
+            // With libtorrent's peer log on, the whole story of the run.
+            const qsizetype keep = qEnvironmentVariableIsSet("CJ_TORRENT_LOG") ? 1500 : 60;
+            for (qsizetype i = qMax<qsizetype>(0, log.size() - keep); i < log.size(); ++i)
                 tail += log[i] + '\n';
             print(QStringLiteral("bench_player %1 (exit code %2). Its last log lines:\n%3")
                       .arg(finished ? QStringLiteral("failed") : QStringLiteral("timed out"))

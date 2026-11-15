@@ -114,6 +114,11 @@ jobs:
           export TMP="$(cygpath -w "$RUNNER_TEMP")" TEMP="$(cygpath -w "$RUNNER_TEMP")"
           build/tests/tst_bench.exe -o "diag-logs/tst_bench.txt,txt" > diag-logs/tst_bench-console.txt 2>&1 || echo "tst_bench failed"
           grep -h "FAIL!\|No metadata\|Totals" diag-logs/tst_bench*.txt || true
+          # A failed run's player log (client side) and the seeders' lines.
+          awk '/bench_player (failed|timed out)/{p=1} p' diag-logs/tst_bench-console.txt \
+            | grep -iE "bench_player|No metadata|No connections|No peers|connect|disconnect|error|refused|reset|fail|incoming|blocked|listen" | head -400
+          echo "== seeder lines with errors or incoming connections"
+          grep -E "seeder [0-9]+: \[(peer_disconnected|peer_error|listen_failed|incoming_connection|peer_blocked|peer_connect)" diag-logs/tst_bench.txt | tail -200
 
       - uses: actions/upload-artifact@v4
         if: always()
