@@ -122,3 +122,78 @@ jobs:
           path: |
             probe-*.txt
             diag-logs/
+
+  # The rare macOS crash in tst_torrentstream nextFileInTheSameTorrentReportsItsStatus:
+  # run it many times, with symbols, and print macOS's crash report.
+  macos:
+    name: macOS crash hunt
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install qt mpv boost openssl@3 ninja pkgconf
+
+      - uses: ./.github/actions/libtorrent
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_PREFIX_PATH="$(brew --prefix qt);$CJ_LT_PREFIX" -DCJ_REQUIRE_PATCHED_LIBTORRENT=ON
+
+      - name: Build
+        run: cmake --build build --target tst_torrentstream tst_broker
+
+      - name: Run the crashing test 80 times
+        continue-on-error: true
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          mkdir -p crash-logs
+          fails=0
+          for i in $(seq 80); do
+            if ! build/tests/tst_torrentstream nextFileInTheSameTorrentReportsItsStatus > "crash-logs/run-$i.txt" 2>&1; then
+              fails=$((fails+1)); echo "run $i failed"; tail -5 "crash-logs/run-$i.txt"
+            fi
+          done
+          echo "failed runs: $fails"
+
+      - name: Whole tst_torrentstream 20 times
+        continue-on-error: true
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          fails=0
+          for i in $(seq 20); do
+            build/tests/tst_torrentstream > "crash-logs/full-$i.txt" 2>&1 || { fails=$((fails+1)); echo "full run $i failed"; grep -E "FAIL|signal" "crash-logs/full-$i.txt" | head -5; }
+          done
+          echo "failed full runs: $fails"
+
+      - name: Crash reports
+        if: always()
+        run: |
+          ls -la ~/Library/Logs/DiagnosticReports/ 2>/dev/null | grep -i tst_ || echo "no crash reports"
+          for f in ~/Library/Logs/DiagnosticReports/tst_*; do
+            [ -f "$f" ] || continue
+            echo "== $f"; cp "$f" crash-logs/
+            python3 - "$f" <<'PY'
+          import json, sys
+          text = open(sys.argv[1]).read()
+          head, _, body = text.partition('\n')
+          d = json.loads(body)
+          images = d.get('usedImages', [])
+          print('exception:', d.get('exception'), 'faulting thread:', d.get('faultingThread'))
+          for ti, t in enumerate(d.get('threads', [])):
+              if ti != d.get('faultingThread') and not t.get('triggered'):
+                  continue
+              print('thread', ti, t.get('name', ''), t.get('queue', ''))
+              for fr in t.get('frames', [])[:40]:
+                  img = images[fr['imageIndex']]['name'] if fr.get('imageIndex') is not None and fr['imageIndex'] < len(images) else '?'
+                  print('  ', img, fr.get('symbol', hex(fr.get('imageOffset', 0))), fr.get('sourceFile', ''), fr.get('sourceLine', ''))
+          PY
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-crash-hunt
+          path: crash-logs/
