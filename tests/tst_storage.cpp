@@ -827,7 +827,10 @@ private slots:
         to.record(episode(2, 900, 9000));   // newer here: kept
         QSignalSpy addons(&to, &Storage::addonsImported);
         QSignalSpy folders(&to, &Storage::foldersImported);
-        QCOMPARE(to.importJson(json), QString());
+        // Asked first: only the add-on and folder not here yet.
+        QCOMPARE(to.importExtras(json), QStringList({QStringLiteral("Add-on: https://b.example/…"),
+                                                     QStringLiteral("Folder: %1").arg(QDir::toNativeSeparators(QStringLiteral("/videos")))}));
+        QCOMPARE(to.importJson(json, Storage::ImportExtras::Include), QString());
         QCOMPARE(addons.count(), 1);
         QCOMPARE(folders.count(), 1);
         QCOMPARE(to.addons()->size(), 2);
@@ -837,7 +840,8 @@ private slots:
         QVERIFY(to.inLibrary(QStringLiteral("stremio:tt9")));
 
         // Importing the same file again changes nothing.
-        QCOMPARE(to.importJson(json), QString());
+        QCOMPARE(to.importJson(json, Storage::ImportExtras::Include), QString());
+        QVERIFY(to.importExtras(json).isEmpty());
         QCOMPARE(addons.count(), 1);
 
         QVERIFY(!to.importJson("not json").isEmpty());

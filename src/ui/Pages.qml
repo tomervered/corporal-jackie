@@ -126,6 +126,7 @@ Rectangle {
         width: 180
         spacing: 4
         Text {
+            textFormat: Text.PlainText
             text: "Corporal Jackie"
             color: Theme.text
             font.pixelSize: 18
@@ -154,6 +155,7 @@ Rectangle {
         }
     }
     Text {
+        textFormat: Text.PlainText
         anchors { left: sideBar.left; bottom: parent.bottom; margins: 0; leftMargin: 8; bottomMargin: 16 }
         text: "Build " + appVersion
         color: Theme.faint

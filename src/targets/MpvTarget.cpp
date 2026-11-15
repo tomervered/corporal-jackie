@@ -10,6 +10,7 @@
 #include <QMetaObject>
 #include <mpv/client.h>
 
+#include <algorithm>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -122,6 +123,13 @@ void setOption(mpv_handle* mpv, const char* name, const char* value)
 
 QByteArray number(double v) { return QByteArray::number(v, 'f', 3); }
 
+// The protocols FFmpeg may open for links inside a file (HLS segments, DASH
+// fragments, MP4 references). No file, no pipe, no network-share access.
+constexpr const char* kLavfProtocolWhitelist = "protocol_whitelist=[http,https,tls,tcp,crypto,data]";
+
+// The id of the on_load hook (see MpvTarget::onLoadHook).
+constexpr uint64_t kOnLoadHook = 1;
+
 // "16:9" or "2.39:1" or "1.85" -> width/height, or 0 if not a ratio.
 double parseRatio(const QString& text)
 {
@@ -167,6 +175,16 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
     // PATH, and a script from the user's folders would run inside the player.
     setOption(m_mpv, "ytdl", "no");
     setOption(m_mpv, "load-scripts", "no");
+    // Untrusted media (security review 2026-11-15, docs/SECURITY.md).
+    // mpv does not check HTTPS certificates unless told to, so anyone on the
+    // network path could swap a stream for a crafted file. Links with
+    // credentials go through ScopedHttp, which uses Qt's checks.
+    setOption(m_mpv, "tls-verify", "yes");
+    // FFmpeg's HLS and DASH readers, and MP4 external references, open the
+    // links a file names by themselves. FFmpeg lets an HLS list from the web
+    // name file: segments, which on Windows can be a network share (a
+    // password-hash leak). Only network protocols may be opened that way.
+    setOption(m_mpv, "demuxer-lavf-o", kLavfProtocolWhitelist);
     setOption(m_mpv, "screenshot-format", "png");
     // mpv's S key saves here too (mpv makes the folder), named like the
     // app's own screenshots: "<title> 01-02-03.png".
@@ -196,6 +214,18 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
     // stays empty and its user agent stays its default.
     m_http = std::make_unique<ScopedHttp>();
     m_http->registerWith(m_mpv);
+    // Every file mpv is about to open, playlist entries included, passes
+    // through onLoadHook() first.
+    mpv_hook_add(m_mpv, kOnLoadHook, "on_load", 0);
+
+    // The exact builds in use: the macOS package takes whatever Homebrew
+    // had, so the log is where a report shows which FFmpeg played a file.
+    for (const char* name : {"mpv-version", "ffmpeg-version"}) {
+        if (char* v = mpv_get_property_string(m_mpv, name)) {
+            qCInfo(lcTargets).noquote() << name << QString::fromUtf8(v);
+            mpv_free(v);
+        }
+    }
 
     // CJ_MPV_LOG=v (or debug) shows more of mpv's own log, for troubleshooting.
     const QByteArray mpvLog = qgetenv("CJ_MPV_LOG");
@@ -461,8 +491,54 @@ void MpvTarget::startLoad(const QByteArray& target, const QString& shown, double
         mpv_set_property_string(m_mpv, "demuxer-max-bytes", web ? "256MiB" : "64MiB");
         mpv_set_property_string(m_mpv, "demuxer-max-back-bytes", web ? "64MiB" : "32MiB");
     }
+    applyReferencePolicy(target);
     ++m_loadsInFlight;
     command({"loadfile", target.constData(), "replace"});
+}
+
+// What a file may make mpv open by itself (security review 2026-11-15, see
+// docs/SECURITY.md). Playlists, mpv EDL lists, CUE sheets and FFmpeg's HLS
+// lists all name further files, and mpv opens them. mpv guards that only for
+// links it opens itself: an http(s) list may name only other web links. Our
+// torrent:// and cjhttp:// streams come through mpv's stream callbacks, which
+// mpv trusts like a path the user typed, so a playlist inside a torrent could
+// name C:\ files or \\server\share paths (a password-hash leak on Windows).
+//  - Torrents and local videos: no references at all. Nothing a player of
+//    single videos needs is lost; a local MKV that chains other files
+//    (ordered chapters) plays its own part only.
+//  - A local file the user picked whose name says it is a list (.m3u, .cue...):
+//    references on, as in any player.
+//  - Web links: references on, since HLS needs them; onLoadHook() keeps every
+//    entry a web link, and ScopedHttp refuses EDL and CUE answers.
+void MpvTarget::applyReferencePolicy(const QByteArray& target)
+{
+    static const QList<QByteArray> kListSuffixes = {".m3u", ".m3u8", ".pls", ".cue", ".edl"};
+    const QByteArray lower = target.toLower();
+    m_webLoad = lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("cjhttp://")
+             || lower.startsWith("cjhttps://");
+    const bool localList = !lower.contains("://")
+        && std::any_of(kListSuffixes.begin(), kListSuffixes.end(), [&](const QByteArray& s) { return lower.endsWith(s); });
+    mpv_set_property_string(m_mpv, "access-references", m_webLoad || localList ? "yes" : "no");
+}
+
+// mpv's on_load hook: runs before each file opens, playlist entries
+// included. While a web link plays, every entry must be a web link too.
+// mpv waits until mpv_hook_continue(), so this answers at once.
+void MpvTarget::onLoadHook(uint64_t hookId)
+{
+    if (m_webLoad) {
+        char* name = mpv_get_property_string(m_mpv, "stream-open-filename");
+        const QByteArray entry = name ? QByteArray(name).toLower() : QByteArray();
+        mpv_free(name);
+        const bool web = entry.startsWith("http://") || entry.startsWith("https://")
+                      || entry.startsWith("cjhttp://") || entry.startsWith("cjhttps://");
+        if (!web) {
+            qCWarning(lcTargets) << "Refusing a playlist entry that is not a web link";
+            // A protocol nobody registered: mpv fails this entry and goes on.
+            mpv_set_property_string(m_mpv, "stream-open-filename", "cj-refused://");
+        }
+    }
+    mpv_hook_continue(m_mpv, hookId);
 }
 
 void MpvTarget::markRenderReady()
@@ -700,6 +776,14 @@ void MpvTarget::processEvents()
             const auto* msg = static_cast<mpv_event_log_message*>(event->data);
             qCWarning(lcTargets).noquote() << "mpv" << msg->prefix << ":"
                                            << logging::redactText(QString::fromUtf8(msg->text).trimmed());
+            break;
+        }
+        case MPV_EVENT_HOOK: {
+            const auto* hook = static_cast<mpv_event_hook*>(event->data);
+            if (event->reply_userdata == kOnLoadHook)
+                onLoadHook(hook->id);
+            else
+                mpv_hook_continue(m_mpv, hook->id);
             break;
         }
         case MPV_EVENT_CLIENT_MESSAGE: {

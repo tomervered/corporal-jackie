@@ -9,6 +9,7 @@ ItemDelegate {
     width: parent ? parent.width : 160
     font.pixelSize: 15
     contentItem: Text {
+        textFormat: Text.PlainText
         text: nav.text
         color: nav.selected ? Theme.accent : Theme.text
         font: nav.font

@@ -58,6 +58,7 @@ Rectangle {
             onClicked: { panel.pickedEpisode = -1; episodeList.forceActiveFocus() }
         }
         Text {
+            textFormat: Text.PlainText
             anchors { left: backButton.visible ? backButton.right : parent.left; right: closeButton.left
                       leftMargin: backButton.visible ? 8 : 0; verticalCenter: parent.verticalCenter }
             text: panel.pickedEpisode >= 0 ? browser.streamsTitle : browser.playingShowName

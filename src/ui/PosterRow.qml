@@ -22,7 +22,7 @@ Column {
         ToolButton {
             visible: posterRow.canSeeAll && posterRow.items.length > 0
             anchors.verticalCenter: parent.verticalCenter
-            contentItem: Text { text: "See all ›"; color: Theme.accent; font.pixelSize: 13 }
+            contentItem: Text { textFormat: Text.PlainText; text: "See all ›"; color: Theme.accent; font.pixelSize: 13 }
             onClicked: posterRow.seeAll()
         }
     }

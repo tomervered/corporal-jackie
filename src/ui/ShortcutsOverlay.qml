@@ -34,6 +34,7 @@ Rectangle {
                 "F9", "List of audio and subtitle tracks", "Q", "Close the video",
             ]
             Text {
+                textFormat: Text.PlainText
                 required property string modelData
                 required property int index
                 text: modelData

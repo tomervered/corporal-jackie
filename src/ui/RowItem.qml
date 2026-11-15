@@ -12,6 +12,7 @@ ItemDelegate {
     contentItem: Column {
         spacing: 2
         Text {
+            textFormat: Text.PlainText
             width: parent.width
             text: rowItem.primary + (rowItem.progress >= 1 ? "   ✓ Watched" : "")
             color: Theme.text
@@ -19,6 +20,7 @@ ItemDelegate {
             elide: Text.ElideRight
         }
         Text {
+            textFormat: Text.PlainText
             width: parent.width
             visible: text !== ""
             text: rowItem.secondary

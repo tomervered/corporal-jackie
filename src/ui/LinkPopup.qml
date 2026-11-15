@@ -15,12 +15,14 @@ Popup {
         width: parent.width
         spacing: 12
         Text {
+            textFormat: Text.PlainText
             text: "Open a link"
             color: Theme.text
             font.pixelSize: 18
             font.weight: Font.DemiBold
         }
         Text {
+            textFormat: Text.PlainText
             width: parent.width
             wrapMode: Text.WordWrap
             text: "A magnet link, a torrent info hash, or a web address of a video."

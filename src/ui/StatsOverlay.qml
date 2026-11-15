@@ -9,6 +9,7 @@ Rectangle {
     radius: 6
     color: "#b0000000"
     Text {
+        textFormat: Text.PlainText
         id: stats
         anchors.centerIn: parent
         color: Theme.text

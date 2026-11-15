@@ -13,7 +13,7 @@ PREFIX=$1
 FFMPEG_VERSION=n7.1.5
 LIBPLACEBO_VERSION=v7.349.0
 MPV_VERSION=v0.41.0
-STAMP="$PREFIX/.built-$FFMPEG_VERSION-$LIBPLACEBO_VERSION-$MPV_VERSION-1"
+STAMP="$PREFIX/.built-$FFMPEG_VERSION-$LIBPLACEBO_VERSION-$MPV_VERSION-2"
 
 if [ -f "$STAMP" ]; then
     echo "Using cached build in $PREFIX"
@@ -28,6 +28,19 @@ export PATH="$PREFIX/bin:$PATH"
 echo "::group::FFmpeg $FFMPEG_VERSION"
 git clone --depth 1 --branch "$FFMPEG_VERSION" https://github.com/FFmpeg/FFmpeg.git "$SRC/ffmpeg"
 cd "$SRC/ffmpeg"
+# CVE-2026-70628: the DVB subtitle parser checks the room left in its
+# 64 KiB buffer with a sum that can overflow, so a crafted subtitle stream in
+# a torrent writes past the buffer. FFmpeg fixed it upstream after n7.1.5;
+# this applies the same one-line fix (subtract instead of add). Remove it
+# when FFMPEG_VERSION moves past the fix. The build stops if the line is not
+# there, so a version bump cannot drop the fix without anyone noticing.
+DVBSUB_OLD='if (buf_size - buf_pos + pc->packet_index > PARSE_BUF_SIZE)'
+DVBSUB_NEW='if (buf_size - buf_pos > PARSE_BUF_SIZE - pc->packet_index)'
+grep -qF "$DVBSUB_OLD" libavcodec/dvbsub_parser.c \
+    || { echo "dvbsub_parser.c changed: check whether CVE-2026-70628 is fixed upstream" >&2; exit 1; }
+# Neither string holds a character sed treats as special.
+sed -i "s/$DVBSUB_OLD/$DVBSUB_NEW/" libavcodec/dvbsub_parser.c
+grep -qF "$DVBSUB_NEW" libavcodec/dvbsub_parser.c
 ./configure --prefix="$PREFIX" \
     --enable-shared --disable-static \
     --enable-gpl --enable-version3 \

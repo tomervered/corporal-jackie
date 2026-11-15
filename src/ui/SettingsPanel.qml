@@ -18,7 +18,7 @@ Rectangle {
     // Clicks and scrolls on the panel stay here, away from the video below.
     MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons; onWheel: wheel => wheel.accepted = true }
     Keys.onEscapePressed: panel.closeRequested()
-    onVisibleChanged: if (visible) { caches.measure(); panel.confirmClear = false; panel.result = "" }
+    onVisibleChanged: if (visible) { caches.measure(); panel.confirmClear = false; panel.result = ""; panel.importAsks = [] }
 
     function setSubtitleStyle(key, value) {
         const style = session.subtitleStyle
@@ -28,14 +28,25 @@ Rectangle {
 
     property bool confirmClear: false
     property string result: ""      // what the last export or import did
+    property url importFile         // an import waiting for a yes or no...
+    property var importAsks: []     // ...to the add-ons and folders it adds
+
+    function finishImport(withAddonsAndFolders) {
+        const error = library.importFrom(panel.importFile, withAddonsAndFolders)
+        panel.result = error !== "" ? error : "Imported."
+        panel.importAsks = []
+        panel.importFile = ""
+    }
 
     component Heading: Text {
+        textFormat: Text.PlainText
         color: Theme.text
         font.pixelSize: 16
         font.weight: Font.DemiBold
         topPadding: 8
     }
     component Note: Text {
+        textFormat: Text.PlainText
         width: parent ? parent.width : implicitWidth
         color: Theme.muted
         font.pixelSize: 12
@@ -56,8 +67,8 @@ Rectangle {
             id: texts
             anchors { left: parent.left; right: sw.left; rightMargin: 12; verticalCenter: parent.verticalCenter }
             spacing: 2
-            Text { width: parent.width; text: toggle.title; color: Theme.text; font.pixelSize: 14; wrapMode: Text.WordWrap }
-            Text { width: parent.width; text: toggle.detail; color: Theme.muted; font.pixelSize: 12; wrapMode: Text.WordWrap; visible: text !== "" }
+            Text { textFormat: Text.PlainText; width: parent.width; text: toggle.title; color: Theme.text; font.pixelSize: 14; wrapMode: Text.WordWrap }
+            Text { textFormat: Text.PlainText; width: parent.width; text: toggle.detail; color: Theme.muted; font.pixelSize: 12; wrapMode: Text.WordWrap; visible: text !== "" }
         }
         Switch {
             id: sw
@@ -80,8 +91,8 @@ Rectangle {
             id: actionTexts
             anchors { left: parent.left; right: buttonRow.left; rightMargin: 12; verticalCenter: parent.verticalCenter }
             spacing: 2
-            Text { width: parent.width; text: actionRow.title; color: Theme.text; font.pixelSize: 14; wrapMode: Text.WordWrap }
-            Text { width: parent.width; text: actionRow.detail; color: Theme.muted; font.pixelSize: 12; wrapMode: Text.WordWrap; visible: text !== "" }
+            Text { textFormat: Text.PlainText; width: parent.width; text: actionRow.title; color: Theme.text; font.pixelSize: 14; wrapMode: Text.WordWrap }
+            Text { textFormat: Text.PlainText; width: parent.width; text: actionRow.detail; color: Theme.muted; font.pixelSize: 12; wrapMode: Text.WordWrap; visible: text !== "" }
         }
         Row {
             id: buttonRow
@@ -99,6 +110,7 @@ Rectangle {
         width: parent ? parent.width : 400
         spacing: 6
         Text {
+            textFormat: Text.PlainText
             text: choice.title
             color: Theme.text
             font.pixelSize: 14
@@ -120,6 +132,7 @@ Rectangle {
 
     // --- Header ------------------------------------------------------------------
     Text {
+        textFormat: Text.PlainText
         id: title
         anchors { left: parent.left; top: parent.top; margins: 16 }
         text: "Settings"
@@ -173,6 +186,7 @@ Rectangle {
                     color: Qt.rgba(0, 0, 0, session.subtitleStyle.background / 100)
                 }
                 Text {
+                    textFormat: Text.PlainText
                     id: sample
                     anchors.centerIn: parent
                     text: "This is how subtitles look"
@@ -188,6 +202,7 @@ Rectangle {
                 height: fontBox.implicitHeight + 8
                 enabled: session.supports("SubtitleStyle")
                 Text {
+                    textFormat: Text.PlainText
                     anchors { left: parent.left; verticalCenter: parent.verticalCenter }
                     text: "Font"
                     color: Theme.text
@@ -297,8 +312,9 @@ Rectangle {
                     id: folderColumn
                     anchors { left: parent.left; right: folderButtons.left; rightMargin: 12; verticalCenter: parent.verticalCenter }
                     spacing: 2
-                    Text { text: "Cache folder"; color: Theme.text; font.pixelSize: 14 }
+                    Text { textFormat: Text.PlainText; text: "Cache folder"; color: Theme.text; font.pixelSize: 14 }
                     Text {
+                        textFormat: Text.PlainText
                         width: parent.width
                         text: preferences.cacheFolder
                         color: Theme.muted
@@ -331,6 +347,7 @@ Rectangle {
                 color: "#33e8b04b"
                 border.color: Theme.accent
                 Text {
+                    textFormat: Text.PlainText
                     id: restartNote
                     anchors { fill: parent; margins: 8 }
                     text: "Torrent storage changes apply the next time you open Corporal Jackie."
@@ -386,6 +403,26 @@ Rectangle {
                 Button { text: "Export…"; focusPolicy: Qt.NoFocus; onClicked: exportDialog.open() }
                 Button { text: "Import…"; focusPolicy: Qt.NoFocus; onClicked: importDialog.open() }
             }
+            // An export can come from someone else, so the add-ons and folders
+            // it would add are listed for a yes or no first (an add-on decides
+            // what plays; a folder can be another computer's share). History
+            // and library items import either way.
+            Column {
+                width: parent.width
+                spacing: 8
+                visible: panel.importAsks.length > 0
+                Note { text: "This file also adds these. Add them only if you know where the file came from:" }
+                Repeater {
+                    model: panel.importAsks
+                    Note { required property string modelData; text: "•  " + modelData }
+                }
+                Row {
+                    spacing: 8
+                    Button { text: "Add them too"; focusPolicy: Qt.NoFocus; onClicked: panel.finishImport(true) }
+                    Button { text: "Import without them"; focusPolicy: Qt.NoFocus; onClicked: panel.finishImport(false) }
+                    Button { text: "Cancel"; focusPolicy: Qt.NoFocus; onClicked: { panel.importAsks = []; panel.importFile = "" } }
+                }
+            }
             Note { visible: panel.result !== ""; text: panel.result }
             Note { visible: library.storageError !== ""; text: library.storageError }
         }
@@ -408,8 +445,11 @@ Rectangle {
         fileMode: FileDialog.OpenFile
         nameFilters: ["Corporal Jackie export (*.json)", "All files (*)"]
         onAccepted: {
-            const error = library.importFrom(selectedFile)
-            panel.result = error !== "" ? error : "Imported."
+            panel.result = ""
+            panel.importFile = selectedFile
+            panel.importAsks = library.importAsks(selectedFile)
+            if (panel.importAsks.length === 0)
+                panel.finishImport(false)
         }
     }
     FolderDialog {

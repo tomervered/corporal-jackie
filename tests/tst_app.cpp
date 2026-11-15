@@ -280,7 +280,7 @@ private slots:
         QVERIFY(run.core.addons().addons().isEmpty());
         QSignalSpy addons(&run.core.addons(), &StremioAdapter::addonsChanged);
         QSignalSpy folders(&run.core.localFiles(), &LocalLibrary::foldersChanged);
-        QCOMPARE(run.core.storage().importJson(exported), QString());
+        QCOMPARE(run.core.storage().importJson(exported, Storage::ImportExtras::Include), QString());
         QVERIFY(addons.count() > 0);
         QVERIFY(folders.count() > 0);
         // The export came from an install that said yes to Cinemeta; this one

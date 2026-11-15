@@ -8,6 +8,7 @@
 #include <QSaveFile>
 
 #include <algorithm>
+#include <optional>
 
 namespace cj {
 
@@ -257,14 +258,39 @@ QString Library::exportTo(const QUrl& file, bool everything) const
     return {};
 }
 
-QString Library::importFrom(const QUrl& file)
+namespace {
+
+// An export file's bytes, or an error in words.
+std::optional<QByteArray> readExport(const QString& path, QString* error)
 {
-    QFile in(pathOf(file));
-    if (!in.open(QIODevice::ReadOnly))
-        return QStringLiteral("Could not open the file (%1).").arg(in.errorString());
-    if (in.size() > 256 * 1024 * 1024)
-        return QStringLiteral("That file is too large to be an export.");
-    return m_storage.importJson(in.readAll());
+    QFile in(path);
+    if (!in.open(QIODevice::ReadOnly)) {
+        *error = QStringLiteral("Could not open the file (%1).").arg(in.errorString());
+        return std::nullopt;
+    }
+    if (in.size() > 256 * 1024 * 1024) {
+        *error = QStringLiteral("That file is too large to be an export.");
+        return std::nullopt;
+    }
+    return in.readAll();
+}
+
+} // namespace
+
+QStringList Library::importAsks(const QUrl& file) const
+{
+    QString error;
+    const auto json = readExport(pathOf(file), &error);
+    return json ? m_storage.importExtras(*json) : QStringList();
+}
+
+QString Library::importFrom(const QUrl& file, bool withAddonsAndFolders)
+{
+    QString error;
+    const auto json = readExport(pathOf(file), &error);
+    if (!json)
+        return error;
+    return m_storage.importJson(*json, withAddonsAndFolders ? Storage::ImportExtras::Include : Storage::ImportExtras::Skip);
 }
 
 } // namespace cj

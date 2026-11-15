@@ -10,6 +10,8 @@ When nothing plays, the window shows Home: Continue Watching, then a row for eac
 
 What the app sends and keeps is listed in [docs/PRIVACY.md](docs/PRIVACY.md), which also ships in the Windows and macOS packages.
 
+How the app handles files and links from strangers (torrents, add-ons, shared exports) is in [docs/SECURITY.md](docs/SECURITY.md).
+
 Corporal Jackie is a hobby project. It is not affiliated with, endorsed by or sponsored by Stremio; it can use Stremio-compatible add-ons, and Cinemeta is Stremio's service. The Windows and macOS builds are not code-signed, so Windows SmartScreen and macOS Gatekeeper will warn on first run, and updates are manual: download the new build.
 
 Corporal Jackie comes with no streams of its own. Use it only for videos you have the right to watch and share. While a torrent plays, the app also uploads it to other peers, and they can see your IP address.

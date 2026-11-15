@@ -36,7 +36,7 @@ A video counts as finished when less than 5% of it is left, and at least 20 seco
 
 ## Export and import
 
-Export writes one JSON file with the library, history, add-ons and folders (`"format": "corporal-jackie-export"`, `"version": 1`). Import merges: newer history wins, and missing library items, add-ons and folders are added.
+Export writes one JSON file with the library, history, add-ons and folders (`"format": "corporal-jackie-export"`, `"version": 1`). Import merges: newer history wins and missing library items are added. Missing add-ons and folders are added only when the user says yes: Settings shows the list from `Storage::importExtras()` first, and `importJson()` takes `ImportExtras::Include` or `Skip`.
 
 The export from Settings is shareable (`"contents": "shareable"`). It leaves out what lets someone else in:
 
@@ -49,4 +49,4 @@ The export from Settings is shareable (`"contents": "shareable"`). It leaves out
 
 `Storage::ExportMode::Full` keeps everything, for a private backup; Settings does not offer it, so the app only writes the shareable form. A secret written into a link's path (some debrid links) cannot be told apart from an ordinary path; add-on stream links are left out for that reason, and a pasted link without a query is kept.
 
-Import checks the whole file first (types, finite positions, link schemes: web, file, torrent, magnet) and refuses a damaged file before writing anything. It then writes every change in one transaction and waits for it: if it fails, nothing changes on disk or in memory, and the error says so.
+Import checks the whole file first (types, finite positions, link schemes: web, file, torrent, magnet) and refuses a damaged file before writing anything. It leaves out history entries that point at a network share and poster links that are not web images (`docs/SECURITY.md`, "Import"). It then writes every change in one transaction and waits for it: if it fails, nothing changes on disk or in memory, and the error says so.

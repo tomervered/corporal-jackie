@@ -10,6 +10,7 @@ Rectangle {
     radius: 10
     color: "#a0000000"
     Text {
+        textFormat: Text.PlainText
         id: label
         anchors.centerIn: parent
         color: Theme.text

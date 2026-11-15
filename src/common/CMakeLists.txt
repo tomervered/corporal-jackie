@@ -3,6 +3,7 @@ configure_file(AppInfo.h.in "${CMAKE_CURRENT_BINARY_DIR}/AppInfo.h" @ONLY)
 add_library(cj_common STATIC
     AppPaths.cpp       AppPaths.h
     DependencyInfo.cpp DependencyInfo.h
+    LinkRules.cpp      LinkRules.h
     Logging.cpp        Logging.h
     CrashHandler.cpp   CrashHandler.h
 )

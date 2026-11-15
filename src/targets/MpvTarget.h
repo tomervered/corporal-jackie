@@ -81,6 +81,8 @@ private:
     void command(std::initializer_list<const char*> args, uint64_t replyId = 0);
     void setProperty(const char* name, const QByteArray& value);
     void startLoad(const QByteArray& target, const QString& shown, double startSeconds);
+    void applyReferencePolicy(const QByteArray& target);
+    void onLoadHook(uint64_t hookId);
     void addSubtitleNow(const SubtitleSource& subtitle, const char* flag);
     void addSubtitleFile(const QByteArray& path, const char* flag, const SubtitleSource& subtitle);
     void setState(PlaybackState s);
@@ -99,6 +101,7 @@ private:
     double m_pendingStart = 0;
     QString m_pendingShown;       // the pending link, as logs may show it
     std::unique_ptr<ScopedHttp> m_http;   // links with credentials, remote subtitles
+    bool m_webLoad = false;               // the file playing is a web link (see applyReferencePolicy)
     bool m_cacheSizeFromEnv = false;      // CJ_MPV_OPTS set mpv's buffer size: leave it
     static constexpr qint64 kMaxSubtitleBytes = 20 * 1024 * 1024;  // a subtitle is small
     QList<SubtitleSource> m_pendingSubtitles;  // added once the file is loaded
