@@ -84,8 +84,10 @@ signals:
     // reports its own, vaguer error.
     void openFailed(cj::PlaybackError error, const QString& message, const QUrl& source);
 
+public:
+    struct Stream;  // one stream mpv has open; defined in the .cpp
+
 private:
-    struct Stream;
     static int openCallback(void* self, char* uri, mpv_stream_cb_info* info);
     int open(const char* uri, mpv_stream_cb_info* info);
     void statusLoop();

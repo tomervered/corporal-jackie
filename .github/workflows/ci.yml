@@ -416,6 +416,31 @@ jobs:
           QTEST_FUNCTION_TIMEOUT: "150000"
         run: ctest --test-dir build -LE bench --output-on-failure
 
+      # A crash shows only "SEGFAULT" in ctest; macOS keeps a report with
+      # every thread's stack.
+      - name: Crash reports
+        if: failure()
+        run: |
+          for f in ~/Library/Logs/DiagnosticReports/tst_*; do
+            [ -f "$f" ] || continue
+            echo "== $f"
+            python3 - "$f" <<'PY'
+          import json, sys
+          text = open(sys.argv[1]).read()
+          d = json.loads(text.partition('\n')[2])
+          images = d.get('usedImages', [])
+          print('exception:', d.get('exception'))
+          for ti, t in enumerate(d.get('threads', [])):
+              if not t.get('triggered'):
+                  continue
+              print('crashed thread', ti, t.get('name', ''), t.get('queue', ''))
+              for fr in t.get('frames', [])[:40]:
+                  i = fr.get('imageIndex')
+                  img = images[i].get('name', '?') if i is not None and i < len(images) else '?'
+                  print('  ', img, fr.get('symbol', hex(fr.get('imageOffset', 0))))
+          PY
+          done
+
       - name: Benchmark
         env:
           QT_QPA_PLATFORM: offscreen

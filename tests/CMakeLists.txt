@@ -101,3 +101,10 @@ target_link_libraries(session_churn_probe PRIVATE cj::libtorrent)
 if(WIN32)
     target_compile_definitions(session_churn_probe PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 endif()
+# Seeder and client on 127.0.0.1, round after round, logging every alert of
+# a round that gets no metadata (see diag/loopback_probe.cpp).
+add_executable(loopback_probe diag/loopback_probe.cpp)
+target_link_libraries(loopback_probe PRIVATE cj::libtorrent)
+if(WIN32)
+    target_compile_definitions(loopback_probe PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+endif()

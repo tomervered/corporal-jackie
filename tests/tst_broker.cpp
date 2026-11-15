@@ -7,6 +7,7 @@
 
 #include <QDirIterator>
 #include <QElapsedTimer>
+#include <QTcpServer>
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -337,6 +338,38 @@ private slots:
         qInfo("Received %lld MiB of 48 MiB", received / MiB);
         // The start, the end and 8 MiB ahead: about 16 MiB. Not the file.
         QVERIFY(received < 32 * MiB);
+    }
+
+    // The magnet's only peer refuses the first call (it is still starting
+    // up). libtorrent would call again only after two minutes; the open
+    // must not wait that long for the metadata.
+    void peerThatRefusedFirstIsCalledAgain()
+    {
+        QTemporaryDir dir;
+        const TestTorrent t = harness::makeTorrent(dir.filePath("seed"), "movie.mkv", {2 * MiB}, kPiece, 11);
+        int port = 0;
+        {
+            QTcpServer probe;  // a free port, closed again: nobody listens there yet
+            QVERIFY(probe.listen(QHostAddress::LocalHost));
+            port = probe.serverPort();
+        }
+        StreamBroker broker(testSettings(dir.filePath("cache")));
+        auto opened = std::async(std::launch::async, [&] {
+            BrokerError error;
+            return broker.open({harness::magnet(t, {port})}, &error);
+        });
+        // The broker's first call is refused by then.
+        QThread::msleep(1500);
+        Seeder seeder(t, t.root, 0, false, port);
+        QCOMPARE(seeder.port(), port);
+        QElapsedTimer timer;
+        timer.start();
+        auto h = opened.get();
+        QVERIFY2(h, "open failed");
+        qInfo("Metadata %lld ms after the seeder started", timer.elapsed());
+        QVERIFY(timer.elapsed() < 10000);
+        const QByteArray data = readRange(*h, 0, h->size());
+        QVERIFY(data == t.data[0]);
     }
 
     void largestFileIsTheDefault()
