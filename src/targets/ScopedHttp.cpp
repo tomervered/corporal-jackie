@@ -1,5 +1,7 @@
 #include "ScopedHttp.h"
 
+#include "LinkRules.h"
+
 #include "Logging.h"
 
 #include <QMetaObject>
@@ -24,6 +26,8 @@ namespace {
 
 constexpr qsizetype kBufferBytes = 4 * 1024 * 1024;  // read ahead of mpv, per stream
 constexpr qint64 kChunk = 256 * 1024;
+// How much of a file's start is checked before mpv may read any of it.
+constexpr qsizetype kHeadBytes = 4096;
 const QString kPrefix = QStringLiteral("cj");
 std::atomic<int> g_stallTimeoutMs{30000};
 
@@ -112,6 +116,7 @@ struct ScopedHttp::Stream
     bool ended = false;          // ...and has delivered all it will
     bool pullQueued = false;
     bool cancelled = false;
+    bool headChecked = false;    // the file's first bytes passed looksLikeFileList()
     QString error;
     quint64 request = 0;         // the current request; older ones are ignored
     // Network thread only:
@@ -177,6 +182,24 @@ void pull(const StreamPtr& s, quint64 id)
         }
         s->buffer += chunk;
         room -= chunk.size();
+    }
+    // An mpv EDL list or a CUE sheet names files for mpv to open, and mpv
+    // trusts this protocol like a local path, so a server could make it open
+    // C:\... or a \\server\share path (security review 2026-11-15). No web
+    // video or subtitle is either, so the start of every file is checked
+    // before mpv sees a byte of it (see readFn).
+    if (!s->headChecked && s->position == 0 && s->readAt == 0) {
+        const bool complete = s->replyFinished && reply->bytesAvailable() == 0;
+        if (s->buffer.size() >= kHeadBytes || complete) {
+            if (links::looksLikeFileList(QByteArrayView(s->buffer).first(std::min(s->buffer.size(), kHeadBytes)))) {
+                qCWarning(lcTargets).noquote() << "Refusing" << logging::redactUrl(s->url)
+                                               << ": it is a list of other files (mpv EDL or CUE)";
+                dropReply(*s);
+                failLocked(*s, QStringLiteral("a list of other files"));
+                return;
+            }
+            s->headChecked = true;
+        }
     }
     if (s->maxBytes >= 0 && s->position + (s->buffer.size() - s->readAt) > s->maxBytes) {
         dropReply(*s);
@@ -348,7 +371,9 @@ int64_t readFn(void* cookie, char* buf, uint64_t nbytes)
     for (;;) {
         if (s->stopped())
             return -1;
-        const qsizetype available = s->buffer.size() - s->readAt;
+        // Nothing from the start of a file until pull() has checked it.
+        const bool held = !s->headChecked && s->position == 0;
+        const qsizetype available = held ? 0 : s->buffer.size() - s->readAt;
         if (available > 0) {
             const qsizetype n = qsizetype(std::min<uint64_t>(uint64_t(available), nbytes));
             std::memcpy(buf, s->buffer.constData() + s->readAt, size_t(n));
@@ -365,7 +390,8 @@ int64_t readFn(void* cookie, char* buf, uint64_t nbytes)
             return -1;
         if (s->ended)
             return 0;
-        if (s->wake.wait_until(lock, deadline) == std::cv_status::timeout && s->buffer.size() == s->readAt
+        if (s->wake.wait_until(lock, deadline) == std::cv_status::timeout
+            && (s->buffer.size() == s->readAt || (!s->headChecked && s->position == 0))
             && !s->ended && s->error.isEmpty()) {
             qCWarning(lcTargets).noquote() << "No data from" << logging::redactUrl(s->url) << "for"
                                            << ScopedHttp::stallTimeoutMs() << "ms; giving up";

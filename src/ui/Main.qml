@@ -301,6 +301,7 @@ Window {
         color: "#cc3b2a2a"
         border.color: "#e06c5a"
         Text {
+            textFormat: Text.PlainText
             id: errorLabel
             anchors.centerIn: parent
             width: Math.min(implicitWidth, root.width - 64)

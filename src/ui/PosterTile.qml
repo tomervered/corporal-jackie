@@ -24,6 +24,7 @@ Item {
         border.color: tile.current || tileHover.hovered ? Theme.accent : "transparent"
         clip: true
         Text {
+            textFormat: Text.PlainText
             anchors { fill: parent; margins: 10 }
             visible: poster.status !== Image.Ready
             text: tile.item.name || ""
@@ -58,6 +59,7 @@ Item {
         TapHandler { onTapped: tile.activated() }
     }
     Text {
+        textFormat: Text.PlainText
         id: tileName
         anchors { top: art.bottom; topMargin: 5 }
         width: parent.width
@@ -67,6 +69,7 @@ Item {
         elide: Text.ElideRight
     }
     Text {
+        textFormat: Text.PlainText
         anchors { top: tileName.bottom; topMargin: 1 }
         width: parent.width
         text: tile.item.releaseInfo || ""

@@ -46,7 +46,7 @@ Column {
                 id: addonText
                 anchors { left: parent.left; right: addonButtons.left; verticalCenter: parent.verticalCenter; margins: 10 }
                 spacing: 2
-                Text { text: modelData.name + "  " + modelData.version; color: Theme.text; font.pixelSize: 14; font.weight: Font.DemiBold }
+                Text { textFormat: Text.PlainText; text: modelData.name + "  " + modelData.version; color: Theme.text; font.pixelSize: 14; font.weight: Font.DemiBold }
                 Muted { width: parent.width; text: modelData.description; visible: text !== ""; maximumLineCount: 2; elide: Text.ElideRight }
                 Muted { width: parent.width; text: "Offers: " + modelData.offers }
                 Muted { width: parent.width; visible: modelData.error !== ""; color: Theme.error; text: "Last request failed: " + modelData.error }

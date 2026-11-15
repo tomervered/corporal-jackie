@@ -132,7 +132,11 @@ private slots:
         noWarnings();
     }
 
-    void cleanup() { noWarnings(); }
+    void cleanup()
+    {
+        noWarnings();
+        allTextIsPlain();
+    }
 
     // The first run: a screen over everything, switches off, keys and clicks
     // kept from the window below, until the person answers.
@@ -411,6 +415,26 @@ private:
     {
         QVERIFY(QMetaObject::invokeMethod(m_pages, function, Q_ARG(QVariant, QString::fromLatin1(arg))));
         QCoreApplication::processEvents();
+    }
+
+    // Every Text the app declares shows plain text: Qt's default would show
+    // markup from a file or an add-on, and load its <img> links (src/ui/README).
+    // Qt Quick Controls' own labels (button and switch labels, placeholder
+    // text: QQuickMnemonicLabel, QQuickCheckLabel...) show only the app's
+    // fixed words, and are left out; Chip and PlainMenuItem replace theirs.
+    void allTextIsPlain()
+    {
+        QStringList rich;
+        const auto items = m_window->findChildren<QQuickItem*>();
+        for (QQuickItem* item : items) {
+            const QByteArray type = item->metaObject()->className();
+            if (!item->inherits("QQuickText") || (type.startsWith("QQuick") && type != "QQuickText"))
+                continue;
+            if (item->property("textFormat").toInt() != Qt::PlainText)
+                rich << QStringLiteral("%1 \"%2\"").arg(QString::fromLatin1(item->metaObject()->className()),
+                                                         item->property("text").toString());
+        }
+        QVERIFY2(rich.isEmpty(), qPrintable(QStringLiteral("Text that is not plain: ") + rich.join(QStringLiteral(", "))));
     }
 
     void noWarnings()

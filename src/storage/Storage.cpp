@@ -1,5 +1,6 @@
 #include "Storage.h"
 
+#include "LinkRules.h"
 #include "Logging.h"
 
 #include <QDateTime>
@@ -292,7 +293,7 @@ HistoryEntry entryFromJson(const QJsonObject& o)
     e.itemId = o.value("itemId").toString();
     e.itemType = o.value("itemType").toString();
     e.itemName = o.value("itemName").toString();
-    e.poster = o.value("poster").toString();
+    e.poster = links::imageLinkOrEmpty(o.value("poster").toString());  // web images only: see LinkRules.h
     e.videoId = o.value("videoId").toString();
     e.videoTitle = o.value("videoTitle").toString();
     e.season = o.value("season").toInt();
@@ -319,7 +320,7 @@ LibraryItem itemFromJson(const QJsonObject& o)
     i.itemId = o.value("itemId").toString();
     i.type = o.value("type").toString();
     i.name = o.value("name").toString();
-    i.poster = o.value("poster").toString();
+    i.poster = links::imageLinkOrEmpty(o.value("poster").toString());
     i.releaseInfo = o.value("releaseInfo").toString();
     i.addedAt = timeFromJson(o.value("addedAt"));
     return i;
@@ -537,7 +538,8 @@ Storage::Storage(const QString& file, QObject* parent)
                 e.itemId = text(s.get(), 3);
                 e.itemType = text(s.get(), 4);
                 e.itemName = text(s.get(), 5);
-                e.poster = text(s.get(), 6);
+                // Rows saved before posters were checked may hold any link.
+                e.poster = links::imageLinkOrEmpty(text(s.get(), 6));
                 e.videoId = text(s.get(), 7);
                 e.videoTitle = text(s.get(), 8);
                 e.season = sqlite3_column_int(s.get(), 9);
@@ -560,7 +562,7 @@ Storage::Storage(const QString& file, QObject* parent)
                 i.itemId = text(s.get(), 2);
                 i.type = text(s.get(), 3);
                 i.name = text(s.get(), 4);
-                i.poster = text(s.get(), 5);
+                i.poster = links::imageLinkOrEmpty(text(s.get(), 5));
                 i.releaseInfo = text(s.get(), 6);
                 i.addedAt = sqlite3_column_int64(s.get(), 7);
                 m_library.append(i);
@@ -895,7 +897,65 @@ QByteArray Storage::exportJson(ExportMode mode) const
     return QJsonDocument(root).toJson();
 }
 
-QString Storage::importJson(const QByteArray& json)
+namespace {
+
+// The add-ons and folders an export would add here: the ones not installed
+// or listed yet. `error` is set when that part of the file is damaged.
+struct ImportedExtras
+{
+    QJsonArray addons;
+    QStringList folders;
+    QString error;
+};
+
+ImportedExtras newExtras(const QJsonObject& root, const QJsonArray& installed, const QStringList& listed)
+{
+    ImportedExtras out;
+    const QJsonArray addonsIn = root.value("addons").toArray();
+    for (qsizetype n = 0; n < addonsIn.size(); ++n) {
+        const QUrl url(addonsIn.at(n).toObject().value("transportUrl").toString());
+        if (!addonsIn.at(n).isObject() || !isWeb(url)) {
+            out.error = QStringLiteral("That export is damaged (entry %1 of \"addons\"). Nothing was imported.").arg(n + 1);
+            return out;
+        }
+        const auto same = [&](const QJsonValue& a) { return a.toObject().value("transportUrl").toString() == url.toString(); };
+        if (std::none_of(installed.begin(), installed.end(), same) && std::none_of(out.addons.begin(), out.addons.end(), same))
+            out.addons.append(addonsIn.at(n));
+    }
+    const QJsonArray foldersIn = root.value("folders").toArray();
+    for (qsizetype n = 0; n < foldersIn.size(); ++n) {
+        if (!foldersIn.at(n).isString()) {
+            out.error = QStringLiteral("That export is damaged (entry %1 of \"folders\"). Nothing was imported.").arg(n + 1);
+            return out;
+        }
+        if (const QString f = foldersIn.at(n).toString(); !f.isEmpty() && !listed.contains(f) && !out.folders.contains(f))
+            out.folders << f;
+    }
+    return out;
+}
+
+} // namespace
+
+QStringList Storage::importExtras(const QByteArray& json) const
+{
+    const QJsonObject root = QJsonDocument::fromJson(json).object();
+    if (root.value("format").toString() != QLatin1String("corporal-jackie-export"))
+        return {};
+    const ImportedExtras extras = newExtras(root, m_addons.value_or(QJsonArray()), m_folders.value_or(QStringList()));
+    if (!extras.error.isEmpty())
+        return {};
+    QStringList lines;
+    for (const QJsonValue& a : extras.addons) {
+        const QString url = logging::redactUrl(QUrl(a.toObject().value("transportUrl").toString()));
+        const QString name = a.toObject().value("manifest").toObject().value("name").toString();
+        lines << (name.isEmpty() ? QStringLiteral("Add-on: %1").arg(url) : QStringLiteral("Add-on: %1 (%2)").arg(name, url));
+    }
+    for (const QString& f : extras.folders)
+        lines << QStringLiteral("Folder: %1").arg(QDir::toNativeSeparators(f));
+    return lines;
+}
+
+QString Storage::importJson(const QByteArray& json, ImportExtras extrasWanted)
 {
     // 1. Read and check all of it. Nothing changes unless the whole file is good.
     QJsonParseError parseError;
@@ -925,6 +985,13 @@ QString Storage::importJson(const QByteArray& json)
         for (const SubtitleSource& sub : e.source.subtitles)
             if (!sub.url.isLocalFile() && !isWeb(sub.url))
                 return damaged("history", n);
+        // Never a video or subtitle on another computer's share: playing it
+        // would send the user's Windows sign-in to that server. Left out, not
+        // an error, so the rest of a file from a NAS user still imports.
+        if (links::isNetworkPath(e.source.url.toString()) || links::isNetworkPath(e.source.origin)
+            || std::any_of(e.source.subtitles.begin(), e.source.subtitles.end(),
+                           [](const SubtitleSource& sub) { return links::isNetworkPath(sub.url.toString()); }))
+            continue;
         const auto mine = find(e.key);
         if (!mine || mine->updatedAt < e.updatedAt)
             newHistory.append(e);
@@ -940,32 +1007,17 @@ QString Storage::importJson(const QByteArray& json)
         if (!inLibrary(i.key()))
             newItems.append(i);
     }
+    // Add-ons and folders only with the user's yes (see the header).
+    const ImportedExtras extras = newExtras(root, m_addons.value_or(QJsonArray()), m_folders.value_or(QStringList()));
+    if (!extras.error.isEmpty())
+        return extras.error;
+    const bool include = extrasWanted == ImportExtras::Include;
+    const bool addonsAdded = include && !extras.addons.isEmpty();
+    const bool foldersAdded = include && !extras.folders.isEmpty();
     QJsonArray addons = m_addons.value_or(QJsonArray());
-    bool addonsAdded = false;
-    const QJsonArray addonsIn = root.value("addons").toArray();
-    for (qsizetype n = 0; n < addonsIn.size(); ++n) {
-        const QUrl url(addonsIn.at(n).toObject().value("transportUrl").toString());
-        if (!addonsIn.at(n).isObject() || !isWeb(url))
-            return damaged("addons", n);
-        const bool have = std::any_of(addons.begin(), addons.end(), [&](const QJsonValue& a) {
-            return a.toObject().value("transportUrl").toString() == url.toString();
-        });
-        if (!have) {
-            addons.append(addonsIn.at(n));
-            addonsAdded = true;
-        }
-    }
-    QStringList folders = m_folders.value_or(QStringList());
-    bool foldersAdded = false;
-    const QJsonArray foldersIn = root.value("folders").toArray();
-    for (qsizetype n = 0; n < foldersIn.size(); ++n) {
-        if (!foldersIn.at(n).isString())
-            return damaged("folders", n);
-        if (const QString f = foldersIn.at(n).toString(); !f.isEmpty() && !folders.contains(f)) {
-            folders << f;
-            foldersAdded = true;
-        }
-    }
+    for (const QJsonValue& a : extras.addons)
+        addons.append(a);
+    const QStringList folders = m_folders.value_or(QStringList()) + extras.folders;
     if (newHistory.isEmpty() && newItems.isEmpty() && !addonsAdded && !foldersAdded)
         return {};
     if (!m_open)

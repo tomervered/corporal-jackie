@@ -54,6 +54,7 @@ ListView {
             clip: true
 
             Text {
+                textFormat: Text.PlainText
                 anchors { fill: parent; margins: 10 }
                 visible: poster.status !== Image.Ready
                 text: tile.modelData.name
@@ -84,7 +85,7 @@ ListView {
                 visible: hover.hovered
                 width: 44; height: 44; radius: 22
                 color: "#c0000000"
-                Text { anchors.centerIn: parent; anchors.horizontalCenterOffset: 2; text: "▶"; color: Theme.text; font.pixelSize: 18 }
+                Text { textFormat: Text.PlainText; anchors.centerIn: parent; anchors.horizontalCenterOffset: 2; text: "▶"; color: Theme.text; font.pixelSize: 18 }
             }
             HoverHandler { id: hover }
             TapHandler { onTapped: row.resumeAt(tile.index) }
@@ -99,6 +100,7 @@ ListView {
             }
         }
         Text {
+            textFormat: Text.PlainText
             id: name
             anchors { top: art.bottom; topMargin: 6 }
             width: parent.width
@@ -108,6 +110,7 @@ ListView {
             elide: Text.ElideRight
         }
         Text {
+            textFormat: Text.PlainText
             anchors { top: name.bottom; topMargin: 1 }
             width: parent.width
             text: tile.modelData.subtitle !== "" ? tile.modelData.subtitle : row.remaining(tile.modelData)

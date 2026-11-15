@@ -19,7 +19,7 @@ On Windows the package holds exactly what `ldd` finds; each CI run prints the fu
 
 | Name | Comes with | License |
 | --- | --- | --- |
-| FFmpeg 7.1.5 (avcodec, avformat, avfilter, avutil, swscale), decoders only, built by us on Windows | mpv | GPL-2.0-or-later (built with `--enable-gpl --enable-version3`, so GPL-3.0) |
+| FFmpeg 7.1.5 (avcodec, avformat, avfilter, avutil, swscale), decoders only, built by us on Windows with the upstream fix for CVE-2026-70628 applied (`build-mpv.sh`, `docs/SECURITY.md`) | mpv | GPL-2.0-or-later (built with `--enable-gpl --enable-version3`, so GPL-3.0) |
 | libplacebo 7.349, built by us on Windows | mpv | LGPL-2.1-or-later |
 | dav1d (AV1 decoder) | FFmpeg | BSD-2-Clause |
 | libass, fribidi, HarfBuzz, graphite2, FreeType, Fontconfig, expat | mpv (subtitles) | ISC, LGPL-2.1+, MIT, LGPL-2.1+ or MPL, FreeType License, MIT-style, MIT |

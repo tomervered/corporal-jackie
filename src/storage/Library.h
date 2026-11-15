@@ -63,7 +63,11 @@ public:
     // Every list as one file, and back. Each returns an error in words, or "".
     // The export leaves out logins and signed links unless `everything`.
     Q_INVOKABLE QString exportTo(const QUrl& file, bool everything = false) const;
-    Q_INVOKABLE QString importFrom(const QUrl& file);
+    // An import adds add-ons and folders only when `withAddonsAndFolders`;
+    // importAsks() lists them first so the user can say yes or no (an export
+    // may come from someone else; see Storage::importJson).
+    Q_INVOKABLE QStringList importAsks(const QUrl& file) const;
+    Q_INVOKABLE QString importFrom(const QUrl& file, bool withAddonsAndFolders = false);
 
 signals:
     void historyChanged();

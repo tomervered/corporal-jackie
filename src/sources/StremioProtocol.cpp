@@ -1,5 +1,6 @@
 #include "StremioProtocol.h"
 
+#include "LinkRules.h"
 #include "Logging.h"
 
 #include "StreamRanking.h"
@@ -33,7 +34,7 @@ MetaPreview previewOf(const QJsonObject& o)
     m.id = o.value("id").toString();
     m.type = o.value("type").toString();
     m.name = o.value("name").toString();
-    m.poster = o.value("poster").toString();
+    m.poster = links::imageLinkOrEmpty(o.value("poster").toString());  // web images only: see LinkRules.h
     m.releaseInfo = o.value("releaseInfo").toVariant().toString();
     if (m.releaseInfo.isEmpty())
         m.releaseInfo = o.value("year").toVariant().toString();
@@ -73,7 +74,7 @@ std::optional<Manifest> parseManifest(const QJsonObject& json, QString* error)
         return std::nullopt;
     }
     m.description = json.value("description").toString();
-    m.logo = json.value("logo").toString();
+    m.logo = links::imageLinkOrEmpty(json.value("logo").toString());
     m.types = stringList(json.value("types"));
     m.idPrefixes = stringList(json.value("idPrefixes"));
     for (const QJsonValue& r : json.value("resources").toArray()) {
@@ -179,7 +180,7 @@ std::optional<MetaDetail> parseMeta(const QJsonObject& json)
     d.preview = previewOf(o);
     if (d.preview.id.isEmpty())
         return std::nullopt;
-    d.background = o.value("background").toString();
+    d.background = links::imageLinkOrEmpty(o.value("background").toString());
     d.runtime = o.value("runtime").toString();
     d.genres = stringList(o.value("genres"));
     for (const QJsonValue& v : o.value("videos").toArray()) {

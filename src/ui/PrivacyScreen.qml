@@ -30,8 +30,8 @@ Rectangle {
             id: texts
             anchors { left: parent.left; right: sw.left; rightMargin: 16; verticalCenter: parent.verticalCenter }
             spacing: 2
-            Text { width: parent.width; text: option.title; color: Theme.text; font.pixelSize: 15; font.weight: Font.DemiBold; wrapMode: Text.WordWrap }
-            Text { width: parent.width; text: option.detail; color: Theme.muted; font.pixelSize: 13; wrapMode: Text.WordWrap }
+            Text { textFormat: Text.PlainText; width: parent.width; text: option.title; color: Theme.text; font.pixelSize: 15; font.weight: Font.DemiBold; wrapMode: Text.WordWrap }
+            Text { textFormat: Text.PlainText; width: parent.width; text: option.detail; color: Theme.muted; font.pixelSize: 13; wrapMode: Text.WordWrap }
         }
         Switch {
             id: sw
@@ -55,6 +55,7 @@ Rectangle {
             spacing: 10
 
             Text {
+                textFormat: Text.PlainText
                 width: parent.width
                 text: "Before you start"
                 color: Theme.text
@@ -62,6 +63,7 @@ Rectangle {
                 font.weight: Font.DemiBold
             }
             Text {
+                textFormat: Text.PlainText
                 width: parent.width
                 text: "Corporal Jackie has no server and no account, and sends nothing to its authors. Everything below is off until you allow it, and each choice can be changed later in Settings (P)."
                 color: Theme.text
@@ -101,6 +103,7 @@ Rectangle {
 
             Item { width: 1; height: 2 }
             Text {
+                textFormat: Text.PlainText
                 width: parent.width
                 text: "Playing a torrent always shows your IP address and the torrent to the people sharing it, and you upload to them while it plays. A VPN hides your address; this app does not. With all of these off, only the peers and trackers in a magnet link are used, so some torrents will not start. The servers and peers belong to others and may be in other countries. Posters come from the servers your add-ons name. The full list is in PRIVACY.md, next to the app."
                 color: Theme.muted

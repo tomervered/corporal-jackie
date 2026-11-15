@@ -51,6 +51,7 @@ Rectangle {
             onClicked: session.nextChapter()
         }
         Text {
+            textFormat: Text.PlainText
             anchors.verticalCenter: parent.verticalCenter
             text: Format.time(seek.pressed ? seek.value : session.position) + " / " + Format.time(session.duration)
             color: Theme.text
@@ -115,7 +116,7 @@ Rectangle {
                 y: -height
                 Repeater {
                     model: session.chapters
-                    MenuItem {
+                    PlainMenuItem {
                         required property var modelData
                         required property int index
                         text: (index + 1) + ".  " + (modelData.title || "Track " + (index + 1))
@@ -142,7 +143,7 @@ Rectangle {
                     enabled: session.audioTracks.length > 0
                     Instantiator {
                         model: session.audioTracks
-                        delegate: MenuItem {
+                        delegate: PlainMenuItem {
                             text: modelData.label
                             checkable: true
                             checked: modelData.selected
@@ -164,7 +165,7 @@ Rectangle {
                     }
                     Instantiator {
                         model: session.subtitleTracks
-                        delegate: MenuItem {
+                        delegate: PlainMenuItem {
                             text: modelData.label
                             checkable: true
                             checked: modelData.selected

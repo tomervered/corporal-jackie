@@ -2,6 +2,7 @@
 #include "AppPaths.h"
 #include "CrashHandler.h"
 #include "DependencyInfo.h"
+#include "LinkRules.h"
 #include "Logging.h"
 
 #include <QFile>
@@ -117,6 +118,75 @@ private slots:
     {
         QTemporaryDir dir;
         QVERIFY(cj::crash::takePreviousReport(dir.path()).isEmpty());
+    }
+
+    // LinkRules: the checks that keep links from outside off network shares.
+    void networkPathsAreSpotted_data()
+    {
+        QTest::addColumn<QString>("path");
+        QTest::addColumn<bool>("network");
+        QTest::newRow("unc") << R"(\\203.0.113.5\share\x.mkv)" << true;
+        QTest::newRow("forward slashes") << "//203.0.113.5/share/x.mkv" << true;
+        QTest::newRow("mixed slashes") << R"(\/203.0.113.5/share)" << true;
+        QTest::newRow("leading space") << R"(  \\host\share)" << true;
+        QTest::newRow("file with host") << "file://203.0.113.5/share/x.mkv" << true;
+        QTest::newRow("file with share path") << "file:////203.0.113.5/share/x.mkv" << true;
+        QTest::newRow("local file url") << "file:///C:/Videos/x.mkv" << false;
+        QTest::newRow("windows path") << R"(C:\Videos\x.mkv)" << false;
+        QTest::newRow("unix path") << "/home/me/x.mkv" << false;
+        QTest::newRow("web") << "https://example.com/x.mkv" << false;
+    }
+    void networkPathsAreSpotted()
+    {
+        QFETCH(QString, path);
+        QFETCH(bool, network);
+        QCOMPARE(cj::links::isNetworkPath(path), network);
+    }
+
+    void onlyWebAndInlineImagesAreKept_data()
+    {
+        QTest::addColumn<QString>("link");
+        QTest::addColumn<bool>("kept");
+        QTest::newRow("https") << "https://img.example/p.jpg" << true;
+        QTest::newRow("http") << "http://img.example/p.jpg" << true;
+        QTest::newRow("inline") << "data:image/png;base64,AAAA" << true;
+        QTest::newRow("unc") << R"(\\203.0.113.5\share\p.jpg)" << false;
+        QTest::newRow("file") << "file://203.0.113.5/share/p.jpg" << false;
+        QTest::newRow("local file") << "file:///C:/p.jpg" << false;
+        QTest::newRow("qrc") << "qrc:/icons/p.png" << false;
+        QTest::newRow("image provider") << "image://posters/p" << false;
+        QTest::newRow("http without host") << "http:///p.jpg" << false;
+        QTest::newRow("empty") << "" << false;
+    }
+    void onlyWebAndInlineImagesAreKept()
+    {
+        QFETCH(QString, link);
+        QFETCH(bool, kept);
+        QCOMPARE(cj::links::imageLinkOrEmpty(link).isEmpty(), !kept);
+    }
+
+    void fileListsAreSpotted_data()
+    {
+        QTest::addColumn<QByteArray>("head");
+        QTest::addColumn<bool>("list");
+        QTest::newRow("edl") << QByteArray("# mpv EDL v0\n/x.mkv\n") << true;
+        QTest::newRow("edl with bom") << QByteArray("\xEF\xBB\xBF# mpv EDL v0\n") << true;
+        QTest::newRow("cue") << QByteArray("FILE \"x.wav\" WAVE\n  TRACK 01 AUDIO\n") << true;
+        QTest::newRow("cue after blank lines") << QByteArray("\r\n\nREM GENRE x\r\nFILE \"x\" WAVE\r\n") << true;
+        QTest::newRow("cue lower case") << QByteArray("file \"x.wav\" wave\n") << true;
+        QTest::newRow("matroska") << QByteArray("\x1A\x45\xDF\xA3\x93\x42\x82\x88matroska") << false;
+        QTest::newRow("mp4") << QByteArray("\0\0\0\x20" "ftypisom", 12) << false;
+        QTest::newRow("srt") << QByteArray("1\n00:00:00,000 --> 00:00:01,000\nHi\n") << false;
+        QTest::newRow("webvtt") << QByteArray("WEBVTT\n\n") << false;
+        QTest::newRow("ass") << QByteArray("[Script Info]\n") << false;
+        QTest::newRow("hls") << QByteArray("#EXTM3U\n") << false;
+        QTest::newRow("empty") << QByteArray() << false;
+    }
+    void fileListsAreSpotted()
+    {
+        QFETCH(QByteArray, head);
+        QFETCH(bool, list);
+        QCOMPARE(cj::links::looksLikeFileList(head), list);
     }
 };
 

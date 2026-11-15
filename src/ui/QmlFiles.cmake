@@ -3,7 +3,7 @@
 set(CJ_QML_FILES
     Main.qml Pages.qml SettingsPanel.qml PrivacyScreen.qml ContinueWatching.qml
     # player
-    ControlBar.qml BarButton.qml EpisodesPanel.qml LinkPopup.qml Toast.qml StatsOverlay.qml ShortcutsOverlay.qml Format.js
+    ControlBar.qml BarButton.qml PlainMenuItem.qml EpisodesPanel.qml LinkPopup.qml Toast.qml StatsOverlay.qml ShortcutsOverlay.qml Format.js
     # pages
     HomePage.qml SearchPage.qml DiscoverPage.qml DetailPage.qml StreamsPage.qml StreamList.qml
     LibraryPage.qml AddonsPage.qml FoldersPage.qml

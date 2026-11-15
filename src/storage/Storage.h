@@ -132,11 +132,24 @@ public:
     // private backup.
     enum class ExportMode { Shareable, Full };
     QByteArray exportJson(ExportMode mode = ExportMode::Shareable) const;
-    // Merges: newer history wins, library items and folders are added, add-ons
-    // are added when not installed. Checks the whole file first, then writes
-    // it in one transaction and waits for it: either all of it is saved, or
-    // nothing changes. Returns an error in words, or empty.
-    QString importJson(const QByteArray& json);
+    // Merges: newer history wins, library items are added, and with
+    // ImportExtras::Include folders and add-ons not installed yet are added
+    // too. Checks the whole file first, then writes it in one transaction and
+    // waits for it: either all of it is saved, or nothing changes. Returns an
+    // error in words, or empty.
+    //
+    // An export may come from someone else (the default export is meant to
+    // be shared), so its add-ons and folders are added only when the user
+    // said yes to the list importExtras() gives (security review 2026-11-15:
+    // an add-on decides what plays, and a folder can be a network share).
+    // History entries that would play from another computer's share
+    // (\\server\share, file://server/...) are left out.
+    enum class ImportExtras { Skip, Include };
+    QString importJson(const QByteArray& json, ImportExtras extras = ImportExtras::Skip);
+    // The add-ons and folders importJson(json, Include) would add, one line
+    // each ("Add-on: Torrentio (https://...)", "Folder: D:\\Videos"), for the
+    // user to approve. Empty when there are none or the file is not an export.
+    QStringList importExtras(const QByteArray& json) const;
 
     // Waits until every write so far is on disk (tests, shutdown).
     void flush();

@@ -486,6 +486,139 @@ private slots:
             QVERIFY(!request.headers.contains("authorization"));
     }
 
+    // --- Untrusted media (security review 2026-11-15, docs/SECURITY.md) ---------
+
+    // mpv's own HTTPS must check certificates, and FFmpeg may open only
+    // network protocols for the links inside a file.
+    void networkOptionsAreSafe()
+    {
+        MpvTarget target(MpvTarget::Mode::Headless);
+        char* verify = mpv_get_property_string(target.handle(), "tls-verify");
+        QVERIFY(verify);
+        QCOMPARE(QByteArray(verify), QByteArray("yes"));
+        mpv_free(verify);
+        char* lavf = mpv_get_property_string(target.handle(), "demuxer-lavf-o");
+        QVERIFY(lavf);
+        QVERIFY2(QByteArray(lavf).contains("protocol_whitelist") && !QByteArray(lavf).contains("file"), lavf);
+        mpv_free(lavf);
+    }
+
+    // A video that is really a playlist (as a file in a torrent could be)
+    // must not make mpv open the files it names. Local videos and torrents
+    // get the same rule; a local file is easier to set up here.
+    void listDisguisedAsAVideoOpensNothing_data()
+    {
+        QTest::addColumn<QByteArray>("header");
+        QTest::newRow("m3u") << QByteArray("#EXTM3U\n");
+        QTest::newRow("mpv EDL") << QByteArray("# mpv EDL v0\n");
+    }
+    void listDisguisedAsAVideoOpensNothing()
+    {
+        QFETCH(QByteArray, header);
+        QTemporaryDir dir;
+        QFile list(dir.filePath(QStringLiteral("film.mkv")));
+        QVERIFY(list.open(QIODevice::WriteOnly));
+        list.write(header + QFile::encodeName(kTestPattern) + '\n');
+        list.close();
+
+        MpvTarget target(MpvTarget::Mode::Headless);
+        Session s(&target);
+        QSignalSpy errors(&s, &Session::errorOccurred);
+        s.openPath(list.fileName());
+        QTRY_VERIFY_WITH_TIMEOUT(errors.count() >= 1, 10000);
+        QTest::qWait(1000);
+        QVERIFY(!s.hasMedia());
+        char* refs = mpv_get_property_string(target.handle(), "access-references");
+        QCOMPARE(QByteArray(refs), QByteArray("no"));
+        mpv_free(refs);
+    }
+
+    // A playlist file the user opens on purpose still plays, as in any player.
+    void userPickedPlaylistPlays()
+    {
+        QTemporaryDir dir;
+        QFile list(dir.filePath(QStringLiteral("films.m3u")));
+        QVERIFY(list.open(QIODevice::WriteOnly));
+        list.write("#EXTM3U\n" + QFile::encodeName(kTestPattern) + '\n');
+        list.close();
+        MpvTarget target(MpvTarget::Mode::Headless);
+        Session s(&target);
+        s.openPath(list.fileName());
+        QTRY_VERIFY_WITH_TIMEOUT(s.hasMedia(), 10000);
+    }
+
+    // A web link with credentials plays through cjhttp://, which mpv trusts
+    // like a local path. A playlist from there may name only web links...
+    void webPlaylistCannotNameALocalFile()
+    {
+        FakeHttpServer origin;
+        FakeHttpServer::Answer list;
+        list.contentType = "audio/x-mpegurl";
+        list.body = "#EXTM3U\n" + QFile::encodeName(kTestPattern) + '\n';
+        origin.set("/list.m3u", list);
+        auto source = PlayableSource::fromUrl(QUrl(origin.base() + "/list.m3u"), "List");
+        source.headers.insert("Authorization", "Bearer x");
+        MpvTarget target(MpvTarget::Mode::Headless);
+        Session s(&target);
+        QSignalSpy errors(&s, &Session::errorOccurred);
+        s.playSource(source);
+        QTRY_VERIFY_WITH_TIMEOUT(errors.count() >= 1, 10000);
+        QTest::qWait(1000);
+        QVERIFY(!s.hasMedia());
+    }
+
+    // ...and an mpv EDL list or CUE sheet from there is refused outright.
+    void webFileListIsRefused_data()
+    {
+        QTest::addColumn<QByteArray>("body");
+        QTest::newRow("mpv EDL") << QByteArray("# mpv EDL v0\n") + QFile::encodeName(kTestPattern) + '\n';
+        // No CUE row: mpv's CUE reader keeps only the file name and looks for
+        // it next to the sheet, so a CUE from a server can only name files on
+        // that server. tst_common checks that the sniff still spots CUE sheets.
+    }
+    void webFileListIsRefused()
+    {
+        QFETCH(QByteArray, body);
+        FakeHttpServer origin;
+        FakeHttpServer::Answer list;
+        list.contentType = "text/plain";
+        list.body = body;
+        origin.set("/film.mkv", list);
+        auto source = PlayableSource::fromUrl(QUrl(origin.base() + "/film.mkv"), "Film");
+        source.headers.insert("Authorization", "Bearer x");
+        MpvTarget target(MpvTarget::Mode::Headless);
+        Session s(&target);
+        QSignalSpy errors(&s, &Session::errorOccurred);
+        s.playSource(source);
+        QTRY_VERIFY_WITH_TIMEOUT(errors.count() >= 1, 10000);
+        QTest::qWait(1000);
+        QVERIFY(!s.hasMedia());
+    }
+
+    // An HLS list read through cjhttp:// that names a file: segment. FFmpeg's
+    // HLS reader takes file: segments (on Windows that can be a network
+    // share); its own http keeps a whitelist, our protocol has none. Our
+    // whitelist stops FFmpeg, and onLoadHook() stops mpv's playlist reader,
+    // which takes over when FFmpeg gives up.
+    void webHlsCannotNameALocalFile()
+    {
+        FakeHttpServer origin;
+        FakeHttpServer::Answer playlist;
+        playlist.contentType = "application/vnd.apple.mpegurl";
+        playlist.body = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:0\n"
+                        "#EXTINF:10.0,\n" + QUrl::fromLocalFile(kTestPattern).toEncoded() + "\n#EXT-X-ENDLIST\n";
+        origin.set("/list.m3u8", playlist);
+        MpvTarget target(MpvTarget::Mode::Headless);
+        Session s(&target);
+        QSignalSpy errors(&s, &Session::errorOccurred);
+        auto source = PlayableSource::fromUrl(QUrl(origin.base() + "/list.m3u8"), "List");
+        source.headers.insert("Authorization", "Bearer x");
+        s.playSource(source);
+        QTRY_VERIFY_WITH_TIMEOUT(errors.count() >= 1, 15000);
+        QTest::qWait(1000);
+        QVERIFY(!s.hasMedia());
+    }
+
 private:
     static FakeHttpServer::Answer clipAnswer()
     {

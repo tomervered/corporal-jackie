@@ -457,6 +457,19 @@ jobs:
           mkdir -p dist
           cp -R build/src/app/CorporalJackie.app dist/
           "$(brew --prefix qt)/bin/macdeployqt" dist/CorporalJackie.app -qmldir=src/ui -verbose=1
+          # Image formats: the same four the Windows package keeps (see its
+          # Package step). Posters come from add-on servers, so every image
+          # plugin is a parser for files from the internet; TIFF, TGA, ICNS,
+          # HEIF, JPEG 2000 and the rest are parsers nothing in the app needs
+          # (docs/SECURITY.md, "Image decoders").
+          plugins=dist/CorporalJackie.app/Contents/PlugIns/imageformats
+          for f in "$plugins"/*.dylib; do
+            case "$(basename "$f")" in libqjpeg.dylib|libqgif.dylib|libqico.dylib|libqwebp.dylib) ;; *) rm -f "$f" ;; esac
+          done
+          for f in libqjpeg libqwebp; do
+            if [ ! -f "$plugins/$f.dylib" ]; then echo "imageformats/$f.dylib missing: posters would not load"; exit 1; fi
+          done
+          ls "$plugins"
           # The bundle ships only the cocoa platform plugin; the runner has a GUI session.
           ./dist/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test
           cp LICENSE dist/LICENSE.txt
