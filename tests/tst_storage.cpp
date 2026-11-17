@@ -925,6 +925,37 @@ private slots:
         library.forget(e.itemKey());
         QCOMPARE(library.progress(e.key), -1.0);
     }
+    // Add-ons and folders named more than once in a file, or already here,
+    // come in once.
+    void importTakesEachAddonAndFolderOnce()
+    {
+        Storage to({});
+        to.saveAddons(QJsonArray{QJsonObject{{"transportUrl", "https://a.example/manifest.json"}}});
+        to.saveFolders({QStringLiteral("/videos/a")});
+        QJsonArray addons;
+        for (const char* url : {"https://a.example/manifest.json", "https://b.example/manifest.json",
+                                "https://b.example/manifest.json", "https://c.example/manifest.json"})
+            addons.append(QJsonObject{{"transportUrl", url}, {"manifest", QJsonObject{{"id", url}, {"name", "x"}}}});
+        const QByteArray json = QJsonDocument(QJsonObject{
+            {"format", "corporal-jackie-export"}, {"version", 1}, {"addons", addons},
+            {"folders", QJsonArray{"/videos/a", "/videos/b", "/videos/b", "/videos/c"}}}).toJson();
+        QCOMPARE(to.importExtras(json).size(), 4);  // b and c, twice over: add-ons and folders
+        QCOMPARE(to.importJson(json, Storage::ImportExtras::Include), QString());
+        QCOMPARE(to.addons()->size(), 3);
+        QCOMPARE(*to.folders(), (QStringList{"/videos/a", "/videos/b", "/videos/c"}));
+    }
+
+    // Forgetting a show takes all of its episodes and nothing else.
+    void forgetTakesOneShow()
+    {
+        Storage storage({});
+        storage.record(episode(1, 600, 1000));
+        storage.record(episode(2, 600, 2000));
+        storage.record(direct(QStringLiteral("https://example.com/other.mp4"), 300, 3000));
+        storage.forget(episode(1, 0, 0).itemKey());
+        QCOMPARE(storage.history().size(), 1);
+        QCOMPARE(storage.history().first().itemName, QStringLiteral("clip"));
+    }
 };
 
 QTEST_GUILESS_MAIN(TestStorage)

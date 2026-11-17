@@ -782,8 +782,9 @@ void Storage::forget(const QString& itemKey)
             keys << e.key;
     if (keys.isEmpty())
         return;
+    // The same rows as `keys`, matched without a search of `keys` per row.
     m_history.erase(std::remove_if(m_history.begin(), m_history.end(),
-                                   [&](const HistoryEntry& e) { return keys.contains(e.key); }),
+                                   [&](const HistoryEntry& e) { return e.itemKey() == itemKey; }),
                     m_history.end());
     write([keys](sqlite3* db) {
         return transaction(db, [&] {
@@ -944,6 +945,12 @@ struct ImportedExtras
 ImportedExtras newExtras(const QJsonObject& root, const QJsonArray& installed, const QStringList& listed)
 {
     ImportedExtras out;
+    // Links and folders already here or already taken: a lookup per entry,
+    // since the file decides how many entries there are.
+    QSet<QString> seenAddons;
+    for (const QJsonValue& a : installed)
+        seenAddons.insert(a.toObject().value("transportUrl").toString());
+    QSet<QString> seenFolders(listed.begin(), listed.end());
     const QJsonArray addonsIn = root.value("addons").toArray();
     for (qsizetype n = 0; n < addonsIn.size(); ++n) {
         const QUrl url(addonsIn.at(n).toObject().value("transportUrl").toString());
@@ -951,9 +958,10 @@ ImportedExtras newExtras(const QJsonObject& root, const QJsonArray& installed, c
             out.error = QStringLiteral("That export is damaged (entry %1 of \"addons\"). Nothing was imported.").arg(n + 1);
             return out;
         }
-        const auto same = [&](const QJsonValue& a) { return a.toObject().value("transportUrl").toString() == url.toString(); };
-        if (std::none_of(installed.begin(), installed.end(), same) && std::none_of(out.addons.begin(), out.addons.end(), same))
+        if (!seenAddons.contains(url.toString())) {
+            seenAddons.insert(addonsIn.at(n).toObject().value("transportUrl").toString());
             out.addons.append(addonsIn.at(n));
+        }
     }
     const QJsonArray foldersIn = root.value("folders").toArray();
     for (qsizetype n = 0; n < foldersIn.size(); ++n) {
@@ -961,8 +969,10 @@ ImportedExtras newExtras(const QJsonObject& root, const QJsonArray& installed, c
             out.error = QStringLiteral("That export is damaged (entry %1 of \"folders\"). Nothing was imported.").arg(n + 1);
             return out;
         }
-        if (const QString f = foldersIn.at(n).toString(); !f.isEmpty() && !listed.contains(f) && !out.folders.contains(f))
+        if (const QString f = foldersIn.at(n).toString(); !f.isEmpty() && !seenFolders.contains(f)) {
+            seenFolders.insert(f);
             out.folders << f;
+        }
     }
     return out;
 }
