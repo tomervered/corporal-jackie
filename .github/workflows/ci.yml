@@ -1,10 +1,23 @@
 name: CI
 
 on:
+  # Branches with a pull request run once, from the pull_request event; a push
+  # to such a branch would run every job a second time.
   push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE']
   pull_request:
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE']
+  # The benchmarks and the long fuzz run, once a week on main.
+  schedule:
+    - cron: '17 3 * * 1'
   workflow_dispatch:
     inputs:
+      benchmarks:
+        description: "Also run the benchmarks (about 20 minutes more) and the long fuzz run"
+        type: boolean
+        required: false
+        default: false
       release_tag:
         description: "Run on main with a tag such as v0.1.0 to publish a GitHub release from this run's Windows and macOS builds"
         required: false
@@ -20,6 +33,11 @@ permissions:
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  # Benchmarks take 3 to 20 minutes a job and measure, not check: they run
+  # weekly and when asked for, not on every commit.
+  CJ_FULL_RUN: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.benchmarks) }}
 
 jobs:
   windows:
@@ -46,7 +64,7 @@ jobs:
           # mpv is built by packaging/windows/build-mpv.sh (playback only);
           # these are its dependencies.
           pacboy: >-
-            toolchain:p cmake:p ninja:p pkgconf:p meson:p nasm:p
+            toolchain:p cmake:p ninja:p pkgconf:p meson:p nasm:p ccache:p
             qt6-base:p qt6-declarative:p qt6-tools:p qt6-imageformats:p
             boost:p openssl:p sqlite3:p mesa:p
             dav1d:p libass:p lcms2:p uchardet:p zimg:p libdovi:p libiconv:p
@@ -89,6 +107,10 @@ jobs:
           path: .deps-torrent
           key: libtorrent-${{ runner.os }}-${{ hashFiles('third_party/libtorrent/**') }}
 
+      - uses: ./.github/actions/ccache
+        with:
+          name: windows
+
       - name: Configure
         run: |
           DEPS="$(cygpath -u "$GITHUB_WORKSPACE")/.deps"
@@ -129,7 +151,7 @@ jobs:
           export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
           # Temporary files on the runner's fast drive (the runner's MSYS2 keeps /tmp on C:).
           export TMP="$(cygpath -w "$RUNNER_TEMP")" TEMP="$(cygpath -w "$RUNNER_TEMP")"
-          ctest --test-dir build -LE bench --output-on-failure
+          ctest --test-dir build -LE bench --output-on-failure -j3
 
       # The console output of a hung test is lost on Windows; the logs keep it.
       - name: Test logs
@@ -159,6 +181,7 @@ jobs:
           grep -i "libtorrent" gdb.txt | grep -i "0x" | head -3
 
       - name: Benchmark
+        if: env.CJ_FULL_RUN == 'true'
         env:
           QT_QPA_PLATFORM: offscreen
           CJ_BENCH_RUNS: "3"
@@ -402,7 +425,15 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: brew install qt mpv boost openssl@3 ninja pkgconf
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
+        run: brew install qt mpv boost openssl@3 ninja pkgconf ccache
+
+      - uses: ./.github/actions/ccache
+        with:
+          name: macos
 
       - uses: ./.github/actions/libtorrent
 
@@ -418,7 +449,7 @@ jobs:
           # Qt's per-function watchdog fires before ctest's 300 s limit and
           # names the hung test function (ctest shows nothing on a timeout).
           QTEST_FUNCTION_TIMEOUT: "150000"
-        run: ctest --test-dir build -LE bench --output-on-failure
+        run: ctest --test-dir build -LE bench --output-on-failure -j3
 
       # A crash shows only "SEGFAULT" in ctest; macOS keeps a report with
       # every thread's stack.
@@ -446,6 +477,7 @@ jobs:
           done
 
       - name: Benchmark
+        if: env.CJ_FULL_RUN == 'true'
         env:
           QT_QPA_PLATFORM: offscreen
           CJ_BENCH_RUNS: "3"
@@ -498,12 +530,18 @@ jobs:
           # (azure.archive.ubuntu.com and archive.ubuntu.com); HTTPS answered.
           printf '%s\n' 'https://archive.ubuntu.com/ubuntu/	priority:1' 'http://azure.archive.ubuntu.com/ubuntu/	priority:2' \
             | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          # Rebuilding the man page index after every install takes up to a minute.
+          sudo rm -f /var/lib/man-db/auto-update
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config xvfb libgl1-mesa-dri \
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ccache ninja-build pkg-config xvfb libgl1-mesa-dri \
             qt6-base-dev qt6-declarative-dev qml6-module-qtquick qml6-module-qtquick-window qml6-module-qtqml-workerscript \
             qml6-module-qtquick-controls qml6-module-qtquick-templates qml6-module-qtquick-dialogs \
             qml6-module-qtquick-layouts qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-shapes \
             libmpv-dev libboost-dev libssl-dev libsqlite3-dev qt6-image-formats-plugins
+
+      - uses: ./.github/actions/ccache
+        with:
+          name: linux
 
       - uses: ./.github/actions/libtorrent
 
@@ -519,9 +557,10 @@ jobs:
           # Qt's per-function watchdog fires before ctest's 300 s limit and
           # names the hung test function (ctest shows nothing on a timeout).
           QTEST_FUNCTION_TIMEOUT: "150000"
-        run: ctest --test-dir build -LE bench --output-on-failure
+        run: ctest --test-dir build -LE bench --output-on-failure -j3
 
       - name: Benchmark
+        if: env.CJ_FULL_RUN == 'true'
         env:
           QT_QPA_PLATFORM: offscreen
           CJ_BENCH_RUNS: "3"
@@ -548,12 +587,18 @@ jobs:
           # (azure.archive.ubuntu.com and archive.ubuntu.com); HTTPS answered.
           printf '%s\n' 'https://archive.ubuntu.com/ubuntu/	priority:1' 'http://azure.archive.ubuntu.com/ubuntu/	priority:2' \
             | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          # Rebuilding the man page index after every install takes up to a minute.
+          sudo rm -f /var/lib/man-db/auto-update
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config \
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ccache ninja-build pkg-config \
             qt6-base-dev qt6-declarative-dev qml6-module-qtquick qml6-module-qtquick-window qml6-module-qtqml-workerscript \
             qml6-module-qtquick-controls qml6-module-qtquick-templates qml6-module-qtquick-dialogs \
             qml6-module-qtquick-layouts qml6-module-qt-labs-folderlistmodel qml6-module-qtquick-shapes \
             libmpv-dev libboost-dev libssl-dev libsqlite3-dev qt6-image-formats-plugins
+
+      - uses: ./.github/actions/ccache
+        with:
+          name: asan
 
       - uses: ./.github/actions/libtorrent
 
@@ -571,7 +616,7 @@ jobs:
           QTEST_FUNCTION_TIMEOUT: "250000"
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1:strict_string_checks=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-        run: ctest --test-dir build -LE bench --output-on-failure
+        run: ctest --test-dir build -LE bench --output-on-failure -j3
 
   # Data races between the broker's and the database's own threads. Qt, glib
   # and libtorrent are not built with TSan, so hand-offs inside them are
@@ -590,9 +635,15 @@ jobs:
           # (azure.archive.ubuntu.com and archive.ubuntu.com); HTTPS answered.
           printf '%s\n' 'https://archive.ubuntu.com/ubuntu/	priority:1' 'http://azure.archive.ubuntu.com/ubuntu/	priority:2' \
             | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          # Rebuilding the man page index after every install takes up to a minute.
+          sudo rm -f /var/lib/man-db/auto-update
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config \
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ccache ninja-build pkg-config \
             qt6-base-dev qt6-declarative-dev libmpv-dev libboost-dev libssl-dev libsqlite3-dev
+
+      - uses: ./.github/actions/ccache
+        with:
+          name: tsan
 
       - uses: ./.github/actions/libtorrent
 
@@ -612,7 +663,8 @@ jobs:
           build/tests/tst_storage
 
   # libFuzzer on the parsers of untrusted text (tests/fuzz/fuzz_parsers.cpp)
-  # with ASan and UBSan, for five minutes from the seed corpus.
+  # with ASan and UBSan, from the seed corpus: one minute per commit, five on
+  # the weekly run.
   fuzz:
     name: Linux (parser fuzzing)
     runs-on: ubuntu-24.04
@@ -626,9 +678,15 @@ jobs:
           # (azure.archive.ubuntu.com and archive.ubuntu.com); HTTPS answered.
           printf '%s\n' 'https://archive.ubuntu.com/ubuntu/	priority:1' 'http://azure.archive.ubuntu.com/ubuntu/	priority:2' \
             | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          # Rebuilding the man page index after every install takes up to a minute.
+          sudo rm -f /var/lib/man-db/auto-update
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config clang libclang-rt-dev \
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ccache ninja-build pkg-config clang libclang-rt-dev \
             qt6-base-dev qt6-declarative-dev libmpv-dev libboost-dev libssl-dev libsqlite3-dev
+
+      - uses: ./.github/actions/ccache
+        with:
+          name: fuzz
 
       - uses: ./.github/actions/libtorrent
 
@@ -646,7 +704,7 @@ jobs:
           ASAN_OPTIONS: detect_leaks=0
         run: |
           mkdir -p corpus findings
-          build/tests/fuzz/fuzz_parsers -max_total_time=300 -max_len=8192 -timeout=10 -rss_limit_mb=4096 \
+          build/tests/fuzz/fuzz_parsers -max_total_time=$([ "$CJ_FULL_RUN" = true ] && echo 300 || echo 60) -max_len=8192 -timeout=10 -rss_limit_mb=4096 \
             -artifact_prefix=findings/ corpus tests/fuzz/corpus
 
       - uses: actions/upload-artifact@v4
@@ -663,6 +721,7 @@ jobs:
   # run, failed ones included, goes into the summary and the artifact.
   bench-compare:
     name: Linux (benchmark against other clients)
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.benchmarks)
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     env:
@@ -683,8 +742,10 @@ jobs:
           # (azure.archive.ubuntu.com and archive.ubuntu.com); HTTPS answered.
           printf '%s\n' 'https://archive.ubuntu.com/ubuntu/	priority:1' 'http://azure.archive.ubuntu.com/ubuntu/	priority:2' \
             | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          # Rebuilding the man page index after every install takes up to a minute.
+          sudo rm -f /var/lib/man-db/auto-update
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ninja-build pkg-config iproute2 qbittorrent-nox \
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o Dpkg::Lock::Timeout=120 install -y ccache ninja-build pkg-config iproute2 qbittorrent-nox \
             qt6-base-dev qt6-declarative-dev libmpv-dev libtorrent-rasterbar-dev libboost-dev libssl-dev libsqlite3-dev
           npm install --prefix "$RUNNER_TEMP/contenders" --ignore-scripts --no-audit --no-fund \
             webtorrent@3.0.21 webtorrent1@npm:webtorrent@1.9.7 torrent-stream@1.2.1

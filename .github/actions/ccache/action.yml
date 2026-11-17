@@ -1,0 +1,27 @@
+name: Compiler cache
+description: Keeps ccache's objects between runs and makes CMake compile through ccache. ccache itself must be installed by the job.
+inputs:
+  name:
+    description: One name per job, so a sanitizer build never reuses a release build's objects.
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        {
+          echo "CCACHE_DIR=${{ github.workspace }}/.ccache"
+          echo "CCACHE_BASEDIR=${{ github.workspace }}"
+          echo "CCACHE_MAXSIZE=400M"
+          echo "CCACHE_COMPRESS=true"
+          # CMake reads these when it configures: every compile goes through ccache.
+          echo "CMAKE_C_COMPILER_LAUNCHER=ccache"
+          echo "CMAKE_CXX_COMPILER_LAUNCHER=ccache"
+        } >> "$GITHUB_ENV"
+    # A new entry each run (the key changes with the commit); the newest
+    # earlier one, from this branch or from main, is the starting point.
+    - uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/.ccache
+        key: ccache-${{ inputs.name }}-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+        restore-keys: ccache-${{ inputs.name }}-${{ runner.os }}-${{ runner.arch }}-

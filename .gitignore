@@ -6,3 +6,4 @@ CMakeUserPresets.json
 .vscode/
 .idea/
 .deps/
+.ccache/
