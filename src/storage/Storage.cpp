@@ -326,6 +326,39 @@ LibraryItem itemFromJson(const QJsonObject& o)
     return i;
 }
 
+// Puts every entry of `incoming` into `list` the way keepInMemory() would one
+// at a time, in order: a later copy of a key replaces an earlier one, and the
+// list stays newest first with an entry placed before those of the same time.
+// `list` must already be newest first. O(list + incoming log incoming), where
+// calling keepInMemory() for each entry costs O(list) apiece.
+template <typename T, typename KeyOf, typename TimeOf>
+void mergeNewestFirst(QList<T>& list, const QList<T>& incoming, KeyOf keyOf, TimeOf timeOf)
+{
+    QSet<QString> taken;
+    QList<T> fresh;  // the last copy of each key, latest inserted first
+    for (auto it = incoming.crbegin(); it != incoming.crend(); ++it) {
+        const QString key = keyOf(*it);
+        if (taken.contains(key))
+            continue;
+        taken.insert(key);
+        fresh << *it;
+    }
+    // Stable: of the same time, the one inserted last stays first, as it
+    // would when inserted one at a time.
+    std::stable_sort(fresh.begin(), fresh.end(), [&](const T& a, const T& b) { return timeOf(a) > timeOf(b); });
+    list.removeIf([&](const T& e) { return taken.contains(keyOf(e)); });
+    QList<T> out;
+    out.reserve(list.size() + fresh.size());
+    qsizetype i = 0, j = 0;
+    while (i < list.size() || j < fresh.size()) {
+        if (j < fresh.size() && (i == list.size() || timeOf(fresh[j]) >= timeOf(list[i])))
+            out << fresh[j++];
+        else
+            out << list[i++];
+    }
+    list = std::move(out);
+}
+
 bool writeEntry(sqlite3* db, const HistoryEntry& e)
 {
     Statement s(db, "INSERT OR REPLACE INTO history(key, adapter, provider, item_id, item_type, item_name, poster,"
@@ -749,8 +782,9 @@ void Storage::forget(const QString& itemKey)
             keys << e.key;
     if (keys.isEmpty())
         return;
+    // The same rows as `keys`, matched without a search of `keys` per row.
     m_history.erase(std::remove_if(m_history.begin(), m_history.end(),
-                                   [&](const HistoryEntry& e) { return keys.contains(e.key); }),
+                                   [&](const HistoryEntry& e) { return e.itemKey() == itemKey; }),
                     m_history.end());
     write([keys](sqlite3* db) {
         return transaction(db, [&] {
@@ -911,6 +945,12 @@ struct ImportedExtras
 ImportedExtras newExtras(const QJsonObject& root, const QJsonArray& installed, const QStringList& listed)
 {
     ImportedExtras out;
+    // Links and folders already here or already taken: a lookup per entry,
+    // since the file decides how many entries there are.
+    QSet<QString> seenAddons;
+    for (const QJsonValue& a : installed)
+        seenAddons.insert(a.toObject().value("transportUrl").toString());
+    QSet<QString> seenFolders(listed.begin(), listed.end());
     const QJsonArray addonsIn = root.value("addons").toArray();
     for (qsizetype n = 0; n < addonsIn.size(); ++n) {
         const QUrl url(addonsIn.at(n).toObject().value("transportUrl").toString());
@@ -918,9 +958,10 @@ ImportedExtras newExtras(const QJsonObject& root, const QJsonArray& installed, c
             out.error = QStringLiteral("That export is damaged (entry %1 of \"addons\"). Nothing was imported.").arg(n + 1);
             return out;
         }
-        const auto same = [&](const QJsonValue& a) { return a.toObject().value("transportUrl").toString() == url.toString(); };
-        if (std::none_of(installed.begin(), installed.end(), same) && std::none_of(out.addons.begin(), out.addons.end(), same))
+        if (!seenAddons.contains(url.toString())) {
+            seenAddons.insert(addonsIn.at(n).toObject().value("transportUrl").toString());
             out.addons.append(addonsIn.at(n));
+        }
     }
     const QJsonArray foldersIn = root.value("folders").toArray();
     for (qsizetype n = 0; n < foldersIn.size(); ++n) {
@@ -928,8 +969,10 @@ ImportedExtras newExtras(const QJsonObject& root, const QJsonArray& installed, c
             out.error = QStringLiteral("That export is damaged (entry %1 of \"folders\"). Nothing was imported.").arg(n + 1);
             return out;
         }
-        if (const QString f = foldersIn.at(n).toString(); !f.isEmpty() && !listed.contains(f) && !out.folders.contains(f))
+        if (const QString f = foldersIn.at(n).toString(); !f.isEmpty() && !seenFolders.contains(f)) {
+            seenFolders.insert(f);
             out.folders << f;
+        }
     }
     return out;
 }
@@ -973,6 +1016,15 @@ QString Storage::importJson(const QByteArray& json, ImportExtras extrasWanted)
             .arg(index + 1).arg(QLatin1String(list));
     };
 
+    // What is here already, by key: one lookup per imported entry instead of
+    // a scan of the whole history or library.
+    QHash<QString, qint64> mine;
+    for (const HistoryEntry& h : std::as_const(m_history))
+        if (!mine.contains(h.key))
+            mine.insert(h.key, h.updatedAt);
+    QSet<QString> libraryKeys;
+    for (const LibraryItem& i : std::as_const(m_library))
+        libraryKeys.insert(i.key());
     QList<HistoryEntry> newHistory;
     const QJsonArray historyIn = root.value("history").toArray();
     for (qsizetype n = 0; n < historyIn.size(); ++n) {
@@ -992,8 +1044,7 @@ QString Storage::importJson(const QByteArray& json, ImportExtras extrasWanted)
             || std::any_of(e.source.subtitles.begin(), e.source.subtitles.end(),
                            [](const SubtitleSource& sub) { return links::isNetworkPath(sub.url.toString()); }))
             continue;
-        const auto mine = find(e.key);
-        if (!mine || mine->updatedAt < e.updatedAt)
+        if (const auto it = mine.constFind(e.key); it == mine.cend() || *it < e.updatedAt)
             newHistory.append(e);
     }
     QList<LibraryItem> newItems;
@@ -1004,7 +1055,7 @@ QString Storage::importJson(const QByteArray& json, ImportExtras extrasWanted)
         const LibraryItem i = itemFromJson(libraryIn.at(n).toObject());
         if (i.itemId.isEmpty() || i.addedAt < 0)
             return damaged("library", n);
-        if (!inLibrary(i.key()))
+        if (!libraryKeys.contains(i.key()))
             newItems.append(i);
     }
     // Add-ons and folders only with the user's yes (see the header).
@@ -1048,10 +1099,10 @@ QString Storage::importJson(const QByteArray& json, ImportExtras extrasWanted)
     }
 
     // 3. Only now the in-memory copy, and the signals.
-    for (const HistoryEntry& e : newHistory)
-        keepInMemory(e);
-    for (const LibraryItem& i : newItems)
-        keepInMemory(i);
+    mergeNewestFirst(m_history, newHistory, [](const HistoryEntry& e) { return e.key; },
+                     [](const HistoryEntry& e) { return e.updatedAt; });
+    mergeNewestFirst(m_library, newItems, [](const LibraryItem& i) { return i.key(); },
+                     [](const LibraryItem& i) { return i.addedAt; });
     trimHistory();
     trimLibrary();
     if (!newHistory.isEmpty())

@@ -34,7 +34,10 @@ Library::Library(Storage& storage, Session& session, Browser& browser, QObject* 
     , m_session(session)
     , m_browser(browser)
 {
-    connect(&storage, &Storage::historyChanged, this, &Library::historyChanged);
+    connect(&storage, &Storage::historyChanged, this, [this] {
+        m_progress.reset();
+        emit historyChanged();
+    });
     connect(&storage, &Storage::libraryChanged, this, &Library::itemsChanged);
     connect(&storage, &Storage::errorChanged, this, &Library::storageErrorChanged);
 
@@ -202,12 +205,17 @@ bool Library::contains(const QString& key) const { return m_storage.inLibrary(ke
 
 double Library::progress(const QString& key) const
 {
-    const auto e = m_storage.find(key);
-    if (!e)
-        return -1;
-    if (e->finished)
-        return 1;
-    return e->duration > 0 ? std::clamp(e->position / e->duration, 0.0, 1.0) : 0;
+    if (!m_progress) {
+        m_progress.emplace();
+        for (const HistoryEntry& e : m_storage.history()) {
+            if (m_progress->contains(e.key))
+                continue;  // newest first: the first one is what find() gives
+            m_progress->insert(e.key, e.finished           ? 1.0
+                                      : e.duration > 0     ? std::clamp(e.position / e.duration, 0.0, 1.0)
+                                                           : 0.0);
+        }
+    }
+    return m_progress->value(key, -1);
 }
 
 void Library::add(const QVariantMap& item)

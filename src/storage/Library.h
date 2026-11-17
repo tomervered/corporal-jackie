@@ -7,6 +7,7 @@
 #include "SourceTypes.h"
 #include "Storage.h"
 
+#include <QHash>
 #include <QObject>
 #include <QUrl>
 #include <QVariantList>
@@ -93,6 +94,10 @@ private:
     Browser& m_browser;
     std::optional<HistoryEntry> m_pending;  // picked, not yet loaded
     std::optional<Current> m_current;       // what is loaded now, when picked
+    // progress() by history key, built on first use after each history
+    // change: episode lists ask once per row, and history changes every few
+    // seconds during playback.
+    mutable std::optional<QHash<QString, double>> m_progress;
 };
 
 } // namespace cj

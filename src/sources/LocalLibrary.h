@@ -9,6 +9,7 @@
 #include "SourceAdapter.h"
 
 #include <QDateTime>
+#include <QHash>
 #include <QFileSystemWatcher>
 #include <QTimer>
 
@@ -76,8 +77,17 @@ private:
         QStringList dirs;
         bool truncated = false;
         quint64 generation = 0;
+        // Built once per scan, on the scan's thread, so a page of a catalog
+        // is a slice and not a sort of every video. Indexes into `videos`
+        // only (4 bytes a video): a page's entries are made when asked for.
+        QList<int> movies;                      // sorted by name
+        QList<int> shows;                       // first video of each series, sorted by name
+        QHash<QString, QList<int>> showVideos;  // series key -> its videos, in scan order
+        QList<int> byPath;                      // sorted by path
     };
     static ScanResult scan(const QStringList& folders, const std::shared_ptr<std::atomic<bool>>& cancel);
+    static void buildIndex(ScanResult& result);
+    MetaPreview previewOf(int video) const;
     void applyScan(ScanResult result);
     void save() const;
     static QString seriesKey(const QString& title);
@@ -85,6 +95,10 @@ private:
     QString m_storeFile;
     QStringList m_folders;
     QList<LocalVideo> m_videos;
+    QList<int> m_movies;
+    QList<int> m_shows;
+    QHash<QString, QList<int>> m_showVideos;
+    QList<int> m_byPath;
     bool m_scanning = false;
     quint64 m_generation = 0;
     std::shared_ptr<std::atomic<bool>> m_cancel;

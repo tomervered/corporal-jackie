@@ -9,9 +9,24 @@
 #include <QNetworkRequest>
 #include <QTimer>
 
+#include <algorithm>
 #include <memory>
 
 namespace cj {
+
+namespace {
+// QIODevice::read(n) reserves n bytes up front, so asking for the whole cap
+// (8 MB) on every chunk briefly held megabytes per request. Read only what
+// has arrived, still at most one byte past the cap.
+void readSome(QNetworkReply& reply, QByteArray& body, qint64 maxBytes)
+{
+    const qint64 room = maxBytes + 1 - body.size();
+    const qint64 n = std::min(reply.bytesAvailable(), room);
+    if (n > 0)
+        body.append(reply.read(n));
+}
+} // namespace
+
 
 JsonFetcher::JsonFetcher(QObject* parent)
     : QObject(parent)
@@ -60,7 +75,7 @@ void JsonFetcher::get(const QUrl& url, Done done)
         }
     };
     connect(reply, &QNetworkReply::readyRead, this, [reply, body, maxBytes, stop] {
-        body->append(reply->read(maxBytes + 1 - body->size()));
+        readSome(*reply, *body, maxBytes);
         if (body->size() > maxBytes)
             stop(QStringLiteral("the answer was too large"));
     });
@@ -81,7 +96,7 @@ void JsonFetcher::get(const QUrl& url, Done done)
         reply->deleteLater();
         --m_inFlight;
         if (failure->isEmpty() && reply->isReadable())
-            body->append(reply->read(maxBytes + 1 - body->size()));
+            readSome(*reply, *body, maxBytes);
         if (failure->isEmpty() && body->size() > maxBytes)
             *failure = QStringLiteral("the answer was too large");
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();

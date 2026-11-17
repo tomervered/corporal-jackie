@@ -12,6 +12,8 @@ Rectangle {
 
     // -1: the episode list; otherwise the episode whose streams are shown.
     property int pickedEpisode: -1
+    // Read once here, not once per row: each read builds the whole list.
+    readonly property bool hasEpisodes: browser.playingEpisodes.length > 0
 
     color: Theme.panel
     border.color: "#30ffffff"
@@ -92,7 +94,7 @@ Rectangle {
             readonly property bool playing: index === browser.playingEpisodeIndex
             primary: (playing ? "▶  " : "") + modelData.label
             secondary: playing ? "Playing now" : ""
-            progress: library.historyCount >= 0 && browser.playingEpisodes.length > 0
+            progress: library.historyCount >= 0 && panel.hasEpisodes
                       ? library.progress(browser.playingShowKey + ":" + modelData.id) : -1
             onClicked: panel.pick(index)
         }
