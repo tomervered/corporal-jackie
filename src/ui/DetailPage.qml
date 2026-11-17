@@ -59,7 +59,7 @@ Item {
             source: browser.detail.poster || ""
             visible: status === Image.Ready
             fillMode: Image.PreserveAspectCrop
-            sourceSize.width: 300
+            sourceSize.width: Math.ceil(width * Screen.devicePixelRatio)
             asynchronous: true
         }
         Column {

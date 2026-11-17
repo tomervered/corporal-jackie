@@ -40,7 +40,9 @@ Item {
             anchors { fill: parent; margins: 2 }
             source: tile.item.poster || ""
             fillMode: Image.PreserveAspectCrop
-            sourceSize.width: 264
+            // Decoded at the size it is drawn: Qt keeps every shown poster in
+            // memory at this size (twice the tile was 4 times the bytes at 100 %).
+            sourceSize.width: Math.ceil(Theme.posterWidth * Screen.devicePixelRatio)
             asynchronous: true
             onStatusChanged: if (status === Image.Error && tile.attempt < 4) retry.start()
         }
