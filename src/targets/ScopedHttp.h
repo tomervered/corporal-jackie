@@ -2,23 +2,25 @@
 // Plays web links that carry credentials without handing those credentials
 // to mpv.
 //
-// mpv's HTTP code (FFmpeg's) sends http-header-fields with every request,
-// and follows up to 8 redirects with the same headers, to any server. There
-// is no option to scope them. So a link that needs request headers (an
-// add-on's token, a cookie) or has a user:password in it is played through
-// cjhttp:// or cjhttps:// instead, a protocol this class adds to mpv through
-// its stream callback API. This class fetches the bytes itself, follows
-// redirects by hand, and sends the credentials only while every hop stays on
-// the link's origin: the same scheme, host and port. Once a hop leaves the
-// origin, no later hop gets them back.
+// mpv's HTTP code (FFmpeg's, or libcurl's from mpv 0.42) sends
+// http-header-fields with every request, and follows redirects with the same
+// headers, to any server. There is no option to scope them. So this class
+// fetches the bytes itself, follows redirects by hand, and sends the
+// credentials only while every hop stays on the link's origin: the same
+// scheme, host and port. Once a hop leaves the origin, no later hop gets them
+// back.
 //
-// Remote subtitles go through the same protocol with a size limit, so an
+// A video link that needs request headers (an add-on's token, a cookie) or
+// has a user:password in it plays through a relay on 127.0.0.1 (see
+// HttpRelay in ScopedHttp.cpp): mpv asks the relay over plain HTTP, and the
+// relay asks the origin. An HLS playlist played this way names its segments
+// relative to itself, so mpv and FFmpeg ask the relay for them too and they
+// follow the same rule. Absolute segment links on other servers go to mpv's
+// own HTTP code, which has no credentials to send.
+//
+// Remote subtitles go through cjhttp:// or cjhttps://, a protocol this class
+// adds to mpv through its stream callback API, with a size limit, so an
 // add-on cannot make mpv download an endless "subtitle".
-//
-// An HLS playlist played this way names its segments relative to itself, so
-// mpv opens them through this protocol too and they follow the same rule.
-// Absolute segment links go to mpv's own HTTP code, which has no
-// credentials to send.
 
 #include <QHash>
 #include <QMap>
@@ -36,6 +38,8 @@ class QThread;
 class QObject;
 
 namespace cj {
+
+class HttpRelay;
 
 // Scheme, host and effective port: the unit credentials belong to.
 struct HttpOrigin
@@ -63,9 +67,9 @@ public:
     void reset();
 
     // The link mpv should open for a video. A web link with credentials
-    // (headers, or a user:password) becomes cjhttp(s)://, and the
-    // credentials stay here, for its origin only. Anything else comes back
-    // unchanged.
+    // (headers, or a user:password) becomes a link to the relay on
+    // 127.0.0.1, and the credentials stay here, for its origin only.
+    // Anything else comes back unchanged.
     QUrl routeVideo(const QUrl& url, const QMap<QString, QString>& headers);
 
     // The link mpv should open for a remote subtitle: always cjhttp(s)://,
@@ -103,6 +107,7 @@ private:
     QMap<QString, QString> m_videoHeaders;
     QHash<QString, Route> m_routes;  // protocol link -> what it stands for
     std::vector<std::weak_ptr<Stream>> m_streams;  // to wake them on abort()
+    HttpRelay* m_relay = nullptr;  // the current video's, on m_thread
     std::shared_ptr<std::atomic<bool>> m_aborted;
 };
 
