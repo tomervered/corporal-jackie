@@ -18,17 +18,15 @@ Item {
         id: art
         width: parent.width
         height: parent.width * 1.5
-        radius: 6
-        color: "#1fffffff"
-        border.width: 2
-        border.color: tile.current || tileHover.hovered ? Theme.accent : "transparent"
+        radius: Theme.radius
+        color: Theme.card
         clip: true
         Text {
             textFormat: Text.PlainText
             anchors { fill: parent; margins: 10 }
             visible: poster.status !== Image.Ready
             text: tile.item.name || ""
-            color: Theme.text
+            color: Theme.muted
             font.pixelSize: 14
             wrapMode: Text.Wrap
             horizontalAlignment: Text.AlignHCenter
@@ -37,11 +35,13 @@ Item {
         }
         Image {
             id: poster
-            anchors { fill: parent; margins: 2 }
+            anchors.fill: parent
             source: tile.item.poster || ""
             fillMode: Image.PreserveAspectCrop
             sourceSize.width: 264
             asynchronous: true
+            opacity: status === Image.Ready ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 150 } }
             onStatusChanged: if (status === Image.Error && tile.attempt < 4) retry.start()
         }
         Timer {
@@ -57,14 +57,22 @@ Item {
         }
         HoverHandler { id: tileHover; cursorShape: Qt.PointingHandCursor }
         TapHandler { onTapped: tile.activated() }
+        // Hover and keyboard focus, drawn over the poster.
+        Rectangle {
+            anchors.fill: parent
+            radius: parent.radius
+            color: tileHover.hovered && !tile.current ? "#14ffffff" : "transparent"
+            border.width: tile.current ? 3 : tileHover.hovered ? 2 : 0
+            border.color: tile.current ? Theme.accent : "#a0ffffff"
+        }
     }
     Text {
         textFormat: Text.PlainText
         id: tileName
-        anchors { top: art.bottom; topMargin: 5 }
+        anchors { top: art.bottom; topMargin: 6 }
         width: parent.width
         text: tile.item.name || ""
-        color: Theme.text
+        color: tile.current ? Theme.accent : Theme.text
         font.pixelSize: 13
         elide: Text.ElideRight
     }

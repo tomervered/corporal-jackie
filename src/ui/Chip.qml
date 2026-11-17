@@ -1,8 +1,9 @@
 import QtQuick
 import QtQuick.Controls.Basic
 
-// A choice in a row of choices, such as Movies or Series.
-Button {
+// A choice in a row of choices, such as Movies or Series: a pill that is
+// filled in when picked. Shows add-on names as plain text (see README).
+AppButton {
     id: chip
     property bool selected: false
     checkable: true
@@ -11,14 +12,13 @@ Button {
     // chip always shows `selected`.
     onToggled: checked = Qt.binding(() => chip.selected)
     focusPolicy: Qt.StrongFocus
-    // Basic style's label, as plain text: chips show add-on names (see README).
-    contentItem: Text {
-        textFormat: Text.PlainText
-        text: chip.text
-        font: chip.font
-        color: chip.checked || chip.highlighted ? chip.palette.brightText : chip.palette.buttonText
-        horizontalAlignment: Text.AlignHCenter
-        verticalAlignment: Text.AlignVCenter
-        elide: Text.ElideRight
+    implicitHeight: 32
+    implicitWidth: Math.max(48, implicitContentWidth + leftPadding + rightPadding)
+    background: Rectangle {
+        radius: height / 2
+        color: chip.checked ? (chip.hovered ? Qt.lighter(Theme.accent, 1.08) : Theme.accent)
+             : chip.down ? "#3c3c48" : chip.hovered ? "#34343e" : "#24242c"
+        border.width: chip.visualFocus ? 2 : 1
+        border.color: chip.visualFocus ? (chip.checked ? Theme.text : Theme.accent) : chip.checked ? "transparent" : "#3a3a44"
     }
 }

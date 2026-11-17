@@ -22,13 +22,21 @@ Column {
         ToolButton {
             visible: posterRow.canSeeAll && posterRow.items.length > 0
             anchors.verticalCenter: parent.verticalCenter
-            contentItem: Text { textFormat: Text.PlainText; text: "See all ›"; color: Theme.accent; font.pixelSize: 13 }
+            focusPolicy: Qt.TabFocus
+            contentItem: Text { textFormat: Text.PlainText; text: "See all  ›"; color: parent.hovered || parent.visualFocus ? Theme.text : Theme.accent; font.pixelSize: 13 }
+            background: Rectangle { radius: 6; color: parent.hovered ? "#14ffffff" : "transparent"; border.color: parent.visualFocus ? Theme.accent : "transparent" }
             onClicked: posterRow.seeAll()
         }
     }
+    PlaceholderTiles {
+        visible: posterRow.loading && posterRow.items.length === 0
+        width: parent.width
+    }
     Muted {
+        width: parent.width
         visible: text !== ""
-        text: posterRow.loading ? "Loading…" : posterRow.error !== "" ? "Could not be loaded: " + posterRow.error
+        color: posterRow.error !== "" ? Theme.error : Theme.muted
+        text: posterRow.loading ? "" : posterRow.error !== "" ? "This list could not be loaded: " + posterRow.error
             : posterRow.items.length === 0 ? "Nothing here." : ""
     }
     // Updated in place: a row that loads keeps the posters it has.
@@ -37,8 +45,9 @@ Column {
         id: rowList
         visible: posterRow.items.length > 0
         width: parent.width
-        height: Theme.posterWidth * 1.5 + 44
+        height: Theme.posterWidth * 1.5 + 48
         orientation: ListView.Horizontal
+        cacheBuffer: Theme.posterWidth * 4
         spacing: 14
         clip: true
         activeFocusOnTab: true

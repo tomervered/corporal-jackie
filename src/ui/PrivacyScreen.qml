@@ -40,7 +40,7 @@ Rectangle {
             Text { textFormat: Text.PlainText; width: parent.width; text: option.title; color: Theme.text; font.pixelSize: 15; font.weight: Font.DemiBold; wrapMode: Text.WordWrap }
             Text { textFormat: Text.PlainText; width: parent.width; text: option.detail; color: Theme.muted; font.pixelSize: 13; wrapMode: Text.WordWrap }
         }
-        Switch {
+        AppSwitch {
             id: sw
             anchors { right: parent.right; verticalCenter: parent.verticalCenter }
             focusPolicy: Qt.NoFocus
@@ -147,8 +147,9 @@ Rectangle {
             }
             Item { width: 1; height: 4 }
 
-            Button {
+            AppButton {
                 objectName: "privacyContinue"
+                primary: true
                 text: "Continue with these choices"
                 focusPolicy: Qt.NoFocus
                 onClicked: preferences.choosePrivacy(screen.catalogAddon, screen.dht, screen.trackers, screen.portMapping,

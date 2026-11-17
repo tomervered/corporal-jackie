@@ -6,7 +6,8 @@ Owns pages, controls and user input. Never calls mpv, libtorrent or the network 
 - Player: `ControlBar`, `BarButton`, `PlainMenuItem`, `EpisodesPanel` (the episodes of the series that plays), `LinkPopup`, `Toast`, `StatsOverlay`, `ShortcutsOverlay`, and `Format.js` for times and rates.
 - `Pages.qml`: the side bar, page history and shared keys. Each page is its own file (`HomePage`, `SearchPage`, `DiscoverPage`, `DetailPage`, `StreamsPage`, `LibraryPage`, `AddonsPage`, `FoldersPage`) and has `takeFocus()`.
 - `SettingsPanel.qml`, `ContinueWatching.qml`.
-- Pieces: `Theme` (colours and sizes, a singleton), `Muted`, `Heading`, `PageTitle`, `SectionLabel`, `RowItem`, `PosterTile`, `PosterRow`, `NavButton`, `Chip`.
+- Pieces: `Theme` (colours and sizes, a singleton), `Muted`, `Heading`, `PageTitle`, `SectionLabel`, `RowItem`, `PosterTile`, `PosterRow`, `PosterGrid`, `PlaceholderTiles`, `NavButton`, `Chip`, `Icon` (drawn control-bar icons).
+- Controls: `AppButton`, `AppTextField`, `AppComboBox` and `AppSwitch` are Basic style's controls with rounded corners and the app's colours. Use them instead of the plain ones. The rest of Basic style (menus, tool tips, scroll bars, the drop-down lists) takes its colours from the window's `palette` in `Main.qml`, which Basic style reads instead of the application palette.
 
 The file list is in `QmlFiles.cmake`, used by the app and by `tests/tst_ui`, which loads this window against a fake player and fails on any QML warning.
 

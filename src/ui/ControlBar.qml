@@ -29,13 +29,45 @@ Rectangle {
     }
     HoverHandler { id: barHover }
 
+    // A thin bar with a round handle, for the seek and volume sliders.
+    component BarSlider: Slider {
+        id: barSlider
+        focusPolicy: Qt.NoFocus
+        readonly property bool active: pressed || sliderHover.hovered
+        implicitHeight: 24
+        HoverHandler { id: sliderHover }
+        background: Rectangle {
+            x: barSlider.leftPadding
+            y: barSlider.topPadding + barSlider.availableHeight / 2 - height / 2
+            width: barSlider.availableWidth
+            height: barSlider.active ? 6 : 4
+            radius: height / 2
+            color: "#40ffffff"
+            Rectangle {
+                width: barSlider.visualPosition * parent.width
+                height: parent.height
+                radius: parent.radius
+                color: Theme.accent
+            }
+        }
+        handle: Rectangle {
+            x: barSlider.leftPadding + barSlider.visualPosition * (barSlider.availableWidth - width)
+            y: barSlider.topPadding + barSlider.availableHeight / 2 - height / 2
+            width: barSlider.active ? 14 : 10
+            height: width
+            radius: width / 2
+            color: Theme.text
+        }
+    }
+
     Row {
         id: leftGroup
         anchors { left: parent.left; leftMargin: 12; verticalCenter: parent.verticalCenter }
-        spacing: 8
+        spacing: 4
         BarButton {
-            text: session.paused || session.state === Playback.Ended ? "▶" : "❚❚"
-            font.pixelSize: 16
+            objectName: "playPause"
+            iconName: session.paused || session.state === Playback.Ended ? "play" : "pause"
+            tip: session.paused ? "Play (Space)" : "Pause (Space)"
             onClicked: session.togglePause()
         }
         // Next track: the video's next chapter (a song in a concert, a
@@ -44,24 +76,47 @@ Rectangle {
             objectName: "nextTrack"
             visible: session.chapters.length > 1
             enabled: session.currentChapter < session.chapters.length - 1
-            text: "⏭\uFE0E"
-            font.pixelSize: 16
-            ToolTip.visible: hovered
-            ToolTip.text: "Next track"
+            iconName: "next"
+            tip: "Next track"
             onClicked: session.nextChapter()
         }
+        BarButton {
+            objectName: "mute"
+            iconName: session.muted || session.volume === 0 ? "muted" : "volume"
+            tip: session.muted ? "Unmute (M)" : "Mute (M)"
+            onClicked: session.muted = !session.muted
+        }
+        BarSlider {
+            objectName: "volume"
+            width: 90
+            anchors.verticalCenter: parent.verticalCenter
+            from: 0; to: 100
+            value: session.muted ? 0 : session.volume
+            onMoved: { session.volume = value; if (session.muted) session.muted = false }
+        }
+        // As wide as the longest time it can show, so the seek bar beside
+        // it does not jump as the digits change.
         Text {
+            id: timeLabel
             textFormat: Text.PlainText
             anchors.verticalCenter: parent.verticalCenter
+            width: timeMetrics.width + 16
+            leftPadding: 8
             text: Format.time(seek.pressed ? seek.value : session.position) + " / " + Format.time(session.duration)
             color: Theme.text
             font.pixelSize: 13
+            TextMetrics {
+                id: timeMetrics
+                font: timeLabel.font
+                text: session.duration >= 3600 ? "00:00:00 / 00:00:00" : "00:00 / 00:00"
+            }
         }
     }
 
-    Slider {
+    BarSlider {
         id: seek
-        anchors { left: leftGroup.right; right: rightGroup.left; leftMargin: 12; rightMargin: 12; verticalCenter: parent.verticalCenter }
+        objectName: "seek"
+        anchors { left: leftGroup.right; right: rightGroup.left; leftMargin: 8; rightMargin: 12; verticalCenter: parent.verticalCenter }
         from: 0
         to: Math.max(1, session.duration)
         value: pressed ? value : session.position
@@ -75,7 +130,8 @@ Rectangle {
                 x: seek.leftPadding + (modelData.start / session.duration) * seek.availableWidth - 1
                 y: seek.topPadding + seek.availableHeight / 2 - 5
                 width: 2; height: 10
-                color: Theme.accent
+                color: Theme.text
+                opacity: 0.7
             }
         }
         // A-B repeat range
@@ -87,6 +143,26 @@ Rectangle {
             height: 3
             color: Theme.accent
         }
+        // The time under the pointer, above the bar.
+        HoverHandler { id: seekHover }
+        Rectangle {
+            readonly property real at: Math.max(0, Math.min(1, (seekHover.point.position.x - seek.leftPadding) / seek.availableWidth))
+            visible: seekHover.hovered && session.duration > 0 && !seek.pressed
+            x: Math.max(0, Math.min(seek.width - width, seekHover.point.position.x - width / 2))
+            y: -height - 6
+            width: hoverTime.implicitWidth + 12
+            height: hoverTime.implicitHeight + 6
+            radius: 4
+            color: Theme.overlay
+            Text {
+                id: hoverTime
+                textFormat: Text.PlainText
+                anchors.centerIn: parent
+                text: Format.time(parent.at * session.duration)
+                color: Theme.text
+                font.pixelSize: 12
+            }
+        }
     }
 
     Row {
@@ -94,20 +170,10 @@ Rectangle {
         anchors { right: parent.right; rightMargin: 12; verticalCenter: parent.verticalCenter }
         spacing: 4
         BarButton {
-            text: session.muted || session.volume === 0 ? "Muted" : "Vol"
-            onClicked: session.muted = !session.muted
-        }
-        Slider {
-            width: 100
-            anchors.verticalCenter: parent.verticalCenter
-            from: 0; to: 100
-            value: session.volume
-            onMoved: { session.volume = value; if (session.muted) session.muted = false }
-        }
-        BarButton {
             objectName: "trackList"
             visible: session.chapters.length > 1
             text: "Tracks"
+            tip: "Chapters of this video"
             onClicked: trackMenu.open()
 
             // Every chapter with where it starts; the one playing is ticked.
@@ -220,18 +286,23 @@ Rectangle {
         BarButton {
             visible: browser.playingEpisodes.length > 0
             text: "Episodes"
+            tip: "Other episodes of this show"
             onClicked: controlBar.episodesRequested()
         }
         BarButton {
             text: "Browse"
+            tip: "Home, Discover and your library (B)"
             onClicked: controlBar.browseRequested()
         }
         BarButton {
             text: "Open"
+            tip: "Open a video file"
             onClicked: controlBar.openRequested()
         }
         BarButton {
-            text: controlBar.fullScreen ? "Exit full screen" : "Full screen"
+            objectName: "fullScreen"
+            iconName: controlBar.fullScreen ? "windowed" : "fullscreen"
+            tip: controlBar.fullScreen ? "Leave full screen (Esc)" : "Full screen (F)"
             onClicked: controlBar.fullScreenRequested()
         }
     }

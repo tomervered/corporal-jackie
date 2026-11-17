@@ -16,6 +16,41 @@ Window {
     minimumHeight: 360
     visible: true
     color: "black"
+    // Qt Quick Controls (text fields, drop-downs, menus, switches, sliders,
+    // tool tips) take their colours from here; Basic style's own are light
+    // grey. Basic reads: base and text for text fields, window for menus and
+    // switch handles, button for drop-downs, dark for what is on or filled
+    // in, highlight for the keyboard focus ring and selections, light and
+    // midlight for a hovered menu item and an empty switch.
+    palette {
+        window: "#1c1c22"
+        windowText: Theme.text
+        base: "#1c1c23"
+        alternateBase: "#22222a"
+        text: Theme.text
+        placeholderText: "#7a7a86"
+        button: "#2a2a33"
+        buttonText: Theme.text
+        brightText: Theme.background
+        light: "#34343e"
+        midlight: "#3a3a44"
+        mid: "#4c4c58"
+        dark: Theme.accent
+        shadow: "black"
+        highlight: Theme.accent
+        highlightedText: Theme.background
+        toolTipBase: "#2a2a33"
+        toolTipText: Theme.text
+        link: Theme.accent
+        disabled.buttonText: Theme.faint
+        disabled.windowText: Theme.faint
+        disabled.text: Theme.faint
+        disabled.placeholderText: Theme.faint
+        disabled.button: "#1e1e25"
+        disabled.base: "#16161b"
+        disabled.dark: "#6a5836"
+        disabled.mid: "#30303a"
+    }
     title: (session.hasMedia || session.loading) && session.title !== "" ? session.title + " — Corporal Jackie" : "Corporal Jackie"
 
     property bool controlsVisible: true
@@ -213,19 +248,74 @@ Window {
         }
     }
 
-    // --- Empty state -------------------------------------------------------
+    // --- Opening ----------------------------------------------------------------
 
     // While a new item loads, the last frame of the old one may still be on
-    // screen: dim it, and show only what the loading is doing.
+    // screen: dim it, and show what the loading is doing, with a way out.
     Rectangle {
         anchors.fill: parent
         visible: session.loading && !session.hasMedia
         color: "#c0000000"
     }
-    Toast {
+    Rectangle {
+        id: openingCard
+        objectName: "openingCard"
         anchors.centerIn: parent
-        visible: session.loading && !session.hasMedia
-        text: root.streaming ? root.streamText : "Opening…"
+        visible: session.loading && !session.hasMedia && !root.pagesVisible
+        width: Math.min(root.width - 48, Math.max(360, openingColumn.implicitWidth + 48))
+        height: openingColumn.implicitHeight + 40
+        radius: 12
+        color: Theme.overlay
+        border.color: Theme.line
+        Column {
+            id: openingColumn
+            anchors.centerIn: parent
+            width: parent.width - 48
+            spacing: 14
+            Row {
+                anchors.horizontalCenter: parent.horizontalCenter
+                spacing: 12
+                BusyIndicator {
+                    width: 28; height: 28
+                    anchors.verticalCenter: parent.verticalCenter
+                    running: openingCard.visible
+                }
+                Text {
+                    textFormat: Text.PlainText
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: Math.min(implicitWidth, openingColumn.width - 40)
+                    text: root.streaming ? root.streamText : "Opening…"
+                    color: Theme.text
+                    font.pixelSize: 17
+                    elide: Text.ElideRight
+                }
+            }
+            Text {
+                textFormat: Text.PlainText
+                width: parent.width
+                visible: text !== ""
+                horizontalAlignment: Text.AlignHCenter
+                text: session.title
+                color: Theme.muted
+                font.pixelSize: 13
+                elide: Text.ElideMiddle
+            }
+            Row {
+                anchors.horizontalCenter: parent.horizontalCenter
+                spacing: 8
+                AppButton {
+                    objectName: "openingCancel"
+                    text: "Cancel"
+                    focusPolicy: Qt.NoFocus
+                    onClicked: session.stop()
+                }
+                AppButton {
+                    text: "Browse while it opens"
+                    focusPolicy: Qt.NoFocus
+                    onClicked: root.toggleBrowse()
+                }
+            }
+        }
     }
 
     // --- Pages: home, discover, details, library... (press B while playing) -----
@@ -237,6 +327,7 @@ Window {
         anchors.fill: parent
         // Above the control bar, which stays usable while they are open.
         anchors.bottomMargin: session.hasMedia ? 64 : 0
+        settingsOpen: root.settingsVisible
         onCloseRequested: { root.browseVisible = false; inputLayer.forceActiveFocus() }
         onSettingsRequested: root.toggleSettings()
         onOpenFileRequested: openDialog.open()
@@ -246,14 +337,23 @@ Window {
 
     // --- Settings (press P) ----------------------------------------------------
 
+    // A click beside the panel closes it, and does not reach what is below.
+    MouseArea {
+        anchors.fill: parent
+        visible: root.settingsVisible
+        acceptedButtons: Qt.AllButtons
+        onClicked: root.toggleSettings()
+        onWheel: wheel => wheel.accepted = true
+    }
     SettingsPanel {
         id: settingsPanel
+        objectName: "settingsPanel"
         visible: root.settingsVisible
         anchors { top: parent.top; bottom: parent.bottom; right: parent.right; margins: 16 }
         // Above the control bar, which stays usable while it is open.
         anchors.bottomMargin: session.hasMedia ? 72 : 16
         width: Math.min(520, parent.width - 32)
-        onCloseRequested: { root.settingsVisible = false; inputLayer.forceActiveFocus() }
+        onCloseRequested: root.toggleSettings()
     }
 
     // --- Episodes of the series that is playing ---------------------------------
@@ -277,9 +377,11 @@ Window {
 
     // --- Overlays ------------------------------------------------------------
 
-    // Short messages, top centre
+    // Short messages: top centre over the video, bottom centre over the
+    // pages, where they cover no title.
     Toast {
-        anchors { top: parent.top; horizontalCenter: parent.horizontalCenter; topMargin: 24 }
+        anchors { horizontalCenter: parent.horizontalCenter }
+        y: root.pagesVisible ? parent.height - height - (session.hasMedia ? 88 : 24) : 24
         visible: root.osdText !== "" && root.errorText === ""
         text: root.osdText
         fontSize: 16
@@ -301,8 +403,10 @@ Window {
         width: Math.min(parent.width - 32, errorLabel.implicitWidth + 32)
         height: errorLabel.implicitHeight + 20
         radius: 8
-        color: "#cc3b2a2a"
+        color: "#f03b2a2a"
         border.color: "#e06c5a"
+        // A click puts it away.
+        MouseArea { anchors.fill: parent; onClicked: root.errorText = "" }
         Text {
             textFormat: Text.PlainText
             id: errorLabel

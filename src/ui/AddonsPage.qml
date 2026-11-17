@@ -26,14 +26,15 @@ Column {
     Row {
         width: parent.width
         spacing: 8
-        TextField {
+        AppTextField {
             id: addonField
             width: parent.width - installButton.width - 8
             placeholderText: "https://…/manifest.json"
             onAccepted: installButton.clicked()
         }
-        Button {
+        AppButton {
             id: installButton
+            primary: true
             text: browser.installing ? "Installing…" : "Install"
             enabled: !browser.installing && addonField.text.trim() !== ""
             onClicked: { addonsPage.pendingLink = addonField.text.trim(); addonField.text = "" }
@@ -44,8 +45,9 @@ Column {
         visible: addonsPage.pendingLink !== ""
         width: parent.width
         height: visible ? consentColumn.implicitHeight + 24 : 0
-        radius: 8
-        color: "#1fffffff"
+        radius: Theme.radius
+        color: Theme.card
+        border.color: Theme.accent
         Column {
             id: consentColumn
             x: 12; y: 12
@@ -61,12 +63,13 @@ Column {
             }
             Row {
                 spacing: 8
-                Button {
+                AppButton {
                     objectName: "addonConsentInstall"
+                    primary: true
                     text: "Install"
                     onClicked: { browser.installAddon(addonsPage.pendingLink); addonsPage.pendingLink = "" }
                 }
-                Button {
+                AppButton {
                     objectName: "addonConsentCancel"
                     text: "Cancel"
                     onClicked: addonsPage.pendingLink = ""
@@ -74,37 +77,74 @@ Column {
             }
         }
     }
+    Muted {
+        width: parent.width
+        visible: browser.addons.length === 0
+        topPadding: 8
+        text: "No add-ons installed. Paste an install link above."
+    }
     ListView {
+        id: addonList
         width: parent.width
         height: parent.height - y
         clip: true
         model: browser.addons
-        spacing: 4
+        spacing: 6
+        topMargin: 4
         ScrollBar.vertical: ScrollBar {}
         delegate: Rectangle {
+            id: addonCard
             required property var modelData
             required property int index
+            // Remove asks once more: the add-on's link may be hard to find again.
+            property bool confirmRemove: false
             width: ListView.view.width
-            height: addonText.implicitHeight + 20
-            radius: 8
-            color: "#14ffffff"
+            height: addonText.implicitHeight + 24
+            radius: Theme.radius
+            color: Theme.card
+            border.color: modelData.error !== "" ? "#60e09080" : "transparent"
             Column {
                 id: addonText
-                anchors { left: parent.left; right: addonButtons.left; verticalCenter: parent.verticalCenter; margins: 10 }
-                spacing: 2
-                Text { textFormat: Text.PlainText; text: modelData.name + "  " + modelData.version; color: Theme.text; font.pixelSize: 14; font.weight: Font.DemiBold }
+                anchors { left: parent.left; right: addonButtons.left; verticalCenter: parent.verticalCenter; leftMargin: 14; rightMargin: 12 }
+                spacing: 3
+                Row {
+                    spacing: 8
+                    Text { id: addonName; textFormat: Text.PlainText; text: modelData.name; color: Theme.text; font.pixelSize: 15; font.weight: Font.DemiBold }
+                    Text { textFormat: Text.PlainText; anchors.baseline: addonName.baseline; text: modelData.version; color: Theme.faint; font.pixelSize: 12 }
+                }
                 Muted { width: parent.width; text: modelData.description; visible: text !== ""; maximumLineCount: 2; elide: Text.ElideRight }
-                Muted { width: parent.width; text: "Offers: " + modelData.offers }
+                Muted { width: parent.width; text: "Offers " + modelData.offers; font.pixelSize: 12; color: Theme.faint }
                 Muted { width: parent.width; visible: modelData.error !== ""; color: Theme.error; text: "Last request failed: " + modelData.error }
             }
             Row {
                 id: addonButtons
-                anchors { right: parent.right; verticalCenter: parent.verticalCenter; margins: 10 }
+                anchors { right: parent.right; verticalCenter: parent.verticalCenter; rightMargin: 12 }
                 spacing: 4
-                Button { text: "↑"; enabled: index > 0; onClicked: browser.moveAddon(modelData.id, -1); ToolTip.visible: hovered; ToolTip.text: "Move up" }
-                Button { text: "↓"; enabled: index < browser.addons.length - 1; onClicked: browser.moveAddon(modelData.id, 1); ToolTip.visible: hovered; ToolTip.text: "Move down" }
-                Button { text: "Remove"; onClicked: browser.removeAddon(modelData.id) }
+                AppButton {
+                    text: "↑"; implicitWidth: 36; leftPadding: 0; rightPadding: 0
+                    visible: browser.addons.length > 1
+                    enabled: addonCard.index > 0
+                    onClicked: browser.moveAddon(addonCard.modelData.id, -1)
+                    ToolTip.visible: hovered; ToolTip.text: "Ask this one earlier"
+                }
+                AppButton {
+                    text: "↓"; implicitWidth: 36; leftPadding: 0; rightPadding: 0
+                    visible: browser.addons.length > 1
+                    enabled: addonCard.index < browser.addons.length - 1
+                    onClicked: browser.moveAddon(addonCard.modelData.id, 1)
+                    ToolTip.visible: hovered; ToolTip.text: "Ask this one later"
+                }
+                AppButton {
+                    text: addonCard.confirmRemove ? "Remove it?" : "Remove"
+                    highlighted: addonCard.confirmRemove
+                    onClicked: {
+                        if (!addonCard.confirmRemove) { addonCard.confirmRemove = true; return }
+                        browser.removeAddon(addonCard.modelData.id)
+                    }
+                    onActiveFocusChanged: if (!activeFocus) addonCard.confirmRemove = false
+                }
             }
+            HoverHandler { onHoveredChanged: if (!hovered) addonCard.confirmRemove = false }
         }
     }
 }

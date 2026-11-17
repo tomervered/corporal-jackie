@@ -19,6 +19,23 @@ Rectangle {
     // Clicks and scrolls on the panel stay here, away from the video below.
     MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons; onWheel: wheel => wheel.accepted = true }
     Keys.onEscapePressed: panel.closeRequested()
+    // Tab moves through the switches and buttons; the list scrolls to show
+    // the one the keyboard is on.
+    Connections {
+        target: panel.visible ? panel.Window.window : null
+        function onActiveFocusItemChanged() {
+            const item = panel.Window.activeFocusItem
+            if (!item || item === panel) return
+            for (let p = item.parent; p; p = p.parent) {
+                if (p !== body) continue
+                const top = item.mapToItem(body, 0, 0).y
+                if (top < flick.contentY) flick.contentY = Math.max(0, top - 16)
+                else if (top + item.height > flick.contentY + flick.height)
+                    flick.contentY = Math.min(flick.contentHeight - flick.height, top + item.height - flick.height + 16)
+                return
+            }
+        }
+    }
     onVisibleChanged: if (visible) { caches.measure(); panel.confirmClear = false; panel.result = ""; panel.importAsks = [] }
 
     function setSubtitleStyle(key, value) {
@@ -39,12 +56,22 @@ Rectangle {
         panel.importFile = ""
     }
 
-    component Heading: Text {
-        textFormat: Text.PlainText
-        color: Theme.text
-        font.pixelSize: 16
-        font.weight: Font.DemiBold
-        topPadding: 8
+    // A section title with a line above it.
+    component Heading: Item {
+        property alias text: headingText.text
+        width: parent ? parent.width : 400
+        height: headingText.implicitHeight + 22
+        Rectangle { width: parent.width; height: 1; y: 6; color: Theme.line }
+        Text {
+            id: headingText
+            textFormat: Text.PlainText
+            y: 18
+            color: Theme.accent
+            font.pixelSize: 13
+            font.weight: Font.DemiBold
+            font.capitalization: Font.AllUppercase
+            font.letterSpacing: 0.8
+        }
     }
     component Note: Text {
         textFormat: Text.PlainText
@@ -71,10 +98,10 @@ Rectangle {
             Text { textFormat: Text.PlainText; width: parent.width; text: toggle.title; color: Theme.text; font.pixelSize: 14; wrapMode: Text.WordWrap }
             Text { textFormat: Text.PlainText; width: parent.width; text: toggle.detail; color: Theme.muted; font.pixelSize: 12; wrapMode: Text.WordWrap; visible: text !== "" }
         }
-        Switch {
+        AppSwitch {
             id: sw
             anchors { right: parent.right; verticalCenter: parent.verticalCenter }
-            focusPolicy: Qt.NoFocus
+            focusPolicy: Qt.TabFocus
             enabled: toggle.enabledHere
             checked: toggle.checked
             onToggled: toggle.toggled(checked)
@@ -105,6 +132,7 @@ Rectangle {
     component Choice: Column {
         id: choice
         property string title
+        objectName: "choice " + title
         property var options: []      // [[value, label], ...]
         property var value
         signal picked(var value)
@@ -116,15 +144,16 @@ Rectangle {
             color: Theme.text
             font.pixelSize: 14
         }
-        Row {
-            spacing: 4
+        Flow {
+            width: parent.width
+            spacing: 6
             Repeater {
                 model: choice.options
-                Button {
-                    focusPolicy: Qt.NoFocus
+                Chip {
+                    required property var modelData
+                    focusPolicy: Qt.TabFocus
                     text: modelData[1]
-                    checkable: true
-                    checked: choice.value === modelData[0]
+                    selected: choice.value === modelData[0]
                     onClicked: choice.picked(modelData[0])
                 }
             }
@@ -141,10 +170,11 @@ Rectangle {
         font.pixelSize: 20
         font.weight: Font.DemiBold
     }
-    Button {
-        anchors { right: parent.right; top: parent.top; margins: 12 }
-        text: "Close"
-        focusPolicy: Qt.NoFocus
+    BarButton {
+        objectName: "settingsClose"
+        anchors { right: parent.right; verticalCenter: title.verticalCenter; rightMargin: 12 }
+        text: "✕"
+        tip: "Close (Esc)"
         onClicked: panel.closeRequested()
     }
 
@@ -177,7 +207,7 @@ Rectangle {
             Rectangle {
                 width: parent.width
                 height: 64
-                radius: 8
+                radius: Theme.radius
                 color: "#3a4a5a"
                 clip: true
                 Rectangle {
@@ -209,11 +239,11 @@ Rectangle {
                     color: Theme.text
                     font.pixelSize: 14
                 }
-                ComboBox {
+                AppComboBox {
                     id: fontBox
                     anchors { right: parent.right; verticalCenter: parent.verticalCenter }
                     width: Math.min(280, parent.width * 0.6)
-                    focusPolicy: Qt.NoFocus
+                    focusPolicy: Qt.TabFocus
                     model: ["Default"].concat(Qt.fontFamilies())
                     currentIndex: session.subtitleStyle.font === "" ? 0 : Math.max(0, model.indexOf(session.subtitleStyle.font))
                     onActivated: index => panel.setSubtitleStyle("font", index === 0 ? "" : model[index])
@@ -349,10 +379,10 @@ Rectangle {
                     id: folderButtons
                     anchors { right: parent.right; verticalCenter: parent.verticalCenter }
                     spacing: 4
-                    Button { text: "Change…"; focusPolicy: Qt.NoFocus; onClicked: folderDialog.open() }
-                    Button {
+                    AppButton { text: "Change…"; focusPolicy: Qt.TabFocus; onClicked: folderDialog.open() }
+                    AppButton {
                         text: "Default"
-                        focusPolicy: Qt.NoFocus
+                        focusPolicy: Qt.TabFocus
                         visible: preferences.customCacheFolder
                         onClicked: preferences.resetCacheFolder()
                     }
@@ -382,7 +412,7 @@ Rectangle {
             ActionRow {
                 title: "Torrent cache on disk"
                 detail: caches.busy ? "Measuring…" : caches.torrentCacheUsed !== "" ? "Using " + caches.torrentCacheUsed + ". What is playing now is kept." : ""
-                Button { text: "Clear"; focusPolicy: Qt.NoFocus; enabled: !caches.busy; onClicked: caches.clearTorrents() }
+                AppButton { text: "Clear"; focusPolicy: Qt.TabFocus; enabled: !caches.busy; onClicked: caches.clearTorrents() }
             }
 
             // --- Images ------------------------------------------------------------
@@ -396,7 +426,7 @@ Rectangle {
             ActionRow {
                 title: "Image cache"
                 detail: caches.busy ? "Measuring…" : caches.imageCacheUsed !== "" ? "Using " + caches.imageCacheUsed + ". Posters are kept so lists show quickly." : ""
-                Button { text: "Clear"; focusPolicy: Qt.NoFocus; enabled: !caches.busy; onClicked: caches.clearImages() }
+                AppButton { text: "Clear"; focusPolicy: Qt.TabFocus; enabled: !caches.busy; onClicked: caches.clearImages() }
             }
 
             // --- History and library -------------------------------------------------
@@ -410,9 +440,9 @@ Rectangle {
             ActionRow {
                 title: "Watch history"
                 detail: (library.historyCount === 1 ? "1 video" : library.historyCount + " videos") + ". Continue Watching comes from this. Clearing it also clears the log files, which name what played."
-                Button {
+                AppButton {
                     text: panel.confirmClear ? "Clear all history?" : "Clear"
-                    focusPolicy: Qt.NoFocus
+                    focusPolicy: Qt.TabFocus
                     onClicked: {
                         if (!panel.confirmClear) { panel.confirmClear = true; return }
                         library.clearHistory()
@@ -423,8 +453,8 @@ Rectangle {
             ActionRow {
                 title: "Back up or move"
                 detail: "One file with your library, history, add-ons and folders. Importing adds to what is here. Logins, signed stream links and add-on settings are left out; add-ons with settings are listed in the file to set up again."
-                Button { text: "Export…"; focusPolicy: Qt.NoFocus; onClicked: exportDialog.open() }
-                Button { text: "Import…"; focusPolicy: Qt.NoFocus; onClicked: importDialog.open() }
+                AppButton { text: "Export…"; focusPolicy: Qt.TabFocus; onClicked: exportDialog.open() }
+                AppButton { text: "Import…"; focusPolicy: Qt.TabFocus; onClicked: importDialog.open() }
             }
             // An export can come from someone else, so the add-ons and folders
             // it would add are listed for a yes or no first (an add-on decides
@@ -441,9 +471,9 @@ Rectangle {
                 }
                 Row {
                     spacing: 8
-                    Button { text: "Add them too"; focusPolicy: Qt.NoFocus; onClicked: panel.finishImport(true) }
-                    Button { text: "Import without them"; focusPolicy: Qt.NoFocus; onClicked: panel.finishImport(false) }
-                    Button { text: "Cancel"; focusPolicy: Qt.NoFocus; onClicked: { panel.importAsks = []; panel.importFile = "" } }
+                    AppButton { text: "Add them too"; focusPolicy: Qt.TabFocus; onClicked: panel.finishImport(true) }
+                    AppButton { text: "Import without them"; focusPolicy: Qt.TabFocus; onClicked: panel.finishImport(false) }
+                    AppButton { text: "Cancel"; focusPolicy: Qt.TabFocus; onClicked: { panel.importAsks = []; panel.importFile = "" } }
                 }
             }
             Note { visible: panel.result !== ""; text: panel.result }

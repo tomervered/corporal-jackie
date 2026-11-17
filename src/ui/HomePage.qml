@@ -28,9 +28,9 @@ Flickable {
         Row {
             width: parent.width
             spacing: 8
-            TextField {
+            AppTextField {
                 id: homeSearch
-                width: Math.min(460, parent.width - openButtons.width - 8)
+                width: Math.min(520, parent.width - openButtons.width - 8)
                 placeholderText: "Search all your add-ons"
                 onAccepted: {
                     if (text.trim() === "") return
@@ -42,8 +42,8 @@ Flickable {
             Row {
                 id: openButtons
                 spacing: 8
-                Button { text: "Open a video…"; onClicked: nav.openFileRequested() }
-                Button { text: "Open a link…"; onClicked: nav.openLinkRequested() }
+                AppButton { text: "Open a video…"; onClicked: nav.openFileRequested() }
+                AppButton { text: "Open a link…"; onClicked: nav.openLinkRequested() }
             }
         }
         Muted {
@@ -65,10 +65,29 @@ Flickable {
             }
         }
 
-        Muted {
+        // A first run with nothing installed: say where lists come from.
+        Rectangle {
             width: parent.width
             visible: browser.catalogs.length === 0
-            text: "Nothing to browse yet. Install an add-on under Add-ons, or add a folder with videos under Your folders."
+            height: emptyColumn.implicitHeight + 40
+            radius: Theme.radius
+            color: Theme.card
+            Column {
+                id: emptyColumn
+                x: 20; y: 20
+                width: parent.width - 40
+                spacing: 12
+                Heading { text: "Nothing to browse yet" }
+                Muted {
+                    width: parent.width
+                    text: "Lists of films and shows come from add-ons, and from folders of videos on your computer. Add one of either to fill this page."
+                }
+                Row {
+                    spacing: 8
+                    AppButton { text: "Go to Add-ons"; primary: true; onClicked: nav.goTop("addons") }
+                    AppButton { text: "Add a folder"; onClicked: nav.goTop("folders") }
+                }
+            }
         }
         // Updated in place: a row that finishes loading leaves the others be.
         KeyedList { id: homeRowsModel; keyRole: "catalog"; values: browser.homeRows }

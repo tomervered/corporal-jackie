@@ -9,7 +9,7 @@ set(CJ_QML_FILES
     LibraryPage.qml AddonsPage.qml FoldersPage.qml
     # pieces
     Theme.qml Muted.qml Heading.qml PageTitle.qml SectionLabel.qml RowItem.qml
-    PosterTile.qml PosterRow.qml NavButton.qml Chip.qml)
+    PosterTile.qml PosterRow.qml PosterGrid.qml PlaceholderTiles.qml NavButton.qml Chip.qml AppButton.qml AppSwitch.qml AppTextField.qml AppComboBox.qml Icon.qml)
 
 # Adds the files to `target` as the CorporalJackie module, each served under
 # its own name (not ../ui/).

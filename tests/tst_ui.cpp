@@ -348,7 +348,26 @@ private slots:
         QTRY_VERIFY(!m_server.requests.isEmpty());
         QTRY_VERIFY(!m_core->browser().installing());
         call("goTop", "folders");
+        shot("folders-empty");
+
+        // A click on a folder's row does not remove it; its Remove button does.
+        Browser& browser = m_core->browser();
+        QTemporaryDir videos;
+        QVERIFY(videos.isValid());
+        QVERIFY(browser.addFolder(QUrl::fromLocalFile(videos.path())));
+        QTRY_COMPARE(browser.folders().size(), 1);
+        QTRY_VERIFY(!browser.scanning());
+        QQuickItem* folderList = m_window->findChild<QQuickItem*>(QStringLiteral("folderList"));
+        QVERIFY(folderList);
+        QQuickItem* remove = nullptr;
+        QTRY_VERIFY((remove = itemNamed(folderList, "removeFolder")) && remove->isVisible());
         shot("folders");
+        QQuickItem* row = remove->parentItem();
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, row->mapToScene(QPointF(40, row->height() / 2)).toPoint());
+        QTest::qWait(100);
+        QCOMPARE(browser.folders().size(), 1);
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, remove->mapToScene(QPointF(remove->width() / 2, remove->height() / 2)).toPoint());
+        QTRY_VERIFY(browser.folders().isEmpty());
     }
 
     void settingsAndShortcuts()
@@ -358,11 +377,52 @@ private slots:
         QTest::keyClick(m_window, Qt::Key_P);
         QVERIFY(m_window->property("settingsVisible").toBool());
         shot("settings");
+
+        // Picking a size leaves exactly one picked, the new one.
+        QQuickItem* sizes = m_window->findChild<QQuickItem*>(QStringLiteral("choice Size"));
+        QVERIFY(sizes);
+        const auto checkedSizes = [sizes] {
+            QStringList out;
+            for (QQuickItem* chip : itemsUnder(sizes))
+                if (chip->inherits("QQuickAbstractButton") && chip->property("checked").toBool())
+                    out << chip->property("text").toString();
+            return out;
+        };
+        QCOMPARE(checkedSizes(), QStringList{QStringLiteral("Normal")});
+        for (const QString& pick : {QStringLiteral("Large"), QStringLiteral("Small"), QStringLiteral("Normal")}) {
+            for (QQuickItem* chip : itemsUnder(sizes))
+                if (chip->inherits("QQuickAbstractButton") && chip->property("text").toString() == pick)
+                    QTest::mouseClick(m_window, Qt::LeftButton, {}, chip->mapToScene(QPointF(chip->width() / 2, chip->height() / 2)).toPoint());
+            QTRY_COMPARE(checkedSizes(), QStringList{pick});
+        }
+
         QTest::keyClick(m_window, Qt::Key_Escape);
         QVERIFY(!m_window->property("settingsVisible").toBool());
         m_window->setProperty("helpVisible", true);
         shot("shortcuts");
         m_window->setProperty("helpVisible", false);
+    }
+
+    // While something opens there is a way out: Cancel stops it, and the
+    // pages can be opened meanwhile.
+    void openingCanBeCancelled()
+    {
+        Session& session = m_core->session();
+        QQuickItem* card = m_window->findChild<QQuickItem*>(QStringLiteral("openingCard"));
+        QQuickItem* cancel = m_window->findChild<QQuickItem*>(QStringLiteral("openingCancel"));
+        QVERIFY(card && cancel);
+        session.openPath(QStringLiteral("http://127.0.0.1:1/slow.mkv"));
+        m_target.setState(PlaybackState::Loading);
+        QTRY_VERIFY(session.loading());
+        QTRY_VERIFY(card->isVisible());
+        QVERIFY(!m_pages->isVisible());
+        shot("opening");
+        m_target.commands.clear();
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, cancel->mapToScene(QPointF(cancel->width() / 2, cancel->height() / 2)).toPoint());
+        QTRY_VERIFY(m_target.sent(QStringLiteral("stop")));
+        m_target.setState(PlaybackState::Idle);
+        QTRY_VERIFY(!card->isVisible());
+        QTRY_VERIFY(m_pages->isVisible());
     }
 
     void playerKeys()
@@ -459,6 +519,23 @@ private slots:
     }
 
 private:
+    // Every item drawn under `root`. Items a view or a Repeater makes are
+    // in the item tree but not among findChildren().
+    static QList<QQuickItem*> itemsUnder(QQuickItem* root)
+    {
+        QList<QQuickItem*> out;
+        for (QQuickItem* child : root->childItems())
+            out << child << itemsUnder(child);
+        return out;
+    }
+    static QQuickItem* itemNamed(QQuickItem* root, const char* name)
+    {
+        for (QQuickItem* item : itemsUnder(root))
+            if (item->objectName() == QLatin1String(name))
+                return item;
+        return nullptr;
+    }
+
     QString page() const { return m_pages->property("page").toString(); }
     QVariantList rows(const char* name) const { return m_core->browser().property(name).toList(); }
 

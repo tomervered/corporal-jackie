@@ -17,6 +17,7 @@ Rectangle {
     property string discoverType: ""   // the type picked on Discover
     property string streamSort: "best" // how ways to play are ordered: best, seeders, largest, smallest
     property var hiddenProviders: []   // add-ons whose ways to play are left out
+    property bool settingsOpen: false  // the Settings panel shows over the pages
     signal closeRequested()        // back to the video
     signal settingsRequested()
     signal openFileRequested()
@@ -120,21 +121,30 @@ Rectangle {
 
     // --- Side bar ----------------------------------------------------------------
 
+    Rectangle {
+        id: sideBarBackground
+        anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
+        width: sideBar.width + 32
+        color: Theme.sideBar
+        Rectangle { anchors { right: parent.right; top: parent.top; bottom: parent.bottom } width: 1; color: Theme.line }
+    }
     Column {
         id: sideBar
-        anchors { left: parent.left; top: parent.top; bottom: parent.bottom; margins: 16 }
-        width: 180
-        spacing: 4
+        anchors { left: parent.left; top: parent.top; margins: 16 }
+        // Narrower in a small window, so the page keeps most of it.
+        width: pages.width < 900 ? 148 : 180
+        spacing: 2
         Text {
             textFormat: Text.PlainText
             text: "Corporal Jackie"
-            color: Theme.text
+            color: Theme.accent
             font.pixelSize: 18
-            font.weight: Font.DemiBold
-            bottomPadding: 14
-            leftPadding: 8
+            font.weight: Font.Bold
+            bottomPadding: 18
+            leftPadding: 12
+            topPadding: 4
         }
-        NavButton { text: "Home"; selected: pages.page === "home"; onClicked: pages.goTop("home") }
+        NavButton { text: "Home"; selected: pages.page === "home" || pages.page === "search"; onClicked: pages.goTop("home") }
         NavButton {
             text: "Discover"
             selected: pages.page === "discover"
@@ -144,19 +154,23 @@ Rectangle {
             }
         }
         NavButton { text: "Library"; selected: pages.page === "library"; onClicked: pages.goTop("library") }
+        Item { width: 1; height: 12 }
         NavButton { text: "Add-ons"; selected: pages.page === "addons"; onClicked: pages.goTop("addons") }
         NavButton { text: "Your folders"; selected: pages.page === "folders"; onClicked: pages.goTop("folders") }
-        NavButton { text: "Settings"; onClicked: pages.settingsRequested() }
-        Item { width: 1; height: 16 }
+        NavButton { text: "Settings"; selected: pages.settingsOpen; onClicked: pages.settingsRequested() }
+        Item { width: 1; height: 12 }
         NavButton {
             visible: session.hasMedia || session.loading
-            text: "▶  Back to the video"
+            text: "Back to the video"
+            accent: true
             onClicked: pages.closeRequested()
         }
     }
+    // Left out when the window is too short for it under the side bar.
     Text {
         textFormat: Text.PlainText
-        anchors { left: sideBar.left; bottom: parent.bottom; margins: 0; leftMargin: 8; bottomMargin: 16 }
+        anchors { left: sideBar.left; bottom: parent.bottom; leftMargin: 12; bottomMargin: 16 }
+        visible: sideBar.y + sideBar.height + 32 < y
         text: "Version " + appVersion
         color: Theme.faint
         font.pixelSize: 11
@@ -164,21 +178,32 @@ Rectangle {
 
     Item {
         id: content
-        anchors { left: sideBar.right; right: parent.right; top: parent.top; bottom: parent.bottom; margins: 16; leftMargin: 24 }
+        anchors { left: sideBarBackground.right; right: parent.right; top: parent.top; bottom: parent.bottom; margins: 20; leftMargin: 28 }
 
         // Back, on every page reached from another one
-        Button {
+        ToolButton {
             id: backButton
             visible: pages.history.length > 0
-            anchors { left: parent.left; top: parent.top }
-            text: "‹ Back"
+            anchors { left: parent.left; top: parent.top; leftMargin: -8 }
+            focusPolicy: Qt.TabFocus
+            contentItem: Text {
+                textFormat: Text.PlainText
+                text: "‹  Back"
+                color: backButton.hovered || backButton.visualFocus ? Theme.text : Theme.muted
+                font.pixelSize: 14
+            }
+            background: Rectangle {
+                radius: 6
+                color: backButton.hovered ? "#14ffffff" : "transparent"
+                border.color: backButton.visualFocus ? Theme.accent : "transparent"
+            }
             onClicked: pages.back()
         }
         // Where a page goes: below Back when it shows, else the whole area.
         Item {
             id: pageArea
             anchors { left: parent.left; right: parent.right; top: backButton.visible ? backButton.bottom : parent.top
-                      bottom: parent.bottom; topMargin: backButton.visible ? 12 : 0 }
+                      bottom: parent.bottom; topMargin: backButton.visible ? 8 : 0 }
         }
 
         HomePage { id: homePage; nav: pages; anchors.fill: parent; visible: pages.page === "home" }

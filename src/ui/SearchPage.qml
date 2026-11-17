@@ -18,9 +18,9 @@ Flickable {
         Row {
             width: parent.width
             spacing: 8
-            TextField {
+            AppTextField {
                 id: searchField
-                width: Math.min(460, parent.width)
+                width: Math.min(520, parent.width)
                 text: browser.searchAllText
                 placeholderText: "Search all your add-ons"
                 onAccepted: browser.searchAll(text, nav.searchType)

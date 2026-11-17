@@ -53,19 +53,35 @@ Item {
         id: detailHeader
         width: parent.width
         spacing: 18
-        Image {
+        // The poster, or its place while it loads; left out when there is none.
+        Rectangle {
             id: detailPoster
-            width: 150; height: 225
-            source: browser.detail.poster || ""
-            visible: status === Image.Ready
-            fillMode: Image.PreserveAspectCrop
-            sourceSize.width: 300
-            asynchronous: true
+            readonly property bool small: detailPage.height < 520
+            width: small ? 100 : 150; height: width * 1.5
+            visible: (browser.detail.poster || "") !== "" && poster.status !== Image.Error
+            radius: Theme.radius
+            color: Theme.card
+            clip: true
+            Image {
+                id: poster
+                anchors.fill: parent
+                source: browser.detail.poster || ""
+                fillMode: Image.PreserveAspectCrop
+                sourceSize.width: 300
+                asynchronous: true
+                opacity: status === Image.Ready ? 1 : 0
+                Behavior on opacity { NumberAnimation { duration: 150 } }
+            }
         }
         Column {
             width: parent.width - (detailPoster.visible ? detailPoster.width + 18 : 0)
-            spacing: 8
-            PageTitle { width: parent.width; text: browser.detail.name || "" }
+            spacing: 10
+            PageTitle {
+                width: parent.width
+                text: browser.detail.name || (browser.detailLoading ? "Loading…" : "")
+                wrapMode: Text.WordWrap
+                maximumLineCount: 2
+            }
             Muted {
                 width: parent.width
                 visible: text !== ""
@@ -75,22 +91,26 @@ Item {
                 width: parent.width
                 visible: text !== ""
                 text: browser.detail.description || ""
-                color: Theme.text
-                maximumLineCount: 6
+                color: "#d0d0d8"
+                font.pixelSize: 14
+                lineHeight: 1.15
+                // A short window leaves room for the list below.
+                maximumLineCount: detailPage.height < 520 ? 2 : detailPage.height < 700 ? 4 : 6
                 elide: Text.ElideRight
             }
             Row {
                 spacing: 8
-                Button {
+                AppButton {
                     id: findStreamsButton
                     objectName: "findStreams"
                     visible: detailPage.isMovie && !browser.detailLoading && !detailPage.streamsAsked
+                    primary: true
                     text: "Find streams"
                     onClicked: detailPage.askForStreams()
                     Keys.onReturnPressed: detailPage.askForStreams()
                     Keys.onEnterPressed: detailPage.askForStreams()
                 }
-                Button {
+                AppButton {
                     id: libraryButton
                     // Reads library.items so it updates when the library changes.
                     readonly property bool saved: library.items.length >= 0 && library.contains(browser.detail.key || "")
@@ -107,7 +127,9 @@ Item {
             Muted {
                 width: parent.width
                 visible: text !== ""
-                text: browser.detailLoading ? "Loading details…" : browser.detailError !== "" ? "Details could not be loaded: " + browser.detailError : ""
+                color: browser.detailError !== "" ? Theme.error : Theme.muted
+                text: browser.detailLoading && (browser.detail.name || "") !== "" ? "Loading details…"
+                    : browser.detailError !== "" ? "Details could not be loaded: " + browser.detailError + ". Go back and open it again to retry." : ""
             }
         }
     }

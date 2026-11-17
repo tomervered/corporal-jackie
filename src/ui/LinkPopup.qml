@@ -29,7 +29,7 @@ Popup {
             color: Theme.muted
             font.pixelSize: 13
         }
-        TextField {
+        AppTextField {
             id: linkField
             width: parent.width
             placeholderText: "magnet:?xt=urn:btih:…"
@@ -38,8 +38,8 @@ Popup {
         Row {
             anchors.right: parent.right
             spacing: 8
-            Button { text: "Cancel"; onClicked: popup.close() }
-            Button { text: "Open"; enabled: linkField.text.trim() !== ""; onClicked: popup.openRequested(linkField.text) }
+            AppButton { text: "Cancel"; onClicked: popup.close() }
+            AppButton { text: "Open"; primary: true; enabled: linkField.text.trim() !== ""; onClicked: popup.openRequested(linkField.text) }
         }
     }
 }

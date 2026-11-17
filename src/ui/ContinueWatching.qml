@@ -47,10 +47,8 @@ ListView {
             id: art
             width: parent.width
             height: row.tileWidth * 1.5
-            radius: 6
-            color: "#1fffffff"
-            border.width: 2
-            border.color: hover.hovered || (tile.ListView.isCurrentItem && row.activeFocus) ? Theme.accent : "transparent"
+            radius: Theme.radius
+            color: Theme.card
             clip: true
 
             Text {
@@ -89,14 +87,22 @@ ListView {
             }
             HoverHandler { id: hover }
             TapHandler { onTapped: row.resumeAt(tile.index) }
-            ToolButton {
-                anchors { top: parent.top; right: parent.right; margins: 2 }
+            BarButton {
+                anchors { top: parent.top; right: parent.right; margins: 4 }
                 visible: hover.hovered
                 text: "✕"
-                focusPolicy: Qt.NoFocus
-                ToolTip.visible: hovered
-                ToolTip.text: "Remove from Continue Watching"
+                tip: "Remove from Continue Watching"
+                background: Rectangle { radius: 6; color: parent.hovered ? "#e0000000" : "#a0000000" }
                 onClicked: library.forget(tile.modelData.itemKey)
+            }
+            // Hover and keyboard focus, drawn over the poster.
+            Rectangle {
+                anchors.fill: parent
+                radius: parent.radius
+                color: "transparent"
+                readonly property bool current: tile.ListView.isCurrentItem && row.activeFocus
+                border.width: current ? 3 : hover.hovered ? 2 : 0
+                border.color: current ? Theme.accent : "#a0ffffff"
             }
         }
         Text {
