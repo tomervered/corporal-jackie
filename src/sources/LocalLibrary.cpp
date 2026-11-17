@@ -134,6 +134,8 @@ void LocalLibrary::rescan()
         this,
         [folders, cancel, generation] {
             ScanResult r = scan(folders, cancel);
+            if (!*cancel)
+                buildIndex(r);
             r.generation = generation;
             return r;
         },
@@ -189,6 +191,10 @@ void LocalLibrary::applyScan(ScanResult r)
     if (r.generation != m_generation)
         return;  // a newer scan is on its way
     m_videos = std::move(r.videos);
+    m_movies = std::move(r.movies);
+    m_shows = std::move(r.shows);
+    m_showVideos = std::move(r.showVideos);
+    m_byPath = std::move(r.byPath);
     if (r.truncated)
         qCWarning(lcSources) << "Local scan stopped at" << kMaxFiles << "videos";
     qCInfo(lcSources) << "Local scan found" << m_videos.size() << "videos in" << m_folders.size() << "folders";
@@ -228,47 +234,60 @@ QList<CatalogRef> LocalLibrary::catalogs() const
     return {movies, shows};
 }
 
+// The catalog lists of a scan: movies, and one entry per show, each sorted
+// by name. Before, every page built and sorted these from all the videos on
+// the UI thread.
+void LocalLibrary::buildIndex(ScanResult& r)
+{
+    const QString adapter = QStringLiteral("local");  // id()
+    QHash<QString, int> seen;
+    for (int i = 0; i < r.videos.size(); ++i) {
+        const LocalVideo& v = r.videos[i];
+        if (!r.byPath.contains(v.path))
+            r.byPath.insert(v.path, i);
+        MetaPreview m;
+        m.adapter = adapter;
+        m.name = v.parsed.title;
+        m.releaseInfo = v.parsed.year > 0 ? QString::number(v.parsed.year) : QString();
+        if (!v.parsed.isEpisode()) {
+            m.id = kMoviePrefix + v.path;
+            m.type = QStringLiteral("movie");
+            m.description = QDir::toNativeSeparators(v.path);
+            r.movies << m;
+            continue;
+        }
+        const QString key = seriesKey(v.parsed.title);
+        r.showVideos[key] << i;
+        if (seen.contains(key))
+            continue;
+        seen.insert(key, int(r.shows.size()));
+        m.id = kSeriesPrefix + key;
+        m.type = QStringLiteral("series");
+        r.shows << m;
+    }
+    const auto byName = [](const MetaPreview& a, const MetaPreview& b) {
+        return QString::localeAwareCompare(a.name, b.name) < 0;
+    };
+    std::stable_sort(r.movies.begin(), r.movies.end(), byName);
+    std::stable_sort(r.shows.begin(), r.shows.end(), byName);
+}
+
 void LocalLibrary::fetchCatalog(const CatalogRef& catalog, const QString& search, int skip, CatalogDone done)
 {
     const QString needle = search.trimmed();
+    const QList<MetaPreview>& all = catalog.type == QLatin1String("movie") ? m_movies : m_shows;
     QList<MetaPreview> items;
-    if (catalog.type == QLatin1String("movie")) {
-        for (const LocalVideo& v : std::as_const(m_videos)) {
-            if (v.parsed.isEpisode())
-                continue;
-            MetaPreview m;
-            m.adapter = id();
-            m.id = kMoviePrefix + v.path;
-            m.type = QStringLiteral("movie");
-            m.name = v.parsed.title;
-            m.releaseInfo = v.parsed.year > 0 ? QString::number(v.parsed.year) : QString();
-            m.description = QDir::toNativeSeparators(v.path);
-            items << m;
-        }
+    if (needle.isEmpty()) {
+        items = all.mid(skip, kPageSize);
     } else {
-        QHash<QString, int> seen;
-        for (const LocalVideo& v : std::as_const(m_videos)) {
-            if (!v.parsed.isEpisode())
-                continue;
-            const QString key = seriesKey(v.parsed.title);
-            if (seen.contains(key))
-                continue;
-            seen.insert(key, int(items.size()));
-            MetaPreview m;
-            m.adapter = id();
-            m.id = kSeriesPrefix + key;
-            m.type = QStringLiteral("series");
-            m.name = v.parsed.title;
-            m.releaseInfo = v.parsed.year > 0 ? QString::number(v.parsed.year) : QString();
-            items << m;
-        }
+        // Filtering a sorted list keeps it sorted: the same order as sorting
+        // the matches.
+        QList<MetaPreview> matches;
+        for (const MetaPreview& m : all)
+            if (m.name.contains(needle, Qt::CaseInsensitive))
+                matches << m;
+        items = matches.mid(skip, kPageSize);
     }
-    if (!needle.isEmpty())
-        items.removeIf([&](const MetaPreview& m) { return !m.name.contains(needle, Qt::CaseInsensitive); });
-    std::stable_sort(items.begin(), items.end(), [](const MetaPreview& a, const MetaPreview& b) {
-        return QString::localeAwareCompare(a.name, b.name) < 0;
-    });
-    items = items.mid(skip, kPageSize);
     QTimer::singleShot(0, this, [done, items] { done(items, {}); });
 }
 
@@ -278,9 +297,8 @@ void LocalLibrary::fetchMeta(const MetaPreview& item, MetaDone done)
     d.preview = item;
     if (item.id.startsWith(kSeriesPrefix)) {
         const QString key = item.id.mid(kSeriesPrefix.size());
-        for (const LocalVideo& v : std::as_const(m_videos)) {
-            if (!v.parsed.isEpisode() || seriesKey(v.parsed.title) != key)
-                continue;
+        for (int i : m_showVideos.value(key)) {
+            const LocalVideo& v = m_videos[i];
             VideoEntry e;
             e.id = kMoviePrefix + v.path;
             e.season = v.parsed.season;
@@ -304,15 +322,15 @@ void LocalLibrary::fetchStreams(const QString& /*type*/, const QString& videoId,
     }
     const QString path = videoId.mid(kMoviePrefix.size());
     // Only files from the scan: an id is not a way to open any path.
-    const auto it = std::find_if(m_videos.cbegin(), m_videos.cend(), [&](const LocalVideo& v) { return v.path == path; });
-    if (it == m_videos.cend()) {
+    const int at = m_byPath.value(path, -1);
+    if (at < 0) {
         QTimer::singleShot(0, this, [this, part, finished] {
             part({}, name(), QStringLiteral("the file is no longer in your folders"));
             finished();
         });
         return;
     }
-    const LocalVideo video = *it;
+    const LocalVideo video = m_videos[at];
     m_mailbox.run(
         this,
         [video] {

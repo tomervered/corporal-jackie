@@ -9,12 +9,17 @@
 #include "Storage.h"
 
 #include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QFileInfo>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
 
 #include <sqlite3.h>
+
+#include <algorithm>
 
 using namespace cj;
 
@@ -846,6 +851,79 @@ private slots:
 
         QVERIFY(!to.importJson("not json").isEmpty());
         QVERIFY(!to.importJson("{\"format\":\"other\"}").isEmpty());
+    }
+    // An import puts entries where recording them one at a time would: the
+    // newest first, a later copy of a key in place of an earlier one, and of
+    // the same time the one imported last first.
+    void importOrdersLikeRecordingOneByOne()
+    {
+        const auto row = [](const HistoryEntry& e) {
+            Storage one({});
+            one.record(e);
+            return QJsonDocument::fromJson(one.exportJson(Storage::ExportMode::Full)).object().value("history").toArray().at(0);
+        };
+        const QList<HistoryEntry> existing = {episode(1, 600, 100), episode(2, 600, 300), episode(3, 600, 500)};
+        const QList<HistoryEntry> file = {
+            episode(4, 600, 300),  // same time as one already there
+            episode(5, 600, 300),  // and as the one before it
+            episode(6, 600, 50),   // a key that comes again below, newer
+            episode(2, 700, 400),  // newer than the copy already there
+            episode(3, 700, 200),  // older than the copy already there: skipped
+            episode(7, 600, 600),
+            episode(6, 650, 250),
+        };
+        QJsonArray rows;
+        for (const HistoryEntry& e : file)
+            rows.append(row(e));
+        const QByteArray json = QJsonDocument(QJsonObject{{"format", "corporal-jackie-export"}, {"version", 1},
+                                                          {"history", rows}}).toJson();
+
+        Storage imported({});
+        Storage expected({});
+        for (const HistoryEntry& e : existing) {
+            imported.record(e);
+            expected.record(e);
+        }
+        QCOMPARE(imported.importJson(json), QString());
+        // The rule importJson keeps: a row older than the copy already here is
+        // skipped; the rest go in, in file order.
+        for (const HistoryEntry& e : file) {
+            const auto had = std::find_if(existing.begin(), existing.end(), [&](const HistoryEntry& h) { return h.key == e.key; });
+            if (had == existing.end() || had->updatedAt < e.updatedAt)
+                expected.record(e);
+        }
+
+        const auto keysOf = [](const QList<HistoryEntry>& list) {
+            QStringList keys;
+            for (const HistoryEntry& e : list)
+                keys << e.key + '@' + QString::number(e.updatedAt);
+            return keys;
+        };
+        QCOMPARE(keysOf(imported.history()), keysOf(expected.history()));
+        QCOMPARE(imported.history().size(), 7);
+    }
+
+    // Episode rows ask for progress on every history change; the answer
+    // follows each change.
+    void libraryProgressFollowsHistory()
+    {
+        Storage storage({});
+        FakeTarget target;
+        Session session(&target);
+        Browser browser(&session);
+        Library library(storage, session, browser);
+        const auto e = episode(1, 300, 1000, 1200);
+        QCOMPARE(library.progress(e.key), -1.0);
+        storage.record(e);
+        QCOMPARE(library.progress(e.key), 0.25);
+        storage.record(episode(1, 600, 2000, 1200));
+        QCOMPARE(library.progress(e.key), 0.5);
+        auto done = episode(1, 600, 3000, 1200);
+        done.finished = true;
+        storage.record(done);
+        QCOMPARE(library.progress(e.key), 1.0);
+        library.forget(e.itemKey());
+        QCOMPARE(library.progress(e.key), -1.0);
     }
 };
 

@@ -301,6 +301,51 @@ private slots:
 
     // --- Local library -------------------------------------------------------------
 
+    // Pages of a big local catalog come in name order, with nothing twice
+    // and nothing missing, searched or not.
+    void localCatalogPagesInOrder()
+    {
+        QTemporaryDir videos;
+        QStringList names;
+        for (int i = 0; i < 600; ++i) {
+            const QString name = QStringLiteral("Title %1").arg((i * 7919) % 1000);
+            names << name;
+            touch(videos.filePath(QStringLiteral("Movies/%1.mkv").arg(name)));
+        }
+        LocalLibrary lib;
+        QSignalSpy changed(&lib, &LocalLibrary::libraryChanged);
+        QVERIFY(lib.addFolder(videos.path()));
+        QVERIFY(changed.wait(10000));
+        QCOMPARE(lib.videos().size(), 600);
+
+        const auto all = [&](const QString& search) {
+            QStringList got;
+            for (int skip = 0;; skip += LocalLibrary::kPageSize) {
+                Waiter<QList<MetaPreview>> page;
+                lib.fetchCatalog(lib.catalogs()[0], search, skip,
+                                 [&](const QList<MetaPreview>& items, const QString&) { page.value = items; });
+                if (!page.wait())
+                    return QStringList{QStringLiteral("(no answer)")};
+                for (const MetaPreview& m : *page.value)
+                    got << m.name;
+                if (page.value->size() < LocalLibrary::kPageSize)
+                    return got;
+            }
+        };
+        const auto sorted = [](QStringList list) {
+            std::stable_sort(list.begin(), list.end(),
+                             [](const QString& a, const QString& b) { return QString::localeAwareCompare(a, b) < 0; });
+            return list;
+        };
+        QCOMPARE(all({}), sorted(names));
+        QStringList withSeven;
+        for (const QString& n : names)
+            if (n.contains('7'))
+                withSeven << n;
+        QVERIFY(withSeven.size() > LocalLibrary::kPageSize);  // the search spans pages too
+        QCOMPARE(all(QStringLiteral("7")), sorted(withSeven));
+    }
+
     void localLibraryScansWatchesAndServes()
     {
         QTemporaryDir data, videos;
