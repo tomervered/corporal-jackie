@@ -10,6 +10,9 @@ Column {
     property bool loading: false
     property string error: ""
     property bool canSeeAll: false
+    // False while the row is scrolled far out of view: its tiles and their
+    // posters are let go, and come back when it scrolls near again.
+    property bool near: true
     signal opened(int index)
     signal seeAll()
     function takeFocus() { rowList.forceActiveFocus() }
@@ -44,7 +47,7 @@ Column {
         activeFocusOnTab: true
         keyNavigationEnabled: true
         boundsBehavior: Flickable.StopAtBounds
-        model: rowModel
+        model: posterRow.near ? rowModel : null
         highlightFollowsCurrentItem: true
         highlightMoveDuration: 120
         ScrollBar.horizontal: ScrollBar { policy: rowList.contentWidth > rowList.width ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
