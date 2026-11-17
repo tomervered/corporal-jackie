@@ -132,7 +132,7 @@ private slots:
     {
         Run run(m_root->path());
         QVERIFY(run.core.storage().isOpen());
-        // No add-ons: Cinemeta comes only with the first-run answer.
+        // No add-ons: WikiMaze comes only with the first-run answer.
         QVERIFY(run.core.addons().addons().isEmpty());
         QVERIFY(run.core.localFiles().folders().isEmpty());
         QVERIFY(run.core.session().hardwareDecoding());
@@ -147,7 +147,7 @@ private slots:
         Run run(m_root->path());
         const Preferences& p = run.core.preferences();
         QVERIFY(!p.privacyChosen());
-        QVERIFY(!p.useCinemeta() && !p.useDht() && !p.usePublicTrackers() && !p.usePortMapping());
+        QVERIFY(!p.useCatalogAddon() && !p.useDht() && !p.usePublicTrackers() && !p.usePortMapping());
         const BrokerSettings s = run.core.brokerSettings();
         QVERIFY(!s.dht && !s.localDiscovery && !s.portMapping && !s.publicTrackers);
         QVERIFY(!s.torrents && !s.upload);
@@ -205,7 +205,7 @@ private slots:
         const Preferences& p = run.core.preferences();
         QVERIFY(!p.privacyChosen());
         QVERIFY(!p.useTorrents() && !p.allowUploads() && !p.useDht());
-        QCOMPARE(p.earlierChoices().value(QStringLiteral("cinemeta")).toBool(), true);
+        QCOMPARE(p.earlierChoices().value(QStringLiteral("catalogAddon")).toBool(), true);
         QCOMPARE(p.earlierChoices().value(QStringLiteral("dht")).toBool(), true);
         QCOMPARE(p.earlierChoices().value(QStringLiteral("trackers")).toBool(), false);
     }
@@ -219,14 +219,14 @@ private slots:
             p.choosePrivacy(true, true, false, true);
             QCOMPARE(chosen.count(), 1);
             QVERIFY(p.privacyChosen());
-            QCOMPARE(addonUrls(run.core.addons()), QStringList{QString::fromLatin1(StremioAdapter::kCinemetaUrl)});
+            QCOMPARE(addonUrls(run.core.addons()), QStringList{QString::fromLatin1(StremioAdapter::kDefaultAddonUrl)});
             const BrokerSettings s = run.core.brokerSettings();
             QVERIFY(s.dht && s.localDiscovery && s.portMapping);
             QVERIFY(!s.publicTrackers);
-            // Cinemeta goes when the switch goes off, and back when it is on again.
-            p.setUseCinemeta(false);
+            // WikiMaze goes when the switch goes off, and back when it is on again.
+            p.setUseCatalogAddon(false);
             QVERIFY(run.core.addons().addons().isEmpty());
-            p.setUseCinemeta(true);
+            p.setUseCatalogAddon(true);
             QCOMPARE(run.core.addons().addons().size(), 1);
             p.setUseDht(false);
             QVERIFY(!run.core.brokerSettings().dht && !run.core.brokerSettings().localDiscovery);
@@ -236,7 +236,7 @@ private slots:
         Run run(m_root->path());
         const Preferences& p = run.core.preferences();
         QVERIFY(p.privacyChosen());
-        QVERIFY(p.useCinemeta() && !p.useDht() && p.usePublicTrackers() && p.usePortMapping());
+        QVERIFY(p.useCatalogAddon() && !p.useDht() && p.usePublicTrackers() && p.usePortMapping());
         QCOMPARE(run.core.addons().addons().size(), 1);
     }
 
@@ -245,23 +245,23 @@ private slots:
         Run run(m_root->path());
         Preferences& p = run.core.preferences();
         p.choosePrivacy(true, false, false, false);
-        run.core.browser().removeAddon(QStringLiteral("com.linvo.cinemeta"));
+        run.core.browser().removeAddon(QStringLiteral("community.wikimaze"));
         QVERIFY(run.core.addons().addons().isEmpty());
-        // The person removed Cinemeta on the Add-ons page: no other switch brings it back.
+        // The person removed WikiMaze on the Add-ons page: no other switch brings it back.
         p.setUseDht(true);
         p.setUsePortMapping(true);
         QVERIFY(run.core.addons().addons().isEmpty());
     }
 
     // An install from before the first-run screen keeps its other add-ons but
-    // loses Cinemeta until the person says yes.
-    void cinemetaWaitsForTheAnswerOnAnOlderInstall()
+    // loses WikiMaze until the person says yes.
+    void defaultAddonWaitsForTheAnswerOnAnOlderInstall()
     {
         {
             Run run(m_root->path());
             run.core.preferences().choosePrivacy(true, false, false, false);
             QCOMPARE(run.core.addons().addons().size(), 1);
-            // Back to how an old install looks: Cinemeta there, no answer.
+            // Back to how an old install looks: WikiMaze there, no answer.
             run.core.storage().setSetting(QStringLiteral("privacy/chosen"), false);
         }
         {
@@ -274,6 +274,34 @@ private slots:
         Run run(m_root->path());
         QVERIFY(run.core.preferences().privacyChosen());
         QVERIFY(run.core.addons().addons().isEmpty());
+    }
+
+    // Cinemeta, the default before WikiMaze, leaves an install once; added
+    // again by hand, it stays.
+    void cinemetaLeavesOnceOnUpgrade()
+    {
+        const QJsonObject cinemeta{{"transportUrl", QStringLiteral("https://v3-cinemeta.strem.io/manifest.json")},
+                                   {"manifest", QJsonObject{{"id", QString::fromLatin1(StremioAdapter::kCinemetaId)},
+                                                            {"version", "3.0.0"},
+                                                            {"name", "Cinemeta"},
+                                                            {"resources", QJsonArray{"catalog", "meta"}},
+                                                            {"types", QJsonArray{"movie", "series"}},
+                                                            {"catalogs", QJsonArray{}}}}};
+        {
+            Run run(m_root->path());
+            run.core.preferences().choosePrivacy(true, false, false, false);
+            run.core.storage().saveAddons(QJsonArray{cinemeta});
+            run.core.storage().setSetting(QStringLiteral("addons/cinemetaRetired"), false);
+        }
+        {
+            Run run(m_root->path());
+            // Gone at the first start with WikiMaze as the default.
+            QVERIFY(addonUrls(run.core.addons()).isEmpty());
+            run.core.addons().restore(QJsonArray{cinemeta});
+            run.core.storage().saveAddons(run.core.addons().storedList());
+        }
+        Run run(m_root->path());
+        QCOMPARE(addonUrls(run.core.addons()), QStringList{QStringLiteral("https://v3-cinemeta.strem.io/manifest.json")});
     }
 
     void playbackSettingsAreKept()
@@ -311,12 +339,12 @@ private slots:
             Run run(m_root->path());
             run.core.preferences().choosePrivacy(true, false, false, false);
             QCOMPARE(run.core.addons().addons().size(), 1);
-            run.core.browser().removeAddon(QStringLiteral("com.linvo.cinemeta"));
+            run.core.browser().removeAddon(QStringLiteral("community.wikimaze"));
             QVERIFY(run.core.addons().addons().isEmpty());
             QVERIFY(run.core.browser().addFolder(QUrl::fromLocalFile(videos.path())));
         }
         Run run(m_root->path());
-        // Removing the last add-on is kept: no Cinemeta comes back.
+        // Removing the last add-on is kept: no WikiMaze comes back.
         QVERIFY(run.core.addons().addons().isEmpty());
         QCOMPARE(run.core.localFiles().folders().size(), 1);
         QCOMPARE(QDir(run.core.localFiles().folders().first()), QDir(videos.path()));
@@ -340,12 +368,12 @@ private slots:
         QCOMPARE(run.core.storage().importJson(exported, Storage::ImportExtras::Include), QString());
         QVERIFY(addons.count() > 0);
         QVERIFY(folders.count() > 0);
-        // The export came from an install that said yes to Cinemeta; this one
-        // has not answered, so Cinemeta stays out until it does.
+        // The export came from an install that said yes to WikiMaze; this one
+        // has not answered, so WikiMaze stays out until it does.
         QVERIFY(run.core.addons().addons().isEmpty());
         QCOMPARE(run.core.localFiles().folders().size(), 1);
         run.core.preferences().choosePrivacy(true, false, false, false);
-        QCOMPARE(addonUrls(run.core.addons()), QStringList{QString::fromLatin1(StremioAdapter::kCinemetaUrl)});
+        QCOMPARE(addonUrls(run.core.addons()), QStringList{QString::fromLatin1(StremioAdapter::kDefaultAddonUrl)});
     }
 
     void oldSettingsAreCopiedOnce()
@@ -358,7 +386,7 @@ private slots:
         }
         const QString data = QDir(m_root->path()).filePath(QStringLiteral("data"));
         QVERIFY(QDir().mkpath(data));
-        const QJsonObject cinemeta{{"transportUrl", QString::fromLatin1(StremioAdapter::kCinemetaUrl)},
+        const QJsonObject oldAddon{{"transportUrl", QString::fromLatin1(StremioAdapter::kDefaultAddonUrl)},
                                    {"manifest", QJsonObject{{"id", "org.example.old"},
                                                             {"version", "1.0.0"},
                                                             {"name", "Old"},
@@ -366,7 +394,7 @@ private slots:
                                                             {"types", QJsonArray{"movie"}},
                                                             {"catalogs", QJsonArray{}}}}};
         writeFile(QDir(data).filePath(QStringLiteral("addons.json")),
-                  QJsonDocument(QJsonObject{{"addons", QJsonArray{cinemeta}}}).toJson());
+                  QJsonDocument(QJsonObject{{"addons", QJsonArray{oldAddon}}}).toJson());
         writeFile(QDir(data).filePath(QStringLiteral("local-folders.json")),
                   QJsonDocument(QJsonObject{{"folders", QJsonArray{m_root->path()}}}).toJson());
 

@@ -50,7 +50,7 @@ Tests: `tst_storage` `exportImportMerges`.
 
 ## Image decoders
 
-Each Qt image plugin is a parser for files from the internet. Both packages keep JPEG, GIF, ICO and WebP (Cinemeta's poster server sends WebP) and delete the rest. The Package steps in `.github/workflows/ci.yml` do this and fail if JPEG or WebP is missing.
+Each Qt image plugin is a parser for files from the internet. Both packages keep JPEG, GIF, ICO and WebP (many add-ons' poster servers send WebP) and delete the rest. The Package steps in `.github/workflows/ci.yml` do this and fail if JPEG or WebP is missing.
 
 ## FFmpeg version
 

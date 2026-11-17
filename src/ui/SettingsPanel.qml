@@ -277,10 +277,10 @@ Rectangle {
             Heading { text: "Privacy: what Corporal Jackie may contact" }
             Note { text: "Each applies at once. A VPN hides your IP address from torrent peers; this app does not. PRIVACY.md, next to the app, lists everything." }
             Toggle {
-                title: "Browse and search with Cinemeta"
-                detail: "Stremio's catalog server sees your IP address and every title you search for or open. Off removes it from Add-ons."
-                checked: preferences.useCinemeta
-                onToggled: on => preferences.useCinemeta = on
+                title: "Browse and search with WikiMaze"
+                detail: "WikiMaze (on Vercel, from this app's author) sees your IP address and every title you search for or open. Off removes it from Add-ons."
+                checked: preferences.useCatalogAddon
+                onToggled: on => preferences.useCatalogAddon = on
             }
             Toggle {
                 title: "Find peers through the DHT and your local network"

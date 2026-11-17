@@ -15,7 +15,7 @@ Rectangle {
     MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons; hoverEnabled: true; onWheel: wheel => wheel.accepted = true }
     Keys.onPressed: event => event.accepted = true
 
-    property bool cinemeta: preferences.earlierChoices.cinemeta === true
+    property bool catalogAddon: preferences.earlierChoices.catalogAddon === true
     property bool dht: preferences.earlierChoices.dht === true
     property bool trackers: preferences.earlierChoices.trackers === true
     property bool portMapping: preferences.earlierChoices.portMapping === true
@@ -108,11 +108,11 @@ Rectangle {
             }
 
             Option {
-                id: cinemetaOption
-                title: "Browse and search with Cinemeta"
-                detail: "Cinemeta is Stremio's public catalog server. It sees your IP address and every title you search for or open. Off: no lists or search until you add another add-on."
-                checked: screen.cinemeta
-                onCheckedChanged: screen.cinemeta = checked
+                id: catalogAddonOption
+                title: "Browse and search with WikiMaze"
+                detail: "WikiMaze is a catalog add-on with data from Wikidata and TVmaze, run by this app's author on Vercel. It sees your IP address and every title you search for or open. Off: no lists or search until you add another add-on."
+                checked: screen.catalogAddon
+                onCheckedChanged: screen.catalogAddon = checked
             }
             Option {
                 id: dhtOption
@@ -151,7 +151,7 @@ Rectangle {
                 objectName: "privacyContinue"
                 text: "Continue with these choices"
                 focusPolicy: Qt.NoFocus
-                onClicked: preferences.choosePrivacy(screen.cinemeta, screen.dht, screen.trackers, screen.portMapping,
+                onClicked: preferences.choosePrivacy(screen.catalogAddon, screen.dht, screen.trackers, screen.portMapping,
                                                      screen.torrents, screen.torrents && screen.uploads)
             }
         }

@@ -83,8 +83,9 @@ private:
     void importOldSettings();
     void restorePlaybackSettings();
     void restoreSources();
-    void dropCinemetaUntilChosen();
-    void syncCinemeta(bool on);
+    void dropDefaultAddonUntilChosen();
+    void retireCinemeta(bool always);
+    void syncDefaultAddon(bool on);
 
     QString m_dataDir;
     QString m_cacheDir;

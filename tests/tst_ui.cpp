@@ -109,7 +109,7 @@ private slots:
         m_torrents = std::make_unique<TorrentTransport>(s);
         m_core->start(&m_target, *m_torrents, false);
 
-        // Only the fake add-on: Cinemeta would go to the internet.
+        // Only the fake add-on: WikiMaze would go to the internet.
         Browser& browser = m_core->browser();
         browser.installAddon(m_server.base() + QStringLiteral("/films/manifest.json"));
         QTRY_COMPARE(browser.addons().size(), 1);
@@ -158,7 +158,7 @@ private slots:
         QQuickItem* dht = options.at(1);
         QTest::mouseClick(m_window, Qt::LeftButton, {}, dht->mapToScene(QPointF(dht->width() - 30, dht->height() / 2)).toPoint());
         QTRY_VERIFY(screen->property("dht").toBool());
-        QVERIFY(!screen->property("cinemeta").toBool());
+        QVERIFY(!screen->property("catalogAddon").toBool());
 
         // Torrents and uploading are asked on their own; uploading only once
         // torrents are on. No "Allow all".
@@ -185,9 +185,9 @@ private slots:
         const Preferences& p = m_core->preferences();
         QVERIFY(p.privacyChosen());
         QVERIFY(p.useDht());
-        QVERIFY(!p.useCinemeta() && !p.usePublicTrackers() && !p.usePortMapping());
+        QVERIFY(!p.useCatalogAddon() && !p.usePublicTrackers() && !p.usePortMapping());
         QVERIFY(p.useTorrents() && !p.allowUploads());
-        // Cinemeta stayed out; only the fake add-on is here.
+        // WikiMaze stayed out; only the fake add-on is here.
         QCOMPARE(m_core->browser().addons().size(), 1);
         noWarnings();
     }
@@ -207,7 +207,7 @@ private slots:
         QVERIFY(controls > 0);
     }
 
-    // Cinemeta's poster server sends WebP for many titles: without the
+    // Many add-ons' poster servers send WebP: without the
     // decoder, those posters show as plain tiles with only the name.
     void postersInWebPCanBeDecoded()
     {

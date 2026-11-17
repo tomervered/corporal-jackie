@@ -27,7 +27,7 @@ class Preferences : public QObject
     // Which third parties the app may contact. All off until the person has
     // answered the first-run screen; each applies at once.
     Q_PROPERTY(bool privacyChosen READ privacyChosen NOTIFY privacyChanged)
-    Q_PROPERTY(bool useCinemeta READ useCinemeta WRITE setUseCinemeta NOTIFY privacyChanged)
+    Q_PROPERTY(bool useCatalogAddon READ useCatalogAddon WRITE setUseCatalogAddon NOTIFY privacyChanged)
     Q_PROPERTY(bool useDht READ useDht WRITE setUseDht NOTIFY privacyChanged)
     Q_PROPERTY(bool usePublicTrackers READ usePublicTrackers WRITE setUsePublicTrackers NOTIFY privacyChanged)
     Q_PROPERTY(bool usePortMapping READ usePortMapping WRITE setUsePortMapping NOTIFY privacyChanged)
@@ -37,7 +37,7 @@ class Preferences : public QObject
     // the person turns it on; applies at once.
     Q_PROPERTY(bool allowUploads READ allowUploads WRITE setAllowUploads NOTIFY privacyChanged)
     // The answers saved before the screen was last changed, to start it from
-    // when it asks again: {cinemeta, dht, trackers, portMapping}.
+    // when it asks again: {catalogAddon, dht, trackers, portMapping}.
     Q_PROPERTY(QVariantMap earlierChoices READ earlierChoices CONSTANT)
 
 public:
@@ -52,15 +52,15 @@ public:
     bool restartNeeded() const;
 
     bool privacyChosen() const { return m_privacyChosen; }
-    // The default Cinemeta add-on (its lists, details and search).
-    bool useCinemeta() const { return m_cinemeta; }
+    // The default catalog add-on, WikiMaze (its lists, details and search).
+    bool useCatalogAddon() const { return m_catalogAddon; }
     // The DHT and discovery on the local network, to find more peers.
     bool useDht() const { return m_dht; }
     // The app's own list of open trackers, added to public torrents.
     bool usePublicTrackers() const { return m_publicTrackers; }
     // Asking the router to open a port (UPnP, NAT-PMP).
     bool usePortMapping() const { return m_portMapping; }
-    void setUseCinemeta(bool on);
+    void setUseCatalogAddon(bool on);
     void setUseDht(bool on);
     void setUsePublicTrackers(bool on);
     void setUsePortMapping(bool on);
@@ -71,7 +71,7 @@ public:
     QVariantMap earlierChoices() const { return m_earlier; }
     // The first-run screen's answer: records every choice and that the
     // person has chosen. Nothing is applied before this.
-    Q_INVOKABLE void choosePrivacy(bool cinemeta, bool dht, bool publicTrackers, bool portMapping,
+    Q_INVOKABLE void choosePrivacy(bool catalogAddon, bool dht, bool publicTrackers, bool portMapping,
                                    bool torrents = false, bool uploads = false);
 
     void setTorrentsInMemory(bool on);
@@ -90,12 +90,12 @@ signals:
     void changed();
     // Any of the four choices, or that they were made.
     void privacyChanged();
-    // Cinemeta went from off to on or back: install or remove it.
-    void cinemetaChoiceChanged(bool on);
+    // The catalog add-on went from off to on or back: install or remove it.
+    void catalogAddonChoiceChanged(bool on);
 
 private:
     void save();
-    void savePrivacy(bool cinemetaBefore);
+    void savePrivacy(bool catalogBefore);
     QString effectiveFolder() const;
 
     Storage& m_storage;
@@ -105,7 +105,7 @@ private:
     int m_diskCacheGB = 10;
     QString m_cacheFolder;  // empty = default
     bool m_privacyChosen = false;
-    bool m_cinemeta = false;
+    bool m_catalogAddon = false;
     bool m_dht = false;
     bool m_publicTrackers = false;
     bool m_portMapping = false;
