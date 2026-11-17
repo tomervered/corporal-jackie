@@ -117,6 +117,11 @@ public:
     // adapters register here.
     using SourceResolver = std::function<std::optional<PlayableSource>(const QString& input)>;
     void addSourceResolver(SourceResolver resolver) { m_resolvers.push_back(std::move(resolver)); }
+
+    // Asked before an item loads: an error refuses it (a torrent while
+    // torrents are off). The item playing now, if any, stays.
+    using SourceCheck = std::function<std::optional<std::pair<PlaybackError, QString>>(const PlayableSource&)>;
+    void setSourceCheck(SourceCheck check) { m_sourceCheck = std::move(check); }
     // Where to start an item loaded without a start time: the watch history
     // answers with the saved position, or 0.
     using ResumeLookup = std::function<double(const PlayableSource& source)>;
@@ -255,6 +260,7 @@ private:
     StreamStatus m_stream;
     bool m_sourceErrorReported = false;
     std::vector<SourceResolver> m_resolvers;
+    SourceCheck m_sourceCheck;
     ResumeLookup m_resumeLookup;
     // Where the last seek is going. Until the target gets there, relative
     // seeks (a held arrow key) add to this, not to the old position.

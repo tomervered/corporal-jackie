@@ -2,33 +2,30 @@ import QtQuick
 import QtQuick.Controls.Basic
 
 // An item's details and, for a series, its episodes. For a movie, the ways
-// to play it are listed here at once: opening a movie is asking for them.
+// to play it are listed here once the person presses Find streams: opening
+// a movie asks the add-ons nothing.
 Item {
     id: detailPage
     required property Item nav   // the Pages: go(), back(), openItem() and the picked types
     readonly property bool isMovie: !browser.detail.isSeries && browser.detail.type !== "series"
     function takeFocus() {
         if (browser.detail.isSeries) episodes.forceActiveFocus()
-        else if (isMovie) movieStreams.takeFocus()
+        else if (isMovie && streamsAsked) movieStreams.takeFocus()
+        else if (isMovie) findStreamsButton.forceActiveFocus()
         else libraryButton.forceActiveFocus()
     }
 
-    // Asks for a movie's ways to play once its details are in. The key
-    // keeps a return to the page (after playing) from asking again.
+    // The movie the person asked streams for. The key keeps the list on a
+    // return to the page (after playing), and hides another movie's list.
     property string streamsAskedFor: ""
+    readonly property bool streamsAsked: !browser.detailLoading && !!browser.detail.key
+                                         && streamsAskedFor === browser.detail.key
     function askForStreams() {
-        if (browser.detailLoading || !browser.detail.key) {
-            streamsAskedFor = ""
+        if (browser.detailLoading || !browser.detail.key || !isMovie)
             return
-        }
-        if (isMovie && streamsAskedFor !== browser.detail.key) {
-            streamsAskedFor = browser.detail.key
-            browser.openVideo(-1)
-        }
-    }
-    Connections {
-        target: browser
-        function onDetailChanged() { detailPage.askForStreams() }
+        streamsAskedFor = browser.detail.key
+        browser.openVideo(-1)
+        movieStreams.takeFocus()
     }
 
 
@@ -85,6 +82,15 @@ Item {
             Row {
                 spacing: 8
                 Button {
+                    id: findStreamsButton
+                    objectName: "findStreams"
+                    visible: detailPage.isMovie && !browser.detailLoading && !detailPage.streamsAsked
+                    text: "Find streams"
+                    onClicked: detailPage.askForStreams()
+                    Keys.onReturnPressed: detailPage.askForStreams()
+                    Keys.onEnterPressed: detailPage.askForStreams()
+                }
+                Button {
                     id: libraryButton
                     // Reads library.items so it updates when the library changes.
                     readonly property bool saved: library.items.length >= 0 && library.contains(browser.detail.key || "")
@@ -92,6 +98,11 @@ Item {
                     text: saved ? "✓ In your library" : "+ Add to library"
                     onClicked: saved ? library.remove(browser.detail.key) : library.add(browser.detail)
                 }
+            }
+            Muted {
+                width: parent.width
+                visible: findStreamsButton.visible
+                text: "Find streams asks the add-ons you installed. Play only what you have the right to watch."
             }
             Muted {
                 width: parent.width
@@ -105,7 +116,7 @@ Item {
         objectName: "movieStreams"
         nav: detailPage.nav
         anchors { left: parent.left; right: parent.right; top: detailHeader.bottom; bottom: parent.bottom; topMargin: 16 }
-        visible: detailPage.isMovie && !browser.detailLoading
+        visible: detailPage.isMovie && detailPage.streamsAsked
     }
     ListView {
         id: episodes

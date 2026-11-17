@@ -8,6 +8,7 @@
 #include "Session.h"
 
 #include <QSignalSpy>
+#include <QTcpSocket>
 #include <mpv/client.h>
 #include <QtTest>
 #include <clocale>
@@ -380,6 +381,62 @@ private slots:
             QVERIFY(!request.headers.contains("authorization"));
     }
 
+    // The relay a credentialed link plays through answers only the link it
+    // gave out: GET or HEAD, its own Host (no DNS rebinding), ranges as the
+    // origin allows, and nothing once the next item starts.
+    void relayAnswersOnlyItsOwnRequests()
+    {
+        FakeHttpServer origin;
+        origin.set("/clip.mkv", clipAnswer());
+        ScopedHttp http;
+        const QUrl relay = http.routeVideo(QUrl(origin.base() + "/clip.mkv?sig=1"), {{"Authorization", "Bearer r"}});
+        QCOMPARE(relay.scheme(), QStringLiteral("http"));
+        QCOMPARE(relay.host(), QStringLiteral("127.0.0.1"));
+        QCOMPARE(relay.path(), QStringLiteral("/clip.mkv"));
+        QCOMPARE(relay.query(), QStringLiteral("sig=1"));
+        const quint16 port = quint16(relay.port());
+        const QByteArray host = "Host: 127.0.0.1:" + QByteArray::number(port) + "\r\n";
+
+        QCOMPARE(statusOf(ask(port, "GET /clip.mkv?sig=1 HTTP/1.1\r\nHost: evil.example\r\n\r\n")), 403);
+        QCOMPARE(statusOf(ask(port, "GET /clip.mkv?sig=1 HTTP/1.1\r\n\r\n")), 403);
+        QCOMPARE(statusOf(ask(port, "POST /clip.mkv HTTP/1.1\r\n" + host + "\r\n")), 405);
+        QCOMPARE(statusOf(ask(port, "GET http://elsewhere.example/ HTTP/1.1\r\n" + host + "\r\n")), 400);
+        QVERIFY(origin.requests.isEmpty());
+
+        QFile file(kTestPattern);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QByteArray whole = file.readAll();
+        const QByteArray full = ask(port, "GET /clip.mkv?sig=1 HTTP/1.1\r\n" + host + "\r\n");
+        QCOMPARE(statusOf(full), 200);
+        QCOMPARE(bodyOf(full), whole);
+        const QByteArray tail = ask(port, "GET /clip.mkv?sig=1 HTTP/1.1\r\n" + host + "Range: bytes=1000-\r\n\r\n");
+        QCOMPARE(statusOf(tail), 206);
+        QVERIFY(tail.contains("Content-Range: bytes 1000-" + QByteArray::number(whole.size() - 1) + '/'
+                              + QByteArray::number(whole.size())));
+        QCOMPARE(bodyOf(tail), whole.mid(1000));
+        // An HLS byte-range segment: exactly the bytes asked for.
+        const QByteArray piece = ask(port, "GET /clip.mkv?sig=1 HTTP/1.1\r\n" + host + "Range: bytes=100-199\r\n\r\n");
+        QCOMPARE(statusOf(piece), 206);
+        QVERIFY(piece.contains("Content-Range: bytes 100-199/" + QByteArray::number(whole.size())));
+        QCOMPARE(bodyOf(piece), whole.mid(100, 100));
+        QCOMPARE(statusOf(ask(port, "GET /clip.mkv?sig=1 HTTP/1.1\r\n" + host + "Range: bytes=200-100\r\n\r\n")), 416);
+        QCOMPARE(statusOf(ask(port, "GET /clip.mkv?sig=1 HTTP/1.1\r\n" + host + "Range: bytes="
+                                     + QByteArray::number(whole.size()) + "-\r\n\r\n")),
+                 416);
+        QVERIFY(!origin.requests.isEmpty());
+        for (const auto& request : std::as_const(origin.requests)) {
+            QCOMPARE(request.headers.value("authorization"), QByteArray("Bearer r"));
+            QCOMPARE(request.path, QStringLiteral("/clip.mkv?sig=1"));
+        }
+
+        // The next item: this port answers nothing more.
+        http.reset();
+        QTcpSocket late;
+        late.connectToHost(QHostAddress::LocalHost, port);
+        QTRY_VERIFY_WITH_TIMEOUT(late.state() == QAbstractSocket::UnconnectedState, 5000);
+        QVERIFY(late.readAll().isEmpty());
+    }
+
     // A redirect may only lead to another web link.
     void redirectToALocalFileFails()
     {
@@ -620,6 +677,30 @@ private slots:
     }
 
 private:
+    // Sends one raw request to the relay and returns the whole answer.
+    static QByteArray ask(quint16 port, const QByteArray& request)
+    {
+        QTcpSocket socket;
+        QByteArray answer;
+        QObject::connect(&socket, &QTcpSocket::readyRead, &socket, [&] { answer += socket.readAll(); });
+        socket.connectToHost(QHostAddress::LocalHost, port);
+        if (!QTest::qWaitFor([&] { return socket.state() == QAbstractSocket::ConnectedState; }, 5000))
+            return {};
+        socket.write(request);
+        if (!QTest::qWaitFor([&] { return socket.state() == QAbstractSocket::UnconnectedState; }, 15000))
+            return {};
+        answer += socket.readAll();
+        return answer;
+    }
+    static int statusOf(const QByteArray& answer)
+    {
+        return answer.startsWith("HTTP/1.1 ") ? answer.mid(9, 3).toInt() : 0;
+    }
+    static QByteArray bodyOf(const QByteArray& answer)
+    {
+        const qsizetype end = answer.indexOf("\r\n\r\n");
+        return end < 0 ? QByteArray() : answer.mid(end + 4);
+    }
     static FakeHttpServer::Answer clipAnswer()
     {
         FakeHttpServer::Answer clip;

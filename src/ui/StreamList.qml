@@ -53,7 +53,7 @@ Column {
     Muted {
         width: parent.width
         text: (browser.streamsLoading ? "Asking your add-ons… (" + browser.streams.length + " found so far)"
-               : browser.streams.length === 0 ? "No way to play this was found. Add-ons that find streams (for example torrent add-ons) have to be installed first."
+               : browser.streams.length === 0 ? "None of your add-ons listed a way to play this."
                : browser.streams.length === 1 ? "1 way to play."
                : browser.streams.length + " ways to play.")
             + (streamPane.hiddenCount > 0 ? "  " + streamPane.hiddenCount + " hidden by the add-on filter." : "")

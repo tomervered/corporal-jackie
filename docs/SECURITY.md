@@ -50,7 +50,7 @@ Tests: `tst_storage` `exportImportMerges`.
 
 ## Image decoders
 
-Each Qt image plugin is a parser for files from the internet. Both packages keep JPEG, GIF, ICO and WebP (Cinemeta's poster server sends WebP) and delete the rest. The Package steps in `.github/workflows/ci.yml` do this and fail if JPEG or WebP is missing.
+Each Qt image plugin is a parser for files from the internet. Both packages keep JPEG, GIF, ICO and WebP (many add-ons' poster servers send WebP) and delete the rest. The Package steps in `.github/workflows/ci.yml` do this and fail if JPEG or WebP is missing.
 
 ## FFmpeg version
 
@@ -67,6 +67,16 @@ These were rated low in the review and are not fixed yet:
 - In RAM mode the first block of a piece allocates the whole piece. A torrent with 512 MiB pieces can use gigabytes of memory and crash the app.
 - The update signature covers `build.txt` and `manifest.txt` joined with no separator, and `apply-update.cmd` passes `%1` unquoted.
 
+## The local relay for links with credentials
+
+Since 2026-11-17 a video link that carries credentials (an add-on's headers, or a user:password) plays through a relay on 127.0.0.1 (`HttpRelay` in `ScopedHttp.cpp`), not through `cjhttp://`. mpv 0.42 reads HLS with FFmpeg, which cannot open `cjhttp://` segments; through the relay, segments named relative to the playlist come back to it and get the same credential rule. The relay:
+
+- listens on the loopback interface only, on a new port for each video, and stops when the next item starts;
+- answers only GET and HEAD whose Host header names that address, so a web page cannot reach it through DNS rebinding (a page can still send it a blind request, as to any local port, and cannot read the answer);
+- turns each request into a request for the same path on the video's own origin, with the rules above: credentials only on that origin, redirects followed by hand, and an EDL list or CUE sheet refused before mpv sees a byte.
+
+Another program on the same computer could ask the relay for files on the video's server while it plays. The relay adds nothing that program could not already read: the add-on links and their settings are in the app's database. Subtitles still use `cjhttp://`, with the size cap.
+
 ## Checked and fine
 
-The app runs no local HTTP server. Add-on links and subtitle links are checked for scheme. `ScopedHttp` sends credentials only to the server they belong to, also across redirects. libtorrent cleans file paths in torrents and refuses symlinks that point outside the download.
+Add-on links and subtitle links are checked for scheme. `ScopedHttp` sends credentials only to the server they belong to, also across redirects. libtorrent cleans file paths in torrents and refuses symlinks that point outside the download.

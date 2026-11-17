@@ -17,10 +17,16 @@ const QString kMemoryCap = QStringLiteral("torrents/memoryCapMB");
 const QString kDiskCap = QStringLiteral("torrents/diskCacheGB");
 const QString kFolder = QStringLiteral("torrents/cacheFolder");
 const QString kPrivacyChosen = QStringLiteral("privacy/chosen");
-const QString kCinemeta = QStringLiteral("privacy/cinemeta");
+const QString kCatalogAddon = QStringLiteral("privacy/catalogAddon");  // WikiMaze; "privacy/cinemeta" was Stremio's server
 const QString kDht = QStringLiteral("privacy/dht");
 const QString kTrackers = QStringLiteral("privacy/publicTrackers");
 const QString kPortMapping = QStringLiteral("privacy/portMapping");
+const QString kTorrents = QStringLiteral("privacy/torrents");
+const QString kUploads = QStringLiteral("privacy/uploads");
+// Bumped when the first-run screen gains a question, so it asks once more.
+// 2: playing torrents and uploading (2026-11-15).
+const QString kPrivacyVersion = QStringLiteral("privacy/version");
+constexpr int kPrivacyScreenVersion = 2;
 } // namespace
 
 Preferences::Preferences(Storage& storage, const QString& defaultCacheFolder, QObject* parent)
@@ -44,12 +50,19 @@ Preferences::Preferences(Storage& storage, const QString& defaultCacheFolder, QO
         qCWarning(lcApp).noquote() << "Torrent cache folder" << m_cacheFolder << "is not usable; using the default";
         m_cacheFolder.clear();
     }
-    m_privacyChosen = value(kPrivacyChosen, false).toBool();
+    m_earlier = {{QStringLiteral("catalogAddon"), value(kCatalogAddon, false).toBool()},
+                 {QStringLiteral("dht"), value(kDht, false).toBool()},
+                 {QStringLiteral("trackers"), value(kTrackers, false).toBool()},
+                 {QStringLiteral("portMapping"), value(kPortMapping, false).toBool()}};
+    m_privacyChosen = value(kPrivacyChosen, false).toBool()
+        && value(kPrivacyVersion, 1).toInt() >= kPrivacyScreenVersion;
     // Off unless the person said yes: a missing answer is a no.
-    m_cinemeta = m_privacyChosen && value(kCinemeta, false).toBool();
+    m_catalogAddon = m_privacyChosen && value(kCatalogAddon, false).toBool();
     m_dht = m_privacyChosen && value(kDht, false).toBool();
     m_publicTrackers = m_privacyChosen && value(kTrackers, false).toBool();
     m_portMapping = m_privacyChosen && value(kPortMapping, false).toBool();
+    m_torrents = m_privacyChosen && value(kTorrents, false).toBool();
+    m_uploads = m_privacyChosen && value(kUploads, false).toBool();
     m_started = {m_inMemory, m_memoryCapMB, m_diskCacheGB, effectiveFolder()};
 }
 
@@ -89,11 +102,11 @@ void Preferences::setDiskCacheGB(int gb)
     save();
 }
 
-void Preferences::setUseCinemeta(bool on)
+void Preferences::setUseCatalogAddon(bool on)
 {
-    if (on == m_cinemeta)
+    if (on == m_catalogAddon)
         return;
-    m_cinemeta = on;
+    m_catalogAddon = on;
     savePrivacy(!on);
 }
 
@@ -102,7 +115,7 @@ void Preferences::setUseDht(bool on)
     if (on == m_dht)
         return;
     m_dht = on;
-    savePrivacy(m_cinemeta);
+    savePrivacy(m_catalogAddon);
 }
 
 void Preferences::setUsePublicTrackers(bool on)
@@ -110,7 +123,7 @@ void Preferences::setUsePublicTrackers(bool on)
     if (on == m_publicTrackers)
         return;
     m_publicTrackers = on;
-    savePrivacy(m_cinemeta);
+    savePrivacy(m_catalogAddon);
 }
 
 void Preferences::setUsePortMapping(bool on)
@@ -118,35 +131,58 @@ void Preferences::setUsePortMapping(bool on)
     if (on == m_portMapping)
         return;
     m_portMapping = on;
-    savePrivacy(m_cinemeta);
+    savePrivacy(m_catalogAddon);
 }
 
-void Preferences::choosePrivacy(bool cinemeta, bool dht, bool publicTrackers, bool portMapping)
+void Preferences::setUseTorrents(bool on)
 {
-    const bool cinemetaBefore = m_cinemeta;
-    m_cinemeta = cinemeta;
+    if (on == m_torrents)
+        return;
+    m_torrents = on;
+    savePrivacy(m_catalogAddon);
+}
+
+void Preferences::setAllowUploads(bool on)
+{
+    if (on == m_uploads)
+        return;
+    m_uploads = on;
+    savePrivacy(m_catalogAddon);
+}
+
+void Preferences::choosePrivacy(bool catalogAddon, bool dht, bool publicTrackers, bool portMapping, bool torrents,
+                                bool uploads)
+{
+    const bool catalogBefore = m_catalogAddon;
+    m_catalogAddon = catalogAddon;
     m_dht = dht;
     m_publicTrackers = publicTrackers;
     m_portMapping = portMapping;
+    m_torrents = torrents;
+    m_uploads = uploads;
     m_privacyChosen = true;
-    savePrivacy(cinemetaBefore);
+    savePrivacy(catalogBefore);
 }
 
 // Saves the four answers and tells the app, which acts on them.
-void Preferences::savePrivacy(bool cinemetaBefore)
+void Preferences::savePrivacy(bool catalogBefore)
 {
     // Choosing from Settings is choosing: the first-run screen is not needed after.
     m_privacyChosen = true;
     m_storage.setSetting(kPrivacyChosen, true);
-    m_storage.setSetting(kCinemeta, m_cinemeta);
+    m_storage.setSetting(kPrivacyVersion, kPrivacyScreenVersion);
+    m_storage.setSetting(kTorrents, m_torrents);
+    m_storage.setSetting(kUploads, m_uploads);
+    m_storage.setSetting(kCatalogAddon, m_catalogAddon);
     m_storage.setSetting(kDht, m_dht);
     m_storage.setSetting(kTrackers, m_publicTrackers);
     m_storage.setSetting(kPortMapping, m_portMapping);
-    qCInfo(lcApp).noquote() << "Network choices: Cinemeta" << m_cinemeta << "DHT and LAN discovery" << m_dht
-                            << "open trackers" << m_publicTrackers << "port mapping" << m_portMapping;
+    qCInfo(lcApp).noquote() << "Network choices: catalog add-on" << m_catalogAddon << "DHT and LAN discovery" << m_dht
+                            << "open trackers" << m_publicTrackers << "port mapping" << m_portMapping
+                            << "torrents" << m_torrents << "uploads" << m_uploads;
     emit privacyChanged();
-    if (cinemetaBefore != m_cinemeta)
-        emit cinemetaChoiceChanged(m_cinemeta);
+    if (catalogBefore != m_catalogAddon)
+        emit catalogAddonChoiceChanged(m_catalogAddon);
 }
 
 void Preferences::setCacheFolder(const QUrl& folder)

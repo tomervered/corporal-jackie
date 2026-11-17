@@ -16,22 +16,9 @@ namespace cj {
 namespace {
 
 // Used only until the first refresh fetches the real manifest: enough for
-// Cinemeta's popular lists and search to work on a first run.
-const char kCinemetaManifest[] = R"({
-  "id": "com.linvo.cinemeta",
-  "version": "3.0.0",
-  "name": "Cinemeta",
-  "description": "Movie and series catalogs and details",
-  "resources": ["catalog", "meta"],
-  "types": ["movie", "series"],
-  "idPrefixes": ["tt"],
-  "catalogs": [
-    {"type": "movie", "id": "top", "name": "Popular", "extra": [{"name": "search"}, {"name": "skip"}]},
-    {"type": "series", "id": "top", "name": "Popular", "extra": [{"name": "search"}, {"name": "skip"}]},
-    {"type": "movie", "id": "imdbRating", "name": "Featured", "extra": [{"name": "skip"}]},
-    {"type": "series", "id": "imdbRating", "name": "Featured", "extra": [{"name": "skip"}]}
-  ]
-})";
+// the default add-on's lists to show on a first run. A copy of
+// https://wikimaze-seven.vercel.app/manifest.json (2026-11-17).
+const char kDefaultManifest[] = R"json({"id":"community.wikimaze","version":"0.1.0","name":"WikiMaze","description":"Movie and series details from Wikidata (CC0) and TVmaze (CC BY-SA), titles in your language. TV data from TVmaze.com, licensed CC BY-SA 4.0.","resources":["catalog",{"name":"meta","types":["movie","series"],"idPrefixes":["tt"]}],"types":["movie","series"],"idPrefixes":["tt"],"catalogs":[{"type":"movie","id":"wikimaze-trending","name":"WikiMovies - Trending","extra":[{"name":"genre","options":["Action","Adventure","Animation","Biography","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Musical","Mystery","Romance","Sci-Fi","Sports","Superhero","Thriller","War","Western"]},{"name":"skip"}]},{"type":"series","id":"wikimaze-trending","name":"WikiSeries - Trending","extra":[{"name":"genre","options":["Action","Adventure","Animation","Anime","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Medical","Mystery","Romance","Sci-Fi","Sports","Thriller","War","Western"]},{"name":"skip"}]},{"type":"movie","id":"wikimaze-hot","name":"WikiMovies - Surging","extra":[{"name":"genre","options":["Action","Adventure","Animation","Biography","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Musical","Mystery","Romance","Sci-Fi","Sports","Superhero","Thriller","War","Western"]},{"name":"skip"}]},{"type":"series","id":"wikimaze-hot","name":"WikiSeries - Surging","extra":[{"name":"genre","options":["Action","Adventure","Anime","Children","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Legal","Medical","Mystery","Romance","Sci-Fi","Sports","Supernatural","Thriller","War","Western"]},{"name":"skip"}]},{"type":"movie","id":"wikimaze-popular","name":"WikiMovies - Classics","extra":[{"name":"search"},{"name":"genre","options":["Action","Adventure","Animation","Biography","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Musical","Mystery","Romance","Sci-Fi","Sports","Superhero","Thriller","War","Western"]},{"name":"skip"}]},{"type":"series","id":"wikimaze-classics","name":"WikiSeries - Classics","extra":[{"name":"search"},{"name":"genre","options":["Action","Adventure","Animation","Anime","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Medical","Mystery","Romance","Sci-Fi","Sports","Thriller","War","Western"]},{"name":"skip"}]},{"type":"series","id":"wikimaze-airing","name":"WikiSeries - Airing now","extra":[{"name":"genre","options":["Action","Adventure","Anime","Children","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Legal","Medical","Mystery","Romance","Sci-Fi","Sports","Supernatural","Thriller","War","Western"]},{"name":"skip"}]}],"behaviorHints":{"configurable":true}})json";
 
 QString typeWord(const QString& type)
 {
@@ -75,9 +62,9 @@ void StremioAdapter::load(bool preinstall)
 void StremioAdapter::installDefaults()
 {
     QString error;
-    const QJsonObject raw = QJsonDocument::fromJson(kCinemetaManifest).object();
+    const QJsonObject raw = QJsonDocument::fromJson(kDefaultManifest).object();
     if (auto m = stremio::parseManifest(raw, &error))
-        setManifest(QUrl(QString::fromLatin1(kCinemetaUrl)), *m, raw);
+        setManifest(QUrl(QString::fromLatin1(kDefaultAddonUrl)), *m, raw);
     save();
     emit addonsChanged();
     emit catalogsChanged();
@@ -172,7 +159,7 @@ QList<CatalogRef> StremioAdapter::catalogs() const
             ref.provider = a.manifest.id;
             ref.id = c.id;
             ref.type = c.type;
-            // "Cinemeta · Popular movies"-style names keep lists from
+            // "WikiMaze · Trending"-style names keep lists from
             // different add-ons apart.
             ref.name = a.manifest.name + QStringLiteral(" · ") + c.name + QLatin1Char(' ')
                      + typeWord(c.type).toLower();
@@ -225,7 +212,7 @@ void StremioAdapter::fetchCatalog(const CatalogRef& catalog, const QString& sear
 void StremioAdapter::fetchMeta(const MetaPreview& item, MetaDone done)
 {
     // The add-on the item came from first, then any other that has details
-    // for this id (e.g. Cinemeta for "tt…" ids from a list add-on).
+    // for this id (e.g. WikiMaze for "tt…" ids from a list add-on).
     QStringList order;
     if (const InstalledAddon* own = find(item.provider); own && own->manifest.serves("meta", item.type, item.id))
         order << own->manifest.id;

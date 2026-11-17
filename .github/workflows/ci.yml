@@ -9,6 +9,10 @@ on:
         description: "Run on main with a tag such as v0.1.0 to publish a GitHub release from this run's Windows and macOS builds"
         required: false
         default: ""
+      unpublish_tag:
+        description: "With release_tag: turn this older release (such as v0.1.0) back into a draft once the new one is out. The draft keeps its files."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -188,8 +192,8 @@ jobs:
             rm -f dist/app/Qt6QuickControls2${style}.dll dist/app/Qt6QuickControls2${style}StyleImpl.dll
           done
           rm -rf dist/app/qml/QtQuick/NativeStyle dist/app/Qt6QuickNativeStyle.dll
-          # Image formats: JPEG, GIF, icons, and WebP, which Cinemeta's
-          # poster server sends for many titles. The rest (TIFF, TGA,
+          # Image formats: JPEG, GIF, icons, and WebP, which many add-ons'
+          # poster servers send. The rest (TIFF, TGA,
           # ICNS...) would pull in libraries nothing uses.
           for f in dist/app/imageformats/*.dll; do
             case "$(basename "$f")" in qjpeg.dll|qgif.dll|qico.dll|qwebp.dll) ;; *) rm -f "$f" ;; esac
@@ -772,13 +776,19 @@ jobs:
         run: |
           (cd windows && zip -qr ../CorporalJackie-windows-x64.zip .)
           cat > notes.md <<EOF
-          First public build of Corporal Jackie, a hobby media player (GPL-3.0). Commit ${GITHUB_SHA::7}.
+          Corporal Jackie $TAG, a hobby media player (GPL-3.0). Commit ${GITHUB_SHA::7}.
 
           - **Not code-signed.** Windows SmartScreen and macOS Gatekeeper will warn on first run. Updates are manual: download the new build.
           - **Windows:** unzip CorporalJackie-windows-x64.zip and run CorporalJackie.exe.
           - **macOS (Apple silicon):** unzip CorporalJackie-macos-arm64.zip, then right-click the app and choose Open the first time.
-          - Nothing contacts Cinemeta, the DHT or open trackers until you answer the first-run screen. What the app sends and keeps: docs/PRIVACY.md.
-          - Use it only for videos you have the right to watch and share. Not affiliated with Stremio.
+          - Playing torrents and uploading to other peers are off until you turn them on. Nothing contacts WikiMaze, the DHT or open trackers until you answer the first-run screen. What the app sends and keeps: docs/PRIVACY.md.
+          - Corporal Jackie does not provide, host or sell any movies or shows. Play only what you have the right to watch, and share only what you have the right to share: docs/COPYRIGHT_POLICY.md. Not affiliated with Stremio.
           EOF
           gh release create "$TAG" CorporalJackie-windows-x64.zip macos/CorporalJackie-macos-arm64.zip \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Corporal Jackie $TAG" --notes-file notes.md
+      - name: Unpublish the older release
+        if: inputs.unpublish_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OLD: ${{ inputs.unpublish_tag }}
+        run: gh release edit "$OLD" --repo "$GITHUB_REPOSITORY" --draft=true

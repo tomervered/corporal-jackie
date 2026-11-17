@@ -34,6 +34,7 @@ Engine::Engine(const BrokerSettings& s)
     pack.set_int(lt::settings_pack::connections_limit, settings.connectionsLimit);
     pack.set_int(lt::settings_pack::download_rate_limit, settings.downloadLimit);
     pack.set_int(lt::settings_pack::upload_rate_limit, settings.uploadLimit);
+    UploadGuard::apply(pack, settings.upload);
     // We pick pieces ourselves; a "finished" torrent must keep its peers,
     // since the next window may need them a second later.
     pack.set_bool(lt::settings_pack::close_redundant_connections, false);
@@ -74,6 +75,8 @@ Engine::Engine(const BrokerSettings& s)
     pack.set_int(lt::settings_pack::stop_tracker_timeout, 1);
 
     lt::session_params params(std::move(pack));
+    uploadGuard = std::make_shared<UploadGuard>(settings.upload);
+    params.extensions.push_back(uploadGuard);
     if (settings.memoryOnly) {
         m_memory = std::make_shared<MemoryRegistry>();
         params.disk_io_constructor = m_memory->constructor(m_memory);
@@ -197,8 +200,18 @@ void Engine::applyNetwork(const BrokerSettings& s)
         pack.set_bool(lt::settings_pack::enable_natpmp, s.portMapping);
         m_session->apply_settings(std::move(pack));
     }
+    if (m_session) {
+        // Before the settings, so no request slips through while they apply.
+        if (!s.upload)
+            uploadGuard->setAllowed(false);
+        lt::settings_pack pack;
+        UploadGuard::apply(pack, s.upload);
+        m_session->apply_settings(std::move(pack));
+        uploadGuard->setAllowed(s.upload);
+    }
     qCInfo(lcBroker).noquote() << "Network choices: DHT" << s.dht << "LAN discovery" << s.localDiscovery
-                               << "port mapping" << s.portMapping << "open trackers" << s.publicTrackers;
+                               << "port mapping" << s.portMapping << "open trackers" << s.publicTrackers
+                               << "uploads" << s.upload;
     if (!trackersChanged)
         return;
     std::vector<std::shared_ptr<Torrent>> torrents;
@@ -465,8 +478,9 @@ void Engine::endPendingOpen(Torrent& t)
 void Engine::pauseIfIdle(Torrent& t)
 {
     std::lock_guard tl(t.mutex);
+    const int wait = uploadGuard->allowed() ? std::min(settings.idlePauseMs, 1000) : settings.idlePauseMs;
     if (t.removed || t.paused || t.inUse() || !t.handle.is_valid()
-        || Clock::now() - t.idleSince < std::chrono::milliseconds(settings.idlePauseMs))
+        || Clock::now() - t.idleSince < std::chrono::milliseconds(wait))
         return;
     t.handle.pause();
     // libtorrent waits a minute before it calls a peer it was just connected

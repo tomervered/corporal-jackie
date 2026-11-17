@@ -20,6 +20,9 @@ rm -rf "$LIC" && mkdir -p "$LIC"
 cp "$ROOT/packaging/THIRD_PARTY_NOTICES.txt" "$DIST/THIRD_PARTY_NOTICES.txt"
 # What the app sends and keeps, for the person who installs it.
 cp "$ROOT/docs/PRIVACY.md" "$DIST/PRIVACY.md"
+for doc in COPYRIGHT_POLICY THIRD_PARTY_CONTENT COPYRIGHT_COMPLAINTS; do
+    cp "$ROOT/docs/$doc.md" "$DIST/$doc.md"
+done
 
 # Which Homebrew formula each bundled dylib or framework came from:
 # Cellar/<formula>/<version>/lib/<name>.

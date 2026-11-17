@@ -26,13 +26,16 @@ class StremioAdapter : public SourceAdapter
 
 public:
     static constexpr int kMaxAddons = 50;
+    // The add-on a first run can start with (lists and details, no streams).
+    static constexpr auto kDefaultAddonId = "community.wikimaze";
+    static constexpr auto kDefaultAddonUrl = "https://wikimaze-seven.vercel.app/manifest.json";
+    // The default before WikiMaze: removed once from installs that had it.
     static constexpr auto kCinemetaId = "com.linvo.cinemeta";
-    static constexpr auto kCinemetaUrl = "https://v3-cinemeta.strem.io/manifest.json";
 
     // storeFile: a JSON file the installed list is kept in. Empty: no file;
     // the app keeps the list in its database through storedList(), restore()
     // and addonsChanged. With preinstall and no file yet, a first run starts
-    // with Cinemeta, which has catalogs and details but no streams.
+    // with WikiMaze, which has catalogs and details but no streams.
     explicit StremioAdapter(const QString& storeFile = {}, bool preinstall = true, QObject* parent = nullptr);
 
     QString id() const override { return QStringLiteral("stremio"); }
@@ -62,7 +65,7 @@ public:
     QJsonArray storedList() const;
     // Replaces the installed list with a stored one; bad entries are skipped.
     void restore(const QJsonArray& list);
-    // What a first run starts with: Cinemeta.
+    // What a first run starts with: WikiMaze.
     void installDefaults();
 
     JsonFetcher& fetcher() { return m_fetcher; }

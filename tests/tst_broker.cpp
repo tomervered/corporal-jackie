@@ -11,6 +11,8 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include <optional>
+
 #include <algorithm>
 #include <random>
 #include <future>
@@ -132,6 +134,46 @@ private slots:
         QCOMPARE(h->read(h->size(), nullptr, 10), 0);  // end of file
 
         QCOMPARE(h->stats().state, StreamState::Ready);
+    }
+
+    // Another peer that wants the file, with only us to get it from: what
+    // do we send it? The seeder goes once we have every piece.
+    qint64 bytesSentToAnotherPeer(bool upload)
+    {
+        QTemporaryDir dir;
+        const TestTorrent t = harness::makeTorrent(dir.filePath("seed"), "movie.mkv", {4 * MiB}, kPiece, 7);
+        std::optional<Seeder> seeder;
+        seeder.emplace(t, t.root);
+        Seeder wanting(t, dir.filePath("empty"), 0, true);  // checks its (missing) files: has nothing
+        BrokerSettings s = testSettings(dir.filePath("cache"));
+        s.upload = upload;
+        StreamBroker broker(s);
+
+        auto h = broker.open({harness::magnet(t, {seeder->port(), wanting.port()})});
+        if (!h)
+            return -1;
+        if (readRange(*h, 0, h->size()) != t.data[0])
+            return -2;
+        seeder.reset();
+        // Uploads on: the wanting peer gets pieces within a few seconds.
+        // Off: give it the same time, and nothing may arrive.
+        QElapsedTimer timer;
+        timer.start();
+        while (timer.elapsed() < 8000 && h->stats().uploadedBytes == 0)
+            QTest::qWait(100);
+        return std::max(h->stats().uploadedBytes, qint64(wanting.status().total_wanted_done));
+    }
+
+    void uploadsOffSendsNothing()
+    {
+        QCOMPARE(bytesSentToAnotherPeer(false), qint64(0));
+    }
+
+    // The same set-up shares when uploads are on, so the zero above means
+    // something.
+    void uploadsOnShares()
+    {
+        QVERIFY(bytesSentToAnotherPeer(true) > 0);
     }
 
     // A "4K" file: 96 MiB over 15 seconds is about 50 Mbit/s.
@@ -595,7 +637,8 @@ private slots:
         // Next run: the metadata comes from the cache, already public.
         openTracker.requests.clear();
         StreamBroker broker(s);
-        QVERIFY(broker.open({harness::infoHash(t)}));
+        const auto again = broker.open({harness::infoHash(t)});
+        QVERIFY(again);
         QTRY_VERIFY_WITH_TIMEOUT(!openTracker.requests.isEmpty(), 10000);
     }
 
@@ -619,8 +662,11 @@ private slots:
             QVERIFY2(openTracker.requests.isEmpty(), qPrintable(openTracker.paths().join(' ')));
         }
         // Next run, from the cached metadata, and then on again while running.
+        // The handle is kept: a torrent nobody reads pauses (within a second
+        // with uploads on) and asks no tracker.
         StreamBroker broker(s);
-        QVERIFY(broker.open({harness::infoHash(t)}));
+        const auto again = broker.open({harness::infoHash(t)});
+        QVERIFY(again);
         QTest::qWait(2500);
         QVERIFY2(openTracker.requests.isEmpty(), qPrintable(openTracker.paths().join(' ')));
         BrokerSettings on = s;
