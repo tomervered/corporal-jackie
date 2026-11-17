@@ -1,21 +1,23 @@
 # What Corporal Jackie sends and keeps
 
-Corporal Jackie has no server and no account. It sends nothing to its authors: there is no telemetry, update check or crash upload (a crash leaves a note in the local log, nothing more). Everything below is traffic to services the user chose (add-ons, links, torrents) and files on the user's own disk.
+Corporal Jackie has no account. There is no telemetry, update check or crash upload (a crash leaves a note in the local log, nothing more). Everything below is traffic to services the user chose (add-ons, links, torrents) and files on the user's own disk. One of those services, the WikiMaze catalog add-on, is run by the app's author; it is contacted only if the user allows it.
 
 ## Who is responsible, and where the data goes
 
-The author of Corporal Jackie runs no server and receives none of this traffic. The app's defaults and code decide which third parties are contacted, which is why the first-run screen exists: nothing optional is contacted before the person answers. Questions and requests: open an issue at https://github.com/tomervered/corporal-jackie/issues. Cinemeta, the trackers and the DHT nodes are run by others, under their own policies and in places this project has not checked, so the data may leave the user's country, and the European Economic Area, when the user allows these connections. Torrent peers are ordinary computers anywhere in the world.
+The author of Corporal Jackie runs one server, the WikiMaze add-on (on Vercel), and receives only the WikiMaze requests listed below, and only if the user allows it. The app's defaults and code decide which third parties are contacted, which is why the first-run screen exists: nothing optional is contacted before the person answers. Questions and requests: open an issue at https://github.com/tomervered/corporal-jackie/issues. WikiMaze's hosting (Vercel) and data sources (Wikidata, TVmaze), the trackers and the DHT nodes are run by others, under their own policies and in places this project has not checked, so the data may leave the user's country, and the European Economic Area, when the user allows these connections. Torrent peers are ordinary computers anywhere in the world.
 
 ## The first-run choices
 
-On first start, and on an install that predates the screen, a window asks about four optional connections before the app makes any of them. All four start off. "Continue with these choices" saves the switches as set; "Allow all" turns them all on. Settings (key P) has the same four switches, and each applies at once, with no restart:
+On first start, and once more on an install that answered an earlier version of the screen, a window asks about six choices before the app makes any optional connection. All six start off, and each is a switch of its own; there is no "allow all". An install that answered before starts from its earlier answers for the first four, with torrents and uploads off. "Continue with these choices" saves the switches as set. Settings (key P) has the same six switches, and each applies at once, with no restart:
 
-1. **Cinemeta** (Stremio's catalog server). Off: it is not installed, and an install that had it loses it until the person says yes. Turning the switch on installs it; turning it off removes it from Add-ons.
-2. **DHT and local-network discovery**, one switch.
-3. **The app's eight public trackers.** Off: they are not added to any torrent, and they are taken off torrents already open.
-4. **Router port mapping** (UPnP and NAT-PMP).
+1. **Play torrents.** Off: a torrent is refused before it reaches the player, and the torrent engine never starts, so no port is opened and no peer, tracker or DHT node is contacted.
+2. **Upload to other peers** (only with torrents on). Off: no piece data is sent to anyone (see below).
+3. **WikiMaze** (a catalog add-on with data from Wikidata and TVmaze). Off: it is not installed, and an install that had it loses it until the person says yes. Turning the switch on installs it; turning it off removes it from Add-ons. Cinemeta, Stremio's catalog server and the default before 2026-11-17, is removed once from installs that had it; pasting its link adds it again.
+4. **DHT and local-network discovery**, one switch.
+5. **The app's eight public trackers.** Off: they are not added to any torrent, and they are taken off torrents already open.
+6. **Router port mapping** (UPnP and NAT-PMP).
 
-While a torrent engine is running, the app listens for incoming peer connections on a random port on every network interface. This happens whatever the four switches say (with port mapping off, only peers that can already reach the computer can connect). What the screen does not offer: whether to upload while a torrent plays, and whether a torrent's own trackers and peers are used. Both are part of playing a torrent (see below). A link or file named on the command line, and anything dropped on the window, waits for the answer. With all four off, only the peers and trackers in a magnet link are used, so some torrents will not start.
+While a torrent engine is running, the app listens for incoming peer connections on a random port on every network interface. This happens whatever switches 4 to 6 say (with port mapping off, only peers that can already reach the computer can connect). The engine starts the first time a torrent plays, and only with torrents on. What the screen does not offer: whether a torrent's own trackers and peers are used, which is part of playing a torrent. A link or file named on the command line, and anything dropped on the window, waits for the answer. With switches 4 to 6 off, only the peers and trackers in a magnet link are used, so some torrents will not start.
 
 The answers are stored in the local database (`privacy/*`). A missing answer counts as no.
 
@@ -23,11 +25,11 @@ The answers are stored in the local database (`privacy/*`). A missing answer cou
 
 | Recipient | What it receives | When |
 |---|---|---|
-| Cinemeta (`v3-cinemeta.strem.io`, run by Stremio), installed only if the user allows it | The IMDb-style id of each title opened, catalog and search requests (search words included), the user's IP address | Browsing Home and Search, opening a title |
+| WikiMaze (`wikimaze-seven.vercel.app`, run by the app's author on Vercel), installed only if the user allows it. It asks Wikidata and TVmaze for the data, from its own server | The IMDb-style id of each title opened, catalog and search requests (search words included), the user's IP address | Browsing Home and Search, opening a title |
 | Each installed add-on | The same requests, for the types and id prefixes its manifest claims; the add-on's own install link, which may hold settings or a key the user pasted | Browsing, opening a title, asking for streams or subtitles |
 | Image hosts named by add-ons | Requests for poster and background images, the IP address | Showing lists and details |
 | The server of a web stream or subtitle | The request, the IP address, and the headers or login the add-on attached to that stream. Those go only to the stream's own origin (scheme, host and port), at every redirect; a hop to another server gets none of them | Playing |
-| Torrent peers | The IP address, the torrent's info hash, which pieces are wanted and held, and the uploaded pieces themselves | While a torrent is open, and for 2 minutes after |
+| Torrent peers | The IP address, the torrent's info hash, which pieces are wanted and held, and, only with uploads on, pieces of the video | While a torrent is open. With uploads off, for 2 minutes after; with uploads on, until about a second after |
 | The DHT and LAN discovery | The info hash and the IP address and port | While a torrent is open, only if the user allows it |
 | Trackers | The info hash, IP, port and amounts transferred, with user agent `CorporalJackie/0.1 libtorrent/<version>` | A torrent's own trackers always. Eight public trackers (`kPublicTrackers` in `BrokerEngine.h`) are added only if the user allows it, and only to torrents whose file list shows they are not private (or a .torrent file that already says so); never to a magnet link before its file list is here |
 | The router | UPnP and NAT-PMP port mapping requests | While the torrent engine runs, only if the user allows it |
@@ -38,7 +40,9 @@ Add-ons never receive local file paths: a local video's id stays with the local 
 
 Torrenting is public. Every peer in a swarm sees the user's IP address and which torrent it is in, and anyone can join a swarm to collect those addresses. Corporal Jackie does not hide the IP address; a VPN does that.
 
-While a torrent is open the app uploads to other peers, because BitTorrent peers trade pieces and a peer that never uploads gets slow downloads. There is no upload limit by default (`uploadLimit = 0`). Two minutes after the last reader of a torrent closes, the torrent is paused: it stops uploading and drops its peers. The app does not seed after that.
+Uploading is off unless the user turns it on. While it is off, the app chokes every peer, offers no "allowed fast" pieces, and drops any request a peer sends anyway, so no piece data leaves the computer (`UploadGuard.h`; `tst_broker uploadsOffSendsNothing`). Pieces still come from seeders, but peers that trade only with those who share send less, so some torrents start slower. A torrent nobody is watching keeps its peers for 2 minutes, so the next episode starts quickly, and is then paused.
+
+With uploading on, the app shares pieces with other peers while a video plays, with no upload limit (`uploadLimit = 0`). About a second after the last reader of a torrent closes, the torrent is paused: it stops uploading and drops its peers. The app does not seed after that.
 
 ## What stays on this computer
 

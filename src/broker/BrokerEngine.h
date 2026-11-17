@@ -12,6 +12,7 @@
 
 #include "Logging.h"
 #include "MemoryStorage.h"
+#include "UploadGuard.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -318,6 +319,7 @@ public:
     BrokerSettings settings;
     std::vector<std::string> extraTrackers;  // for public torrents only
     std::atomic<bool> publicTrackers{true};  // may extraTrackers be used?
+    std::shared_ptr<UploadGuard> uploadGuard;  // drops peers' requests while uploads are off
     std::atomic<bool> closing{false};
 
 private:

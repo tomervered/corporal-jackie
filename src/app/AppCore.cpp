@@ -30,6 +30,7 @@ namespace {
 const QString kHwdec = QStringLiteral("playback/hwdec");
 const QString kSubtitleStyle = QStringLiteral("subtitles/style");
 const QString kSubtitleScale = QStringLiteral("subtitles/scale");
+const QString kCinemetaRetired = QStringLiteral("addons/cinemetaRetired");
 
 QVariantMap styleToMap(const SubtitleStyle& s)
 {
@@ -84,6 +85,8 @@ BrokerSettings AppCore::brokerSettings() const
     s.localDiscovery = m_preferences->useDht();
     s.portMapping = m_preferences->usePortMapping();
     s.publicTrackers = m_preferences->usePublicTrackers();
+    s.torrents = m_preferences->useTorrents();
+    s.upload = m_preferences->allowUploads();
     return s;
 }
 
@@ -94,6 +97,13 @@ void AppCore::start(PlaybackTarget* target, TorrentTransport& torrents, bool reg
     m_session = std::make_unique<Session>(target);
     Session* session = m_session.get();
 
+    // Torrents while the person has not turned them on: refused here with
+    // their own message (the transport refuses too, if one gets past).
+    session->setSourceCheck([this](const PlayableSource& s) -> std::optional<std::pair<PlaybackError, QString>> {
+        if (s.kind == PlayableSource::Kind::Torrent && !m_preferences->useTorrents())
+            return std::pair{PlaybackError::TorrentsOff, QStringLiteral("Torrent playback is off.")};
+        return std::nullopt;
+    });
     if (registerTorrents) {
         session->addSourceResolver([&torrents](const QString& input) { return torrents.resolve(input); });
         connect(session, &Session::sourceChanged, &torrents, [session, &torrents] {
@@ -127,7 +137,7 @@ void AppCore::start(PlaybackTarget* target, TorrentTransport& torrents, bool reg
     // The choices apply as they are made.
     connect(m_preferences.get(), &Preferences::privacyChanged, this,
             [this] { m_torrents->setNetwork(brokerSettings()); });
-    connect(m_preferences.get(), &Preferences::cinemetaChoiceChanged, this, [this](bool on) { syncCinemeta(on); });
+    connect(m_preferences.get(), &Preferences::catalogAddonChoiceChanged, this, [this](bool on) { syncDefaultAddon(on); });
 
     m_caches = std::make_unique<Caches>(*m_storage, torrents, QDir(m_cacheDir).filePath(QStringLiteral("images")));
 }
@@ -154,18 +164,30 @@ void AppCore::shutDown()
         m_torrents->abort();
 }
 
-// Cinemeta (Stremio's server) is installed only when the person says yes on
-// the first-run screen: a fresh install starts with no add-ons, and an install
-// from before that screen (or an import from one) loses it until they answer.
-void AppCore::dropCinemetaUntilChosen()
+// The default add-on (WikiMaze) is installed only when the person says yes
+// on the first-run screen: a fresh install starts with no add-ons, and an
+// install from before that screen (or an import from one) loses it until
+// they answer.
+void AppCore::dropDefaultAddonUntilChosen()
 {
     if (!m_preferences->privacyChosen())
-        m_addons->uninstall(QString::fromLatin1(StremioAdapter::kCinemetaId));
+        m_addons->uninstall(QString::fromLatin1(StremioAdapter::kDefaultAddonId));
 }
 
-void AppCore::syncCinemeta(bool on)
+// Cinemeta (Stremio's server) was the default add-on before WikiMaze. An
+// install from that time loses it once, at its first start with this
+// version; an imported list always does. Pasting its link adds it again.
+void AppCore::retireCinemeta(bool always)
 {
-    const QString id = QString::fromLatin1(StremioAdapter::kCinemetaId);
+    if (!always && m_storage->setting(kCinemetaRetired, false).toBool())
+        return;
+    m_addons->uninstall(QString::fromLatin1(StremioAdapter::kCinemetaId));
+    m_storage->setSetting(kCinemetaRetired, true);
+}
+
+void AppCore::syncDefaultAddon(bool on)
+{
+    const QString id = QString::fromLatin1(StremioAdapter::kDefaultAddonId);
     const auto& list = m_addons->addons();
     const bool has = std::any_of(list.begin(), list.end(), [&](const InstalledAddon& a) { return a.manifest.id == id; });
     if (on && !has)
@@ -192,7 +214,7 @@ void AppCore::restorePlaybackSettings()
 }
 
 // The add-on and folder lists live in the database; a fresh install starts
-// with Cinemeta. Changes are saved as they happen, and an import reloads them.
+// with WikiMaze. Changes are saved as they happen, and an import reloads them.
 void AppCore::restoreSources()
 {
     Storage* storage = m_storage.get();
@@ -200,7 +222,8 @@ void AppCore::restoreSources()
     StremioAdapter* addons = m_addons.get();
     if (const auto stored = storage->addons())
         addons->restore(*stored);
-    dropCinemetaUntilChosen();
+    retireCinemeta(false);
+    dropDefaultAddonUntilChosen();
     storage->saveAddons(addons->storedList());
     connect(addons, &StremioAdapter::addonsChanged, storage, [storage, addons] { storage->saveAddons(addons->storedList()); });
 
@@ -212,7 +235,8 @@ void AppCore::restoreSources()
 
     connect(storage, &Storage::addonsImported, addons, [this, storage, addons] {
         addons->restore(*storage->addons());
-        dropCinemetaUntilChosen();
+        retireCinemeta(true);
+        dropDefaultAddonUntilChosen();
     });
     connect(storage, &Storage::foldersImported, local, [storage, local] { local->restoreFolders(*storage->folders()); });
 }

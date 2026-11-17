@@ -10,7 +10,10 @@
 #include <QNetworkRequest>
 #include <QPointer>
 #include <QRegularExpression>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QThread>
+#include <QTimer>
 
 #include <mpv/client.h>
 #include <mpv/stream_cb.h>
@@ -18,6 +21,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstring>
+#include <functional>
 #include <vector>
 
 namespace cj {
@@ -118,7 +122,11 @@ struct ScopedHttp::Stream
     bool cancelled = false;
     bool headChecked = false;    // the file's first bytes passed looksLikeFileList()
     QString error;
+    QByteArray contentType;      // the answer's, passed on by the relay
     quint64 request = 0;         // the current request; older ones are ignored
+    // Set for a relay connection: told (on the network thread, with the
+    // lock held) whenever there is news. Only queues work.
+    std::function<void()> changed;
     // Network thread only:
     QPointer<QNetworkReply> reply;
     qint64 skip = 0;             // bytes to drop (a server that ignored Range)
@@ -149,13 +157,22 @@ void dropReply(ScopedHttp::Stream& s)
     s.reply = nullptr;
 }
 
+// Wakes whoever waits for this stream: mpv's thread, or a relay
+// connection. Caller holds the lock.
+void notifyLocked(ScopedHttp::Stream& s)
+{
+    s.wake.notify_all();
+    if (s.changed)
+        s.changed();
+}
+
 // Fails the request if it is still the current one. Caller holds the lock.
 void failLocked(ScopedHttp::Stream& s, const QString& why)
 {
     if (s.error.isEmpty())
         s.error = why;
     s.ended = true;
-    s.wake.notify_all();
+    notifyLocked(s);
 }
 
 // Moves what the server sent into the stream's buffer, up to its size.
@@ -211,7 +228,7 @@ void pull(const StreamPtr& s, quint64 id)
             failLocked(*s, reply->errorString());
         s->ended = true;
     }
-    s->wake.notify_all();
+    notifyLocked(*s);
 }
 
 void startRequest(const StreamPtr& s, quint64 id, const QUrl& hop, int hops, bool credentials, qint64 offset);
@@ -277,8 +294,9 @@ void onHeaders(const StreamPtr& s, QNetworkReply* reply, quint64 id, const QUrl&
     if (total >= 0)
         s->size = total;
     s->seekable = ranged && s->size >= 0;
+    s->contentType = reply->rawHeader("Content-Type");
     s->responded = true;
-    s->wake.notify_all();
+    notifyLocked(*s);
 }
 
 void startRequest(const StreamPtr& s, quint64 id, const QUrl& hop, int hops, bool credentials, qint64 offset)
@@ -459,6 +477,377 @@ void closeFn(void* cookie)
 
 } // namespace
 
+
+// --- The relay ----------------------------------------------------------------
+//
+// A credentialed video link plays as http://127.0.0.1:<port>/<path>, served
+// here: each request becomes a Stream to the same path on the video's origin,
+// with the same rules (credentials only on the origin, redirects by hand,
+// EDL and CUE answers refused). mpv and FFmpeg resolve an HLS playlist's
+// relative segments against the relay's address, so the segments come back
+// here too, whichever mpv version reads the playlist. (mpv 0.42 reads HLS
+// with FFmpeg, which cannot open cjhttp:// segments.)
+//
+// The relay listens on the loopback interface only, on a port of its own for
+// each video, until the next item. It answers GET and HEAD for the address it
+// gave out (the Host header must name it, so a web page cannot reach it
+// through DNS rebinding) and nothing else.
+
+class HttpRelay : public QObject
+{
+public:
+    HttpRelay(QObject* context, const QUrl& video, const QMap<QString, QString>& headers,
+              std::shared_ptr<std::atomic<bool>> aborted)
+        : QObject(context)
+        , m_context(context)
+        , m_base(video.adjusted(QUrl::RemovePath | QUrl::RemoveQuery | QUrl::RemoveFragment).toEncoded())
+        , m_origin(originOf(video))
+        , m_headers(headers)
+        , m_aborted(std::move(aborted))
+    {
+        QObject::connect(&m_server, &QTcpServer::newConnection, this, [this] { accept(); });
+        if (m_server.listen(QHostAddress::LocalHost, 0))
+            m_host = "127.0.0.1:" + QByteArray::number(m_server.serverPort());
+    }
+
+    bool listening() const { return m_server.isListening(); }
+    quint16 port() const { return m_server.serverPort(); }
+    // Every connection is dropped, and new ones are refused.
+    void abortAll();
+
+    QObject* context() const { return m_context; }
+    const QByteArray& base() const { return m_base; }
+    const HttpOrigin& origin() const { return m_origin; }
+    const QMap<QString, QString>& headers() const { return m_headers; }
+    const std::shared_ptr<std::atomic<bool>>& aborted() const { return m_aborted; }
+    const QByteArray& host() const { return m_host; }
+
+private:
+    void accept();
+
+    QObject* m_context;
+    QTcpServer m_server;
+    QByteArray m_base;     // scheme://host[:port] of the video's origin
+    HttpOrigin m_origin;
+    QMap<QString, QString> m_headers;
+    std::shared_ptr<std::atomic<bool>> m_aborted;
+    QByteArray m_host;     // what a request's Host header must say
+};
+
+namespace {
+
+constexpr qsizetype kMaxRequestHead = 16 * 1024;
+constexpr qint64 kSocketBacklog = 1024 * 1024;  // written but not yet sent to mpv
+
+// One request from mpv, answered from one Stream. Lives on the network
+// thread, as a child of its relay.
+class RelayConnection : public QObject
+{
+public:
+    RelayConnection(QTcpSocket* socket, HttpRelay* relay)
+        : QObject(relay)
+        , m_socket(socket)
+        , m_relay(relay)
+    {
+        m_socket->setParent(this);
+        m_stall.setSingleShot(true);
+        QObject::connect(&m_stall, &QTimer::timeout, this, [this] { onStall(); });
+        QObject::connect(m_socket, &QTcpSocket::readyRead, this, [this] { onReadyRead(); });
+        QObject::connect(m_socket, &QTcpSocket::bytesWritten, this, [this] { pump(); });
+        QObject::connect(m_socket, &QTcpSocket::disconnected, this, [this] { close(); });
+        m_stall.start(ScopedHttp::stallTimeoutMs());  // for the request itself too
+    }
+
+    ~RelayConnection() override { stopStream(); }
+
+    void abort()
+    {
+        m_socket->abort();
+        close();
+    }
+
+private:
+    void onReadyRead()
+    {
+        if (m_stream || m_closing) {
+            m_socket->readAll();  // one request per connection; the rest is ignored
+            return;
+        }
+        m_head += m_socket->readAll();
+        const qsizetype end = m_head.indexOf("\r\n\r\n");
+        if (end < 0) {
+            if (m_head.size() > kMaxRequestHead)
+                respond(431, "Request Header Fields Too Large");
+            return;
+        }
+        handle(m_head.left(end));
+    }
+
+    void handle(const QByteArray& head)
+    {
+        const QList<QByteArray> lines = head.split('\n');
+        const QList<QByteArray> request = lines.value(0).trimmed().split(' ');
+        if (request.size() != 3 || !request[2].startsWith("HTTP/1.") || !request[1].startsWith('/'))
+            return respond(400, "Bad Request");
+        const QByteArray method = request[0];
+        if (method != "GET" && method != "HEAD")
+            return respond(405, "Method Not Allowed");
+        m_headOnly = method == "HEAD";
+
+        QByteArray host;
+        QByteArray range;
+        for (qsizetype i = 1; i < lines.size(); ++i) {
+            const QByteArray line = lines[i].trimmed();
+            const qsizetype colon = line.indexOf(':');
+            if (colon <= 0)
+                continue;
+            const QByteArray name = line.left(colon).trimmed().toLower();
+            const QByteArray value = line.mid(colon + 1).trimmed();
+            if (name == "host")
+                host = value.toLower();
+            else if (name == "range")
+                range = value;
+        }
+        if (host != m_relay->host())
+            return respond(403, "Forbidden");
+
+        // "bytes=N-" is what mpv and FFmpeg send for a seek, "bytes=N-M" what
+        // FFmpeg sends for an HLS byte-range segment. Any other form (several
+        // ranges, a suffix) gets the whole file, which HTTP allows.
+        static const QRegularExpression oneRange(QStringLiteral(R"(^bytes=(\d+)-(\d*)$)"));
+        const auto m = oneRange.match(QString::fromLatin1(range));
+        if (m.hasMatch()) {
+            bool ok = false;
+            m_offset = m.captured(1).toLongLong(&ok);
+            if (!ok)
+                return respond(416, "Range Not Satisfiable");
+            if (!m.captured(2).isEmpty()) {
+                m_end = m.captured(2).toLongLong(&ok);
+                if (!ok || m_end < m_offset)
+                    return respond(416, "Range Not Satisfiable");
+            }
+        }
+
+        QUrl url = QUrl::fromEncoded(m_relay->base() + request[1], QUrl::StrictMode);
+        url.setFragment(QString());
+        if (!url.isValid() || !isWeb(url) || !(originOf(url) == m_relay->origin()))
+            return respond(400, "Bad Request");
+
+        auto s = std::make_shared<ScopedHttp::Stream>();
+        s->context = m_relay->context();
+        s->aborted = m_relay->aborted();
+        s->url = url;
+        s->origin = m_relay->origin();
+        s->headers = m_relay->headers();
+        s->position = m_offset;
+        const QPointer<RelayConnection> self(this);
+        s->changed = [self] {
+            QMetaObject::invokeMethod(self.data(), [self] {
+                if (self)
+                    self->pump();
+            }, Qt::QueuedConnection);
+        };
+        m_stream = s;
+        std::lock_guard lock(s->mutex);
+        restartLocked(s);
+    }
+
+    // Sends what the stream has, as far as mpv keeps up.
+    void pump()
+    {
+        const StreamPtr s = m_stream;
+        if (!s || m_closing)
+            return;
+        std::unique_lock lock(s->mutex);
+        if (s->stopped()) {
+            lock.unlock();
+            return abort();
+        }
+        if (!m_headersSent) {
+            if (!s->error.isEmpty()) {
+                const QString why = s->error;
+                lock.unlock();
+                qCWarning(lcTargets).noquote() << "Could not open" << logging::redactUrl(s->url) << ":" << why;
+                return respond(502, "Bad Gateway");
+            }
+            // The answer, and for the start of a file its first bytes too
+            // (an EDL or CUE list is refused before mpv hears of it).
+            if (!s->responded || (m_offset == 0 && !s->headChecked)) {
+                lock.unlock();
+                if (!m_stall.isActive())
+                    m_stall.start(ScopedHttp::stallTimeoutMs());
+                return;
+            }
+            const bool partial = m_offset > 0 || m_end >= 0;
+            const qint64 size = s->size;
+            // The last byte sent: the range's end, or the file's.
+            const qint64 last = size >= 0 ? (m_end >= 0 ? std::min(m_end, size - 1) : size - 1) : m_end;
+            if (partial && (last < 0 || m_offset > last)) {
+                lock.unlock();
+                return respond(416, "Range Not Satisfiable",
+                               size >= 0 ? "Content-Range: bytes */" + QByteArray::number(size) + "\r\n" : QByteArray());
+            }
+            QByteArray head = partial ? "HTTP/1.1 206 Partial Content\r\n" : "HTTP/1.1 200 OK\r\n";
+            if (last >= 0) {
+                m_remaining = last - m_offset + 1;
+                head += "Content-Length: " + QByteArray::number(m_remaining) + "\r\n";
+                if (partial)
+                    head += "Content-Range: bytes " + QByteArray::number(m_offset) + '-' + QByteArray::number(last) + '/'
+                          + (size >= 0 ? QByteArray::number(size) : QByteArray("*")) + "\r\n";
+            }
+            if (s->seekable)
+                head += "Accept-Ranges: bytes\r\n";
+            if (!s->contentType.isEmpty() && safeHeader(QStringLiteral("Content-Type"), QString::fromLatin1(s->contentType)))
+                head += "Content-Type: " + s->contentType + "\r\n";
+            head += "Connection: close\r\n\r\n";
+            m_socket->write(head);
+            m_headersSent = true;
+            if (m_headOnly) {
+                lock.unlock();
+                return finish();
+            }
+        }
+
+        // Nothing from the start of a file until pull() has checked it.
+        const bool held = !s->headChecked && s->position == 0;
+        qint64 sent = 0;
+        while (!held && m_remaining != 0 && m_socket->bytesToWrite() < kSocketBacklog) {
+            const qsizetype available = s->buffer.size() - s->readAt;
+            if (available <= 0)
+                break;
+            qint64 n = std::min<qint64>(available, kChunk);
+            if (m_remaining > 0)
+                n = std::min(n, m_remaining);
+            m_socket->write(s->buffer.constData() + s->readAt, n);
+            s->readAt += qsizetype(n);
+            s->position += n;
+            sent += n;
+            if (m_remaining > 0)
+                m_remaining -= n;
+        }
+        if (m_remaining == 0) {
+            lock.unlock();
+            return finish();  // all that was asked for
+        }
+        const qsizetype left = s->buffer.size() - s->readAt;
+        if (left < kBufferBytes / 2 && !s->pullQueued && !s->ended) {
+            s->pullQueued = true;
+            const quint64 id = s->request;
+            QMetaObject::invokeMethod(s->context, [s, id] { pull(s, id); }, Qt::QueuedConnection);
+        }
+        const bool failed = !s->error.isEmpty();
+        const bool drained = s->ended && left == 0 && !held;
+        // Waiting for the server (not for mpv, which may be paused) counts
+        // towards a stall.
+        const bool waiting = !failed && !s->ended && (held || left == 0);
+        lock.unlock();
+
+        if (failed && (held || left == 0)) {
+            // The file is cut short: mpv must see an error, not an end.
+            qCWarning(lcTargets).noquote() << "Stream from" << logging::redactUrl(s->url) << "failed";
+            return abort();
+        }
+        if (drained) {
+            // A length was promised and not reached: an error too.
+            if (m_remaining > 0)
+                return abort();
+            return finish();
+        }
+        if (!waiting)
+            m_stall.stop();
+        else if (sent > 0 || !m_stall.isActive())
+            m_stall.start(ScopedHttp::stallTimeoutMs());
+    }
+
+    void onStall()
+    {
+        if (m_stream)
+            qCWarning(lcTargets).noquote() << "No data from" << logging::redactUrl(m_stream->url) << "for"
+                                           << ScopedHttp::stallTimeoutMs() << "ms; giving up";
+        abort();
+    }
+
+    void respond(int status, const QByteArray& reason, const QByteArray& extra = {})
+    {
+        if (m_closing)
+            return;
+        m_socket->write("HTTP/1.1 " + QByteArray::number(status) + ' ' + reason + "\r\n" + extra
+                        + "Content-Length: 0\r\nConnection: close\r\n\r\n");
+        finish();
+    }
+
+    // Sends what is written, then closes.
+    void finish()
+    {
+        stopStream();
+        m_closing = true;
+        m_stall.stop();
+        m_socket->disconnectFromHost();
+        if (m_socket->state() == QAbstractSocket::UnconnectedState)
+            close();
+    }
+
+    void close()
+    {
+        stopStream();
+        m_stall.stop();
+        if (!m_deleting) {
+            m_deleting = true;
+            m_closing = true;
+            deleteLater();
+        }
+    }
+
+    void stopStream()
+    {
+        const StreamPtr s = std::exchange(m_stream, nullptr);
+        if (!s)
+            return;
+        {
+            std::lock_guard lock(s->mutex);
+            ++s->request;  // late answers are ignored
+            s->changed = nullptr;
+        }
+        dropReply(*s);
+    }
+
+    QTcpSocket* m_socket;
+    HttpRelay* m_relay;
+    QByteArray m_head;
+    StreamPtr m_stream;
+    qint64 m_offset = 0;
+    qint64 m_end = -1;        // the range's last byte, -1 for "to the end"
+    qint64 m_remaining = -1;  // bytes still owed to mpv, -1 when unknown
+    bool m_headOnly = false;
+    bool m_headersSent = false;
+    bool m_closing = false;
+    bool m_deleting = false;
+    QTimer m_stall;
+};
+
+} // namespace
+
+void HttpRelay::accept()
+{
+    while (QTcpSocket* socket = m_server.nextPendingConnection()) {
+        if (m_aborted->load()) {
+            socket->abort();
+            socket->deleteLater();
+            continue;
+        }
+        new RelayConnection(socket, this);
+    }
+}
+
+void HttpRelay::abortAll()
+{
+    m_server.close();
+    // No Q_OBJECT here, so findChildren<>() cannot tell the types apart.
+    for (QObject* child : children())
+        if (auto* c = dynamic_cast<RelayConnection*>(child))
+            c->abort();
+}
+
 ScopedHttp::ScopedHttp()
     : m_aborted(std::make_shared<std::atomic<bool>>(false))
 {
@@ -472,6 +861,10 @@ ScopedHttp::ScopedHttp()
 ScopedHttp::~ScopedHttp()
 {
     abort();
+    {
+        std::lock_guard lock(m_mutex);
+        m_relay = nullptr;  // deleted with the context's children below
+    }
     QObject* context = m_context;
     QMetaObject::invokeMethod(m_context, [context] { qDeleteAll(context->children()); },
                               Qt::BlockingQueuedConnection);
@@ -497,10 +890,20 @@ bool ScopedHttp::registerWith(mpv_handle* mpv)
 
 void ScopedHttp::reset()
 {
-    std::lock_guard lock(m_mutex);
-    m_videoOrigin = {};
-    m_videoHeaders.clear();
-    m_routes.clear();
+    HttpRelay* relay = nullptr;
+    {
+        std::lock_guard lock(m_mutex);
+        m_videoOrigin = {};
+        m_videoHeaders.clear();
+        m_routes.clear();
+        relay = std::exchange(m_relay, nullptr);
+    }
+    // The previous video's relay stops: its port answers nothing more.
+    if (relay)
+        QMetaObject::invokeMethod(m_context, [relay] {
+            relay->abortAll();
+            delete relay;
+        }, Qt::BlockingQueuedConnection);
 }
 
 void ScopedHttp::abort()
@@ -511,6 +914,12 @@ void ScopedHttp::abort()
         std::lock_guard lock(m_mutex);
         streams = m_streams;
     }
+    QObject* context = m_context;
+    QMetaObject::invokeMethod(m_context, [context] {
+        for (QObject* child : context->children())
+            if (auto* relay = dynamic_cast<HttpRelay*>(child))
+                relay->abortAll();
+    }, Qt::QueuedConnection);
     for (const auto& weak : streams) {
         if (auto s = weak.lock()) {
             std::lock_guard lock(s->mutex);
@@ -532,14 +941,48 @@ QUrl ScopedHttp::routeVideo(const QUrl& url, const QMap<QString, QString>& heade
         return url;
     const QMap<QString, QString> credentials = credentialsOf(url, headers);
     const QUrl real = withoutUserInfo(url);
-    std::lock_guard lock(m_mutex);
-    m_videoOrigin = originOf(real);
-    m_videoHeaders = credentials;
+    {
+        std::lock_guard lock(m_mutex);
+        m_videoOrigin = originOf(real);
+        m_videoHeaders = credentials;
+    }
     if (credentials.isEmpty())
         return url;
-    const QUrl routed = toProtocol(real);
-    m_routes.insert(routed.toString(QUrl::FullyEncoded), {real, credentials, -1});
-    return routed;
+
+    HttpRelay* relay = nullptr;
+    quint16 port = 0;
+    QObject* context = m_context;
+    const auto aborted = m_aborted;
+    QMetaObject::invokeMethod(m_context, [&relay, &port, context, real, credentials, aborted] {
+        relay = new HttpRelay(context, real, credentials, aborted);
+        if (relay->listening()) {
+            port = relay->port();
+        } else {
+            delete relay;
+            relay = nullptr;
+        }
+    }, Qt::BlockingQueuedConnection);
+
+    std::lock_guard lock(m_mutex);
+    if (!relay) {
+        // No loopback port: cjhttp:// still plays it, without HLS segments
+        // on mpv 0.42 and later.
+        qCWarning(lcTargets) << "Could not start the local relay; using the stream protocol";
+        const QUrl routed = toProtocol(real);
+        m_routes.insert(routed.toString(QUrl::FullyEncoded), {real, credentials, -1});
+        return routed;
+    }
+    if (HttpRelay* old = std::exchange(m_relay, relay))
+        QMetaObject::invokeMethod(m_context, [old] {
+            old->abortAll();
+            delete old;
+        }, Qt::QueuedConnection);
+    QByteArray link = "http://127.0.0.1:" + QByteArray::number(port);
+    const QByteArray path = real.path(QUrl::FullyEncoded).toUtf8();
+    link += path.isEmpty() ? QByteArray("/") : path;
+    if (real.hasQuery())
+        link += '?' + real.query(QUrl::FullyEncoded).toUtf8();
+    return QUrl::fromEncoded(link, QUrl::StrictMode);
 }
 
 QUrl ScopedHttp::routeSubtitle(const QUrl& url, qint64 maxBytes)

@@ -11,6 +11,9 @@ namespace cj {
 
 struct BrokerSettings
 {
+    // Off: torrents are not played and the engine is never started
+    // (TorrentTransport refuses before it starts one).
+    bool torrents = true;
     QString cacheDir;                        // one subfolder per torrent
     qint64 cacheCapBytes = 10LL * 1024 * 1024 * 1024;
     // RAM only: pieces are kept in memory, never written to disk (only each
@@ -29,10 +32,14 @@ struct BrokerSettings
     int connectionsLimit = 200;
     int downloadLimit = 0;                   // bytes/s, 0 = unlimited
     int uploadLimit = 0;                     // bytes/s, 0 = unlimited
+    // Off: no piece data is sent to anyone (UploadGuard). Pieces still come
+    // from seeders; peers that trade only with those who share send less.
+    bool upload = true;
     int metadataTimeoutMs = 60000;
     // A torrent nobody is using (no open reader, no open in progress) is
-    // paused this long after the last one ends: no uploading on its own.
-    // Reopening resumes it. Its cached bytes stay readable.
+    // paused this long after the last one ends. Reopening resumes it. Its
+    // cached bytes stay readable. With `upload` on it pauses within a second
+    // (or idlePauseMs, if shorter): nothing is shared once playback ends.
     int idlePauseMs = 2 * 60 * 1000;
     // Tests only: listen on 127.0.0.1 and use no DHT, LAN discovery or port mapping.
     bool loopbackOnly = false;
@@ -79,6 +86,7 @@ struct StreamStats
     int seeds = 0;
     qint64 downloadRate = 0;      // bytes/s
     qint64 uploadRate = 0;        // bytes/s
+    qint64 uploadedBytes = 0;     // piece data sent to peers since the torrent was added
     qint64 bufferedBytes = 0;     // verified bytes in a row from the read position
     double bufferedSeconds = 0;   // the same, at the file's bitrate
     int waitingPercent = 0;       // while buffering: how much of the piece at the read position is here

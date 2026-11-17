@@ -205,8 +205,16 @@ void TorrentTransport::setNetwork(const BrokerSettings& s)
     m_settings.localDiscovery = s.localDiscovery;
     m_settings.portMapping = s.portMapping;
     m_settings.publicTrackers = s.publicTrackers;
+    m_settings.upload = s.upload;
+    m_settings.torrents = s.torrents;
     if (m_broker)
         m_broker->applyNetwork(m_settings);
+}
+
+bool TorrentTransport::engineStarted()
+{
+    std::lock_guard lock(m_brokerMutex);
+    return m_broker != nullptr;
 }
 
 StreamBroker& TorrentTransport::broker()
@@ -353,6 +361,24 @@ int TorrentTransport::open(const char* uri, mpv_stream_cb_info* info)
     const int fileIndex = path.isEmpty() ? -1 : path.toInt(&ok);
     if (!ok)
         return MPV_ERROR_LOADING_FAILED;
+    bool allowed = false;
+    {
+        std::lock_guard lock(m_brokerMutex);
+        allowed = m_settings.torrents;
+    }
+    if (!allowed) {
+        // Before broker(): the engine must not start, and no peer is called.
+        qCInfo(lcTransports) << "Torrent playback is off; not opening" << hash;
+        QUrl current;
+        {
+            std::lock_guard lock(m_mutex);
+            if (hash == m_currentHash)
+                current = m_currentUrl;
+        }
+        if (!current.isEmpty())
+            emit openFailed(PlaybackError::TorrentsOff, tr("Torrent playback is off."), current);
+        return MPV_ERROR_LOADING_FAILED;
+    }
 
     OpenRequest request;
     quint64 generation = 0;

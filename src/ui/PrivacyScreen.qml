@@ -1,9 +1,11 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import "Notices.js" as Notices
 
 // Shown on first run, and again for an install that predates it, until the
 // person answers. Covers the window; nothing is contacted before the answer.
-// The four switches start off. The answer goes to `preferences`.
+// The switches start off, or as answered before when the screen asks again
+// after gaining a question. The answer goes to `preferences`.
 Rectangle {
     id: screen
     objectName: "privacyScreen"
@@ -13,22 +15,27 @@ Rectangle {
     MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons; hoverEnabled: true; onWheel: wheel => wheel.accepted = true }
     Keys.onPressed: event => event.accepted = true
 
-    property bool cinemeta: false
-    property bool dht: false
-    property bool trackers: false
-    property bool portMapping: false
+    property bool catalogAddon: preferences.earlierChoices.catalogAddon === true
+    property bool dht: preferences.earlierChoices.dht === true
+    property bool trackers: preferences.earlierChoices.trackers === true
+    property bool portMapping: preferences.earlierChoices.portMapping === true
+    property bool torrents: false
+    property bool uploads: false
 
     component Option: Item {
         id: option
         property string title
         property string detail
         property alias checked: sw.checked
+        property alias switchEnabled: sw.enabled
+        property int indent: 0
         objectName: "privacyOption"
         width: parent ? parent.width : 400
+        opacity: sw.enabled ? 1 : 0.45
         height: Math.max(sw.implicitHeight, texts.implicitHeight) + 12
         Column {
             id: texts
-            anchors { left: parent.left; right: sw.left; rightMargin: 16; verticalCenter: parent.verticalCenter }
+            anchors { left: parent.left; leftMargin: option.indent; right: sw.left; rightMargin: 16; verticalCenter: parent.verticalCenter }
             spacing: 2
             Text { textFormat: Text.PlainText; width: parent.width; text: option.title; color: Theme.text; font.pixelSize: 15; font.weight: Font.DemiBold; wrapMode: Text.WordWrap }
             Text { textFormat: Text.PlainText; width: parent.width; text: option.detail; color: Theme.muted; font.pixelSize: 13; wrapMode: Text.WordWrap }
@@ -70,14 +77,42 @@ Rectangle {
                 font.pixelSize: 14
                 wrapMode: Text.WordWrap
             }
+            Text {
+                objectName: "copyrightNotice"
+                textFormat: Text.PlainText
+                width: parent.width
+                text: Notices.copyright
+                color: Theme.text
+                font.pixelSize: 14
+                wrapMode: Text.WordWrap
+            }
             Item { width: 1; height: 4 }
 
             Option {
-                id: cinemetaOption
-                title: "Browse and search with Cinemeta"
-                detail: "Cinemeta is Stremio's public catalog server. It sees your IP address and every title you search for or open. Off: no lists or search until you add another add-on."
-                checked: screen.cinemeta
-                onCheckedChanged: screen.cinemeta = checked
+                id: torrentsOption
+                objectName: "privacyTorrents"
+                title: Notices.torrentsTitle
+                detail: Notices.torrentsDetail
+                checked: screen.torrents
+                onCheckedChanged: { screen.torrents = checked; if (!checked) screen.uploads = false }
+            }
+            Option {
+                id: uploadsOption
+                objectName: "privacyUploads"
+                indent: 16
+                title: Notices.uploadsTitle
+                detail: Notices.uploadsDetail
+                switchEnabled: screen.torrents
+                checked: screen.uploads
+                onCheckedChanged: screen.uploads = checked
+            }
+
+            Option {
+                id: catalogAddonOption
+                title: "Browse and search with WikiMaze"
+                detail: "WikiMaze is a catalog add-on with data from Wikidata and TVmaze, run by this app's author on Vercel. It sees your IP address and every title you search for or open. Off: no lists or search until you add another add-on."
+                checked: screen.catalogAddon
+                onCheckedChanged: screen.catalogAddon = checked
             }
             Option {
                 id: dhtOption
@@ -105,27 +140,19 @@ Rectangle {
             Text {
                 textFormat: Text.PlainText
                 width: parent.width
-                text: "Playing a torrent always shows your IP address and the torrent to the people sharing it, and you upload to them while it plays. A VPN hides your address; this app does not. With all of these off, only the peers and trackers in a magnet link are used, so some torrents will not start. The servers and peers belong to others and may be in other countries. Posters come from the servers your add-ons name. The full list is in PRIVACY.md, next to the app."
+                text: "A VPN hides your address from peers; this app does not. With the DHT, trackers and port mapping off, only the peers and trackers in a magnet link are used, so some torrents will not start. The servers and peers belong to others and may be in other countries. Posters come from the servers your add-ons name. The full list is in PRIVACY.md, and the copyright policy in COPYRIGHT_POLICY.md, next to the app."
                 color: Theme.muted
                 font.pixelSize: 12
                 wrapMode: Text.WordWrap
             }
             Item { width: 1; height: 4 }
 
-            Row {
-                spacing: 8
-                Button {
-                    objectName: "privacyContinue"
-                    text: "Continue with these choices"
-                    focusPolicy: Qt.NoFocus
-                    onClicked: preferences.choosePrivacy(screen.cinemeta, screen.dht, screen.trackers, screen.portMapping)
-                }
-                Button {
-                    objectName: "privacyAllowAll"
-                    text: "Allow all"
-                    focusPolicy: Qt.NoFocus
-                    onClicked: preferences.choosePrivacy(true, true, true, true)
-                }
+            Button {
+                objectName: "privacyContinue"
+                text: "Continue with these choices"
+                focusPolicy: Qt.NoFocus
+                onClicked: preferences.choosePrivacy(screen.catalogAddon, screen.dht, screen.trackers, screen.portMapping,
+                                                     screen.torrents, screen.torrents && screen.uploads)
             }
         }
     }

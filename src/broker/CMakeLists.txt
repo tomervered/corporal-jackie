@@ -8,6 +8,7 @@ add_library(cj_broker STATIC
     MemoryStorage.h
     StreamBroker.cpp
     StreamBroker.h
+    UploadGuard.h
 )
 target_include_directories(cj_broker PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(cj_broker PUBLIC cj_common Qt6::Core PRIVATE cj::libtorrent)

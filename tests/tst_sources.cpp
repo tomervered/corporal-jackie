@@ -460,9 +460,9 @@ private slots:
 
         {
             StremioAdapter addons(store, /*preinstall*/ true);
-            QCOMPARE(addons.addons().size(), 1);  // Cinemeta, from the built-in manifest
-            QCOMPARE(addons.addons()[0].manifest.id, QStringLiteral("com.linvo.cinemeta"));
-            QVERIFY(addons.uninstall("com.linvo.cinemeta"));
+            QCOMPARE(addons.addons().size(), 1);  // WikiMaze, from the built-in manifest
+            QCOMPARE(addons.addons()[0].manifest.id, QStringLiteral("community.wikimaze"));
+            QVERIFY(addons.uninstall("community.wikimaze"));
 
             auto install = [&](const QString& link) {
                 Waiter<QString> w;
@@ -485,7 +485,7 @@ private slots:
             QCOMPARE(addons.catalogs()[0].name, QStringLiteral("Addon A · Top movies"));
         }
         // A restart keeps the list, without asking the network, and does
-        // not bring back the removed Cinemeta.
+        // not bring back the removed WikiMaze.
         const int asked = int(server.requests.size());
         StremioAdapter again(store, true);
         QCOMPARE(again.addons().size(), 1);

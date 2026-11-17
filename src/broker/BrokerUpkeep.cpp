@@ -239,6 +239,7 @@ StreamStats Engine::stats(Torrent& t, const Reader& r)
     s.seeds = st.num_seeds;
     s.downloadRate = st.download_payload_rate;
     s.uploadRate = st.upload_payload_rate;
+    s.uploadedBytes = st.all_time_upload;
 
     std::lock_guard tl(t.mutex);
     if (!t.hasMetadata) {
@@ -332,6 +333,7 @@ StreamStats Engine::torrentStats(const std::string& id)
             s.seeds = st.num_seeds;
             s.downloadRate = st.download_payload_rate;
             s.uploadRate = st.upload_payload_rate;
+            s.uploadedBytes = st.all_time_upload;
         }
     } catch (const std::exception&) {
     }

@@ -109,7 +109,7 @@ private slots:
         m_torrents = std::make_unique<TorrentTransport>(s);
         m_core->start(&m_target, *m_torrents, false);
 
-        // Only the fake add-on: Cinemeta would go to the internet.
+        // Only the fake add-on: WikiMaze would go to the internet.
         Browser& browser = m_core->browser();
         browser.installAddon(m_server.base() + QStringLiteral("/films/manifest.json"));
         QTRY_COMPARE(browser.addons().size(), 1);
@@ -158,16 +158,36 @@ private slots:
         QQuickItem* dht = options.at(1);
         QTest::mouseClick(m_window, Qt::LeftButton, {}, dht->mapToScene(QPointF(dht->width() - 30, dht->height() / 2)).toPoint());
         QTRY_VERIFY(screen->property("dht").toBool());
-        QVERIFY(!screen->property("cinemeta").toBool());
+        QVERIFY(!screen->property("catalogAddon").toBool());
+
+        // Torrents and uploading are asked on their own; uploading only once
+        // torrents are on. No "Allow all".
+        QVERIFY(!screen->findChild<QQuickItem*>(QStringLiteral("privacyAllowAll")));
+        QVERIFY(screen->findChild<QQuickItem*>(QStringLiteral("copyrightNotice")));
+        QQuickItem* torrents = screen->findChild<QQuickItem*>(QStringLiteral("privacyTorrents"));
+        QQuickItem* uploads = screen->findChild<QQuickItem*>(QStringLiteral("privacyUploads"));
+        QVERIFY(torrents && uploads);
+        QVERIFY(!uploads->property("switchEnabled").toBool());
+        QTest::mouseClick(m_window, Qt::LeftButton, {},
+                          torrents->mapToScene(QPointF(torrents->width() - 30, torrents->height() / 2)).toPoint());
+        QTRY_VERIFY(screen->property("torrents").toBool());
+        QVERIFY(uploads->property("switchEnabled").toBool());
+        QVERIFY(!screen->property("uploads").toBool());
         QQuickItem* go = screen->findChild<QQuickItem*>(QStringLiteral("privacyContinue"));
         QVERIFY(go);
+        // The screen scrolls; bring the button into view.
+        QQuickItem* flick = go->parentItem()->parentItem()->parentItem();
+        QVERIFY(flick->inherits("QQuickFlickable"));
+        flick->setProperty("contentY", qMax(0.0, flick->property("contentHeight").toDouble() - flick->height()));
+        QTest::qWait(50);
         QTest::mouseClick(m_window, Qt::LeftButton, {}, go->mapToScene(QPointF(go->width() / 2, go->height() / 2)).toPoint());
         QTRY_VERIFY(!screen->isVisible());
         const Preferences& p = m_core->preferences();
         QVERIFY(p.privacyChosen());
         QVERIFY(p.useDht());
-        QVERIFY(!p.useCinemeta() && !p.usePublicTrackers() && !p.usePortMapping());
-        // Cinemeta stayed out; only the fake add-on is here.
+        QVERIFY(!p.useCatalogAddon() && !p.usePublicTrackers() && !p.usePortMapping());
+        QVERIFY(p.useTorrents() && !p.allowUploads());
+        // WikiMaze stayed out; only the fake add-on is here.
         QCOMPARE(m_core->browser().addons().size(), 1);
         noWarnings();
     }
@@ -187,7 +207,7 @@ private slots:
         QVERIFY(controls > 0);
     }
 
-    // Cinemeta's poster server sends WebP for many titles: without the
+    // Many add-ons' poster servers send WebP: without the
     // decoder, those posters show as plain tiles with only the name.
     void postersInWebPCanBeDecoded()
     {
@@ -234,13 +254,21 @@ private slots:
         call("go", "detail");
         QTRY_VERIFY(!m_core->browser().detailLoading());
         QCOMPARE(m_core->browser().detail().value("name").toString(), QStringLiteral("First Film"));
-        // A movie's ways to play are asked for and listed on its page, with
-        // no button to press first.
+        // Opening a movie asks the add-ons nothing; Find streams does.
+        QQuickItem* find = m_window->findChild<QQuickItem*>(QStringLiteral("findStreams"));
+        QQuickItem* list = m_window->findChild<QQuickItem*>(QStringLiteral("movieStreams"));
+        QVERIFY(find && list);
+        QTRY_VERIFY(find->isVisible());
+        QVERIFY(!list->isVisible());
+        QTest::qWait(300);
+        QVERIFY(m_core->browser().streams().isEmpty());
+        QVERIFY(!m_core->browser().streamsLoading());
+        shot("detail-before-search");
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, find->mapToScene(QPointF(find->width() / 2, find->height() / 2)).toPoint());
         QTRY_COMPARE(m_core->browser().streams().size(), 2);
         QCOMPARE(page(), QStringLiteral("detail"));
-        QQuickItem* list = m_window->findChild<QQuickItem*>(QStringLiteral("movieStreams"));
-        QVERIFY(list);
         QTRY_VERIFY(list->isVisible());
+        QVERIFY(!find->isVisible());
         const auto shownFiles = [list] {
             QStringList out;
             QVariant shown = list->property("shown");   // a JS array
@@ -296,6 +324,29 @@ private slots:
     {
         call("goTop", "addons");
         shot("addons");
+
+        // Installing asks first; the add-on is contacted only after Install.
+        QQuickItem* addons = m_window->findChild<QQuickItem*>(QStringLiteral("addonsPage"));
+        QQuickItem* consent = m_window->findChild<QQuickItem*>(QStringLiteral("addonConsent"));
+        QQuickItem* cancel = m_window->findChild<QQuickItem*>(QStringLiteral("addonConsentCancel"));
+        QQuickItem* install = m_window->findChild<QQuickItem*>(QStringLiteral("addonConsentInstall"));
+        QVERIFY(addons && consent && cancel && install);
+        QVERIFY(!consent->isVisible());
+        const QString link = m_server.base() + QStringLiteral("/films/manifest.json");
+        const auto click = [](QQuickItem* b) { QVERIFY(QMetaObject::invokeMethod(b, "clicked")); };
+        m_server.requests.clear();
+        addons->setProperty("pendingLink", link);
+        QTRY_VERIFY(consent->isVisible());
+        shot("addon-consent");
+        click(cancel);
+        QTRY_VERIFY(!consent->isVisible());
+        QTest::qWait(200);
+        QVERIFY(m_server.requests.isEmpty());
+        addons->setProperty("pendingLink", link);
+        QTRY_VERIFY(consent->isVisible());
+        click(install);
+        QTRY_VERIFY(!m_server.requests.isEmpty());
+        QTRY_VERIFY(!m_core->browser().installing());
         call("goTop", "folders");
         shot("folders");
     }
