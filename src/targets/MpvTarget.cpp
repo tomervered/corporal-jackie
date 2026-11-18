@@ -803,7 +803,9 @@ std::unique_ptr<QTemporaryFile> MpvTarget::writeFsrShader(int targetHeight)
     QFile source(QStringLiteral(":/cj/shaders/fsr1.glsl"));
     if (!source.open(QIODevice::ReadOnly))
         return nullptr;
-    QByteArray text = source.readAll();
+    // mpv reads "//!" lines up to '\n'; a '\r' from a Windows checkout would
+    // end up inside the size expressions.
+    QByteArray text = source.readAll().replace("\r\n", "\n");
     QByteArray when, width, height;
     if (targetHeight <= 0) {
         when = "OUTPUT.w LUMA.w / 1.0 > OUTPUT.h LUMA.h / 1.0 > *";
