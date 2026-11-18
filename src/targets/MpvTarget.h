@@ -8,6 +8,7 @@
 #include <memory>
 
 class QTemporaryFile;
+class QTimer;
 
 struct mpv_handle;
 struct mpv_event_property;
@@ -77,6 +78,12 @@ public:
     // A Qt key as mpv's input.conf names it ("SPACE", "Ctrl+s", "Shift+LEFT",
     // "F"), or empty if mpv has no name for it.
     static QString keyName(int key, Qt::KeyboardModifiers modifiers, const QString& text);
+    // Which Video Super Resolution a graphics card has, from its DXGI vendor
+    // id and name. Public for tests.
+    static Capabilities vsrCapabilities(unsigned vendorId, const QString& adapterName);
+    // mpv's vf for VSR: scale the video (videoHeight) up to targetHeight, or
+    // to shownHeight when that is 0. Empty when there is nothing to do.
+    static QString vsrFilter(Upscaler upscaler, int videoHeight, int targetHeight, int shownHeight);
 
 private:
     Q_INVOKABLE void processEvents();
@@ -94,6 +101,8 @@ private:
     void bindAppKeys();
     void emitStats();
     QString upscalerLabel() const;
+    void applyVsrFilter();
+    void turnUpscalerOff(const QString& why);
     static std::unique_ptr<QTemporaryFile> writeFsrShader(int targetHeight);
     static QList<Track> parseTracks(const ::mpv_node* node);
     static QList<Chapter> parseChapters(const ::mpv_node* node);
@@ -120,6 +129,10 @@ private:
     bool m_hwdecEnabled = true;
     Upscaler m_upscaler = Upscaler::Off;
     int m_upscaleHeight = 0;
+    Capabilities m_vsrCaps;       // found once, at start (Windows only)
+    QString m_vsrFilter;          // the vf now set, empty for none
+    int m_shownHeight = 0;        // mpv's output height (osd-height)
+    QTimer* m_vsrTimer = nullptr; // re-sizes the filter once a resize settles
     // The FSR shader with its sizes filled in, written out when FSR is
     // picked and removed when it is turned off: mpv loads shaders from files
     // (and caches them by name, so each size gets a new file).

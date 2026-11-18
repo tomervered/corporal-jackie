@@ -10,12 +10,17 @@
 #include <QFileInfo>
 #include <QMetaObject>
 #include <QTemporaryFile>
+#include <QTimer>
 #include <mpv/client.h>
 
 #include <algorithm>
 #include <stdexcept>
 #include <utility>
 #include <vector>
+
+#ifdef Q_OS_WIN
+#include <dxgi.h>
+#endif
 
 namespace cj {
 namespace {
@@ -37,6 +42,7 @@ enum PropertyId : uint64_t {
     PropVideoCodec,
     PropWidth,
     PropHeight,
+    PropOsdHeight,
     PropFps,
     PropDropped,
     PropDecoderDropped,
@@ -142,7 +148,71 @@ double parseRatio(const QString& text)
     return ok1 && ok2 && a > 0 && b > 0 ? a / b : 0.0;
 }
 
+// Hardware decoding when it is allowed. On Windows only copy-back decoders:
+// our mpv also has a zero-copy Direct3D 11 bridge (mpv-patches), which the
+// app uses only while NVIDIA or Intel VSR is picked, because it converts
+// every frame to 8-bit RGB.
+#ifdef Q_OS_WIN
+constexpr const char* kHwdecOn = "auto-copy-safe";
+#else
+constexpr const char* kHwdecOn = "auto-safe";
+#endif
+
+bool isVsr(Upscaler u) { return u == Upscaler::NvidiaVsr || u == Upscaler::IntelVsr; }
+
+// The graphics card mpv's Direct3D 11 device will use: the first adapter.
+Capabilities detectVsr()
+{
+#ifdef Q_OS_WIN
+    IDXGIFactory1* factory = nullptr;
+    if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(&factory))))
+        return {};
+    Capabilities caps;
+    IDXGIAdapter1* adapter = nullptr;
+    if (SUCCEEDED(factory->EnumAdapters1(0, &adapter))) {
+        DXGI_ADAPTER_DESC1 desc{};
+        if (SUCCEEDED(adapter->GetDesc1(&desc))) {
+            const QString name = QString::fromWCharArray(desc.Description);
+            caps = MpvTarget::vsrCapabilities(desc.VendorId, name);
+            qCInfo(lcTargets).noquote() << "Graphics card:" << name
+                                        << (!caps ? "" : "(Video Super Resolution available)");
+        }
+        adapter->Release();
+    }
+    factory->Release();
+    return caps;
+#else
+    return {};
+#endif
+}
+
 } // namespace
+
+Capabilities MpvTarget::vsrCapabilities(unsigned vendorId, const QString& adapterName)
+{
+    // NVIDIA: RTX 20 series and later (a GTX has no VSR).
+    if (vendorId == 0x10DE && adapterName.contains(QLatin1String("RTX"), Qt::CaseInsensitive))
+        return Capability::UpscaleNvidiaVsr;
+    // Intel: Arc and Iris Xe. Older UHD graphics (a 10th gen i3, say) have none.
+    if (vendorId == 0x8086
+        && (adapterName.contains(QLatin1String("Arc"), Qt::CaseInsensitive)
+            || adapterName.contains(QLatin1String("Iris(R) Xe"), Qt::CaseInsensitive)
+            || adapterName.contains(QLatin1String("Iris Xe"), Qt::CaseInsensitive)))
+        return Capability::UpscaleIntelVsr;
+    return {};
+}
+
+QString MpvTarget::vsrFilter(Upscaler upscaler, int videoHeight, int targetHeight, int shownHeight)
+{
+    const int target = targetHeight > 0 ? targetHeight : shownHeight;
+    if (!isVsr(upscaler) || videoHeight <= 0 || target <= videoHeight)
+        return {};  // nothing to make bigger (yet)
+    // In steps of 0.05, so a window resized by a few pixels keeps its filter.
+    const double factor = qBound(1.05, qRound(20.0 * target / videoHeight) / 20.0, 4.0);
+    return QStringLiteral("d3d11vpp=scaling-mode=%1:scale=%2")
+        .arg(upscaler == Upscaler::NvidiaVsr ? QStringLiteral("nvidia") : QStringLiteral("intel"))
+        .arg(factor, 0, 'f', 2);
+}
 
 MpvTarget::MpvTarget(Mode mode, QObject* parent)
     : PlaybackTarget(parent)
@@ -162,7 +232,13 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
         setOption(m_mpv, "vo", "null");
         setOption(m_mpv, "ao", "null");
     }
-    setOption(m_mpv, "hwdec", "auto-safe");
+    setOption(m_mpv, "hwdec", kHwdecOn);
+    if (mode == Mode::Video)
+        m_vsrCaps = detectVsr();
+    m_vsrTimer = new QTimer(this);
+    m_vsrTimer->setSingleShot(true);
+    m_vsrTimer->setInterval(400);  // a window being resized settles first
+    connect(m_vsrTimer, &QTimer::timeout, this, &MpvTarget::applyVsrFilter);
     setOption(m_mpv, "keep-open", "yes");      // stay on the last frame at the end
     setOption(m_mpv, "idle", "yes");
     setOption(m_mpv, "terminal", "no");
@@ -249,6 +325,7 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
         {PropVideoCodec,     "video-codec",            MPV_FORMAT_STRING},
         {PropWidth,          "width",                  MPV_FORMAT_INT64},
         {PropHeight,         "height",                 MPV_FORMAT_INT64},
+        {PropOsdHeight,      "osd-height",             MPV_FORMAT_INT64},
         {PropFps,            "estimated-vf-fps",       MPV_FORMAT_DOUBLE},
         {PropDropped,        "frame-drop-count",       MPV_FORMAT_INT64},
         {PropDecoderDropped, "decoder-frame-drop-count", MPV_FORMAT_INT64},
@@ -294,7 +371,7 @@ Capabilities MpvTarget::capabilities() const
          | Capability::Chapters | Capability::FrameStep | Capability::Screenshot
          | Capability::AbLoop | Capability::AspectRatio | Capability::Crop
          | Capability::VideoEqualizer | Capability::HardwareDecoding | Capability::NativeKeys
-         | Capability::UpscaleFsr;
+         | Capability::UpscaleFsr | m_vsrCaps;
 }
 
 // mpv's defaults, except where a binding would end mpv itself or needs a Lua
@@ -714,7 +791,7 @@ void MpvTarget::setVideoEqualizer(const VideoEqualizer& eq)
 void MpvTarget::setHardwareDecoding(bool enabled)
 {
     m_hwdecEnabled = enabled;
-    setProperty("hwdec", enabled ? "auto-safe" : "no");
+    setProperty("hwdec", !enabled ? "no" : isVsr(m_upscaler) ? "d3d11va" : kHwdecOn);
     qCInfo(lcTargets) << "Hardware decoding" << (enabled ? "on" : "off");
     emitStats();
 }
@@ -747,11 +824,12 @@ std::unique_ptr<QTemporaryFile> MpvTarget::writeFsrShader(int targetHeight)
     return file;
 }
 
-// Off clears the shader list, so mpv frees the passes and their textures.
+// Off clears the shader list and the filter, so mpv frees what they used.
 void MpvTarget::setUpscaler(Upscaler upscaler, int targetHeight)
 {
     if (upscaler == m_upscaler && targetHeight == m_upscaleHeight)
         return;
+    const bool wasVsr = isVsr(m_upscaler);
     command({"change-list", "glsl-shaders", "clr", ""});
     m_upscaler = Upscaler::Off;
     m_upscaleHeight = targetHeight;
@@ -765,13 +843,41 @@ void MpvTarget::setUpscaler(Upscaler upscaler, int targetHeight)
         } else {
             qCWarning(lcTargets) << "Could not write the FSR shader; upscaling stays off";
         }
+    } else if (isVsr(upscaler) && m_vsrCaps.testFlag(upscaler == Upscaler::NvidiaVsr ? Capability::UpscaleNvidiaVsr
+                                                                                      : Capability::UpscaleIntelVsr)) {
+        m_upscaler = upscaler;
     } else if (upscaler != Upscaler::Off) {
         qCWarning(lcTargets) << "Upscaler" << int(upscaler) << "is not available here";
     }
-    if (m_upscaler == Upscaler::Off)
+    if (m_upscaler != Upscaler::Fsr)
         m_fsrShader.reset();
+
+    // VSR decodes into Direct3D 11 frames, so the filter can work on them.
+    if (isVsr(m_upscaler) != wasVsr && m_hwdecEnabled)
+        setProperty("hwdec", isVsr(m_upscaler) ? "d3d11va" : kHwdecOn);
+    m_vsrTimer->stop();
+    applyVsrFilter();
+
     qCInfo(lcTargets).noquote() << "Upscaler:" << upscalerLabel();
     emitStats();
+}
+
+void MpvTarget::applyVsrFilter()
+{
+    const QString filter = vsrFilter(m_upscaler, m_videoHeight, m_upscaleHeight, m_shownHeight);
+    if (filter == m_vsrFilter)
+        return;
+    m_vsrFilter = filter;
+    setProperty("vf", filter.toUtf8());
+    if (!filter.isEmpty())
+        qCInfo(lcTargets).noquote() << "Video filter:" << filter;
+}
+
+void MpvTarget::turnUpscalerOff(const QString& why)
+{
+    qCWarning(lcTargets).noquote() << why << "; upscaling turned off";
+    setUpscaler(Upscaler::Off, m_upscaleHeight);
+    emit settingChanged(QStringLiteral("upscaler"), QStringLiteral("off"));
 }
 
 // --- Events -----------------------------------------------------------------------
@@ -840,14 +946,18 @@ void MpvTarget::processEvents()
             // A graphics driver that cannot build the upscaler's shader would
             // leave a broken picture: fall back to mpv's own scaling.
             // (The renderer logs as "vo/..." or, through the render API, "libmpv_render".)
-            if (m_upscaler == Upscaler::Fsr
+            const bool problem = msg->log_level <= MPV_LOG_LEVEL_WARN;
+            if (problem && m_upscaler == Upscaler::Fsr
                 && (qstrncmp(msg->prefix, "vo", 2) == 0 || qstrncmp(msg->prefix, "libmpv_render", 13) == 0)
                 && (text.contains(QLatin1String("shader"), Qt::CaseInsensitive)
-                    || text.contains(QLatin1String("error"), Qt::CaseInsensitive))) {
-                qCWarning(lcTargets) << "The FSR shader failed on this graphics driver; upscaling turned off";
-                setUpscaler(Upscaler::Off, m_upscaleHeight);
-                emit settingChanged(QStringLiteral("upscaler"), QStringLiteral("off"));
-            }
+                    || text.contains(QLatin1String("error"), Qt::CaseInsensitive)))
+                turnUpscalerOff(QStringLiteral("The FSR shader failed on this graphics driver"));
+            // The same for VSR: the driver refused it, or the filter could
+            // not start (no Direct3D 11 device: another GPU drives the window).
+            if (problem && isVsr(m_upscaler)
+                && (text.contains(QLatin1String("Super Resolution")) || text.contains(QLatin1String("d3d11vpp"))
+                    || QByteArray(msg->prefix).contains("d3d11vpp")))
+                turnUpscalerOff(QStringLiteral("Video Super Resolution failed on this graphics card"));
             break;
         }
         case MPV_EVENT_HOOK: {
@@ -947,7 +1057,13 @@ void MpvTarget::handleProperty(uint64_t id, const mpv_event_property* p)
     case PropHeight:
         m_videoHeight = int(intOf(p));
         applyCrop();
+        applyVsrFilter();
         emitStats();
+        break;
+    case PropOsdHeight:
+        m_shownHeight = int(intOf(p));
+        if (isVsr(m_upscaler) && m_upscaleHeight == 0)
+            m_vsrTimer->start();
         break;
     case PropFps:
         m_fps = doubleOf(p);

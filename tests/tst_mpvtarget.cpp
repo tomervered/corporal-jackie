@@ -186,6 +186,34 @@ private slots:
         QCOMPARE(s.stats().value(QStringLiteral("Upscaler")).toString(), QStringLiteral("off"));
     }
 
+    // Which cards get VSR, and the filter it runs as. Plain functions, so
+    // they are checked on every platform; VSR itself needs Windows and the card.
+    void videoSuperResolutionRules()
+    {
+        const auto caps = [](unsigned vendor, const char* name) {
+            return MpvTarget::vsrCapabilities(vendor, QString::fromLatin1(name));
+        };
+        QCOMPARE(caps(0x10DE, "NVIDIA GeForce RTX 4060"), Capabilities(Capability::UpscaleNvidiaVsr));
+        QCOMPARE(caps(0x10DE, "NVIDIA GeForce GTX 1660"), Capabilities());
+        QCOMPARE(caps(0x8086, "Intel(R) Arc(TM) A770 Graphics"), Capabilities(Capability::UpscaleIntelVsr));
+        QCOMPARE(caps(0x8086, "Intel(R) Iris(R) Xe Graphics"), Capabilities(Capability::UpscaleIntelVsr));
+        QCOMPARE(caps(0x8086, "Intel(R) UHD Graphics 630"), Capabilities());  // a 10th gen i3
+        QCOMPARE(caps(0x1002, "AMD Radeon RX 7600"), Capabilities());
+        QCOMPARE(caps(0x1414, "Microsoft Basic Render Driver"), Capabilities());
+
+        const auto vf = MpvTarget::vsrFilter;
+        QCOMPARE(vf(Upscaler::NvidiaVsr, 720, 1440, 0), QStringLiteral("d3d11vpp=scaling-mode=nvidia:scale=2.00"));
+        QCOMPARE(vf(Upscaler::IntelVsr, 1080, 2160, 0), QStringLiteral("d3d11vpp=scaling-mode=intel:scale=2.00"));
+        // 0 = the size shown; steps of 0.05, at most 4x.
+        QCOMPARE(vf(Upscaler::NvidiaVsr, 480, 0, 1000), QStringLiteral("d3d11vpp=scaling-mode=nvidia:scale=2.10"));
+        QCOMPARE(vf(Upscaler::NvidiaVsr, 240, 2160, 0), QStringLiteral("d3d11vpp=scaling-mode=nvidia:scale=4.00"));
+        // Nothing to make bigger, not VSR, or not known yet: no filter.
+        QCOMPARE(vf(Upscaler::NvidiaVsr, 2160, 1440, 0), QString());
+        QCOMPARE(vf(Upscaler::Fsr, 720, 1440, 0), QString());
+        QCOMPARE(vf(Upscaler::NvidiaVsr, 0, 1440, 0), QString());
+        QCOMPARE(vf(Upscaler::NvidiaVsr, 720, 0, 0), QString());
+    }
+
     // Qt's keys as mpv's input.conf names them.
     void namesKeysTheWayMpvDoes()
     {

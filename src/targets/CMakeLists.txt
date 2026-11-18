@@ -13,6 +13,10 @@ target_link_libraries(cj_targets
     PUBLIC  cj_common cj_session Qt6::Core Qt6::Network Qt6::Quick Qt6::OpenGL
     PRIVATE cj::mpv)
 
+if(WIN32)
+    target_link_libraries(cj_targets PRIVATE dxgi)  # finds the graphics card for VSR
+endif()
+
 if(APPLE)
     target_link_libraries(cj_targets PRIVATE "-framework IOKit" "-framework CoreFoundation")
 endif()

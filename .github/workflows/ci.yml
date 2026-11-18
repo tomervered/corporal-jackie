@@ -76,7 +76,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .deps
-          key: mpv-${{ runner.os }}-${{ hashFiles('packaging/windows/build-mpv.sh') }}
+          key: mpv-${{ runner.os }}-${{ hashFiles('packaging/windows/build-mpv.sh', 'packaging/windows/mpv-patches/**') }}
 
       - name: Build FFmpeg, libplacebo and mpv (playback only)
         timeout-minutes: 40
@@ -87,7 +87,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .deps
-          key: mpv-${{ runner.os }}-${{ hashFiles('packaging/windows/build-mpv.sh') }}
+          key: mpv-${{ runner.os }}-${{ hashFiles('packaging/windows/build-mpv.sh', 'packaging/windows/mpv-patches/**') }}
 
       # libtorrent with our patch, as a static library (third_party/libtorrent).
       - name: Restore the libtorrent build
