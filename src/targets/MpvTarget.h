@@ -42,6 +42,13 @@ public:
     // Called by the video surface once its render context exists. In Video
     // mode mpv cannot open a file before that, so earlier loads wait for it.
     Q_INVOKABLE void markRenderReady();
+    // For the video surface, which runs MetalFX itself: what to draw.
+    Upscaler upscaler() const { return m_upscaler; }
+    int upscaleHeight() const { return m_upscaleHeight; }
+    int videoWidth() const { return m_videoWidth; }
+    int videoHeight() const { return m_videoHeight; }
+    // The video surface could not run MetalFX: turn it off.
+    Q_INVOKABLE void renderUpscalerFailed();
 
     QString name() const override;
     Capabilities capabilities() const override;
@@ -129,7 +136,7 @@ private:
     bool m_hwdecEnabled = true;
     Upscaler m_upscaler = Upscaler::Off;
     int m_upscaleHeight = 0;
-    Capabilities m_vsrCaps;       // found once, at start (Windows only)
+    Capabilities m_vsrCaps;       // VSR (Windows) or MetalFX (macOS), found once at start
     QString m_vsrFilter;          // the vf now set, empty for none
     int m_shownHeight = 0;        // mpv's output height (osd-height)
     QTimer* m_vsrTimer = nullptr; // re-sizes the filter once a resize settles

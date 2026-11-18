@@ -50,13 +50,14 @@ enum class Capability : unsigned {
     UpscaleFsr       = 1u << 12,  // AMD FSR 1 shader: any GPU
     UpscaleNvidiaVsr = 1u << 13,  // NVIDIA RTX Video Super Resolution
     UpscaleIntelVsr  = 1u << 14,  // Intel Video Super Resolution
+    UpscaleMetalFx   = 1u << 15,  // Apple MetalFX spatial upscaling (macOS)
 };
 Q_ENUM_NS(Capability)
 Q_DECLARE_FLAGS(Capabilities, Capability)
 
 // How the picture is made bigger than the video's own size. Off is the
 // player's normal scaler and costs nothing extra.
-enum class Upscaler { Off, Fsr, NvidiaVsr, IntelVsr };
+enum class Upscaler { Off, Fsr, NvidiaVsr, IntelVsr, MetalFx };
 Q_ENUM_NS(Upscaler)
 
 // Where a streamed item (a torrent) is, for the buffering display. Local

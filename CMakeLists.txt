@@ -4,6 +4,9 @@ project(CorporalJackie
     VERSION 0.1.0
     DESCRIPTION "A native media player that streams torrents"
     LANGUAGES CXX)
+if(APPLE)
+    enable_language(OBJCXX)  # MetalFX upscaling (src/targets/MetalFxUpscaler.mm)
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
