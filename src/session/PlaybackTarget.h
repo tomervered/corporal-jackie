@@ -38,7 +38,10 @@ public:
     // switched on by itself.
     virtual void addSubtitleTrack(const SubtitleSource& subtitle) = 0;
     virtual void setSpeed(double factor) = 0;
-    virtual void setVolume(double volume) = 0;    // 0–100
+    // Volume in percent, 0 to kMaxVolume. Above 100 the target boosts the
+    // sound (mpv's own ceiling, volume-max, is 130).
+    static constexpr double kMaxVolume = 130;
+    virtual void setVolume(double volume) = 0;
     virtual void setMuted(bool muted) = 0;
 
     // --- Optional commands; only called when the capability is listed ------

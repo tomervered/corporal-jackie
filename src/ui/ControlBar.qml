@@ -5,7 +5,7 @@ import "Format.js" as Format
 
 // The bar under the video, one row of icons on a fade: play, next chapter,
 // the time, seek (with chapter breaks and the A-B range), the chapter list,
-// mute and volume, subtitles and audio, episodes (for a series), browse,
+// the speaker (its volume slider opens above it), subtitles and audio, episodes (for a series), browse,
 // the Options menu, full screen and close. Every icon has a tooltip and
 // says what it does to a screen reader.
 Item {
@@ -14,6 +14,7 @@ Item {
     property bool fullScreen: false
     // The pointer is on the bar or one of its menus is open: keep it showing.
     readonly property bool inUse: barHover.hovered || seek.pressed || moreMenu.visible || captionsMenu.visible || trackMenu.visible
+                                  || volumeOpen
     signal openRequested()
     signal openLinkRequested()
     signal subtitleFileRequested()
@@ -24,6 +25,34 @@ Item {
     signal fullScreenRequested()
     signal episodesRequested()
     property bool statsShown: false
+    property bool shortcutsShown: false
+
+    // The volume slider: open while the pointer is on the speaker or the
+    // slider (and a moment after it leaves, to cross the gap). A click on the
+    // speaker pins it open; a second click closes it, even under the pointer.
+    property bool volumePinned: false
+    property bool volumeHoverClosed: false
+    readonly property bool volumeHovered: speaker.hovered || volumePanelHover.hovered
+    readonly property bool volumeOpen: shown && (volumePinned || volumeSlider.pressed
+                                                 || ((volumeHovered || volumeLeaveDelay.running) && !volumeHoverClosed))
+    onShownChanged: if (!shown) volumePinned = false
+    function toggleVolume() {
+        if (volumePinned) { volumePinned = false; volumeHoverClosed = true; volumeLeaveDelay.stop() }
+        else { volumePinned = true; volumeHoverClosed = false }
+    }
+    function volumeHoverChanged() {
+        if (volumeHovered) return
+        volumeHoverClosed = false
+        volumeLeaveDelay.restart()
+    }
+    onVolumeHoveredChanged: volumeHoverChanged()
+    // One wheel notch: 5%.
+    function nudgeVolume(delta) {
+        if (delta === 0) return
+        session.volume = Math.max(0, Math.min(session.maxVolume, Math.round(session.volume + (delta > 0 ? 5 : -5))))
+        if (session.muted) session.muted = false
+    }
+    Timer { id: volumeLeaveDelay; interval: 350 }
 
     height: 84
     opacity: shown ? 1 : 0
@@ -189,7 +218,7 @@ Item {
             iconName: "chapters"
             tip: "Chapters"
             active: trackMenu.visible
-            onClicked: trackMenu.open()
+            onClicked: { controlBar.volumePinned = false; trackMenu.open() }
 
             // Every chapter with where it starts; the one playing is ticked.
             Menu {
@@ -209,56 +238,27 @@ Item {
                 }
             }
         }
+        // The speaker: 0 to 3 waves for the level, the accent colour above
+        // 100%. Hover or click opens the volume slider above it; a click
+        // keeps it open until the next click.
         IconButton {
-            objectName: "muteButton"
-            iconName: session.muted || session.volume === 0 ? "muted" : "volume"
-            tip: session.muted ? "Unmute (M)" : "Mute (M)"
-            onClicked: session.muted = !session.muted
-        }
-        Slider {
-            id: volume
-            objectName: "volumeSlider"
-            anchors.verticalCenter: parent.verticalCenter
-            width: rightGroup.compact ? 56 : 76
-            height: 30
-            from: 0; to: 100
-            stepSize: 1
-            value: session.volume
-            focusPolicy: Qt.NoFocus
-            onMoved: { session.volume = value; if (session.muted) session.muted = false }
-            Accessible.name: "Player volume"
-            Accessible.description: Math.round(session.volume) + "%"
-            HoverHandler { id: volumeHover }
-            background: Item {
-                x: volume.leftPadding
-                y: volume.topPadding + volume.availableHeight / 2 - 1.5
-                width: volume.availableWidth
-                height: 3
-                Rectangle { anchors.fill: parent; radius: 1.5; color: Theme.line }
-                Rectangle {
-                    width: volume.visualPosition * parent.width
-                    height: parent.height
-                    radius: 1.5
-                    color: session.muted ? Theme.muted : Theme.text
-                }
-            }
-            handle: Rectangle {
-                x: volume.leftPadding + volume.visualPosition * volume.availableWidth - width / 2
-                y: volume.topPadding + volume.availableHeight / 2 - height / 2
-                width: volumeHover.hovered || volume.pressed ? 12 : 9
-                height: width
-                radius: width / 2
-                color: Theme.text
-            }
-            ToolTip.visible: volumeHover.hovered || volume.pressed
-            ToolTip.text: Math.round(volume.value) + "%"
+            id: speaker
+            objectName: "volumeButton"
+            readonly property real level: session.muted ? 0 : session.volume
+            iconName: session.muted ? "muted"
+                    : level <= 0 ? "volume0" : level <= 33 ? "volume1" : level <= 66 ? "volume2" : "volume3"
+            iconColor: level > 100 ? Theme.accent : Theme.text
+            tip: controlBar.volumeOpen ? "" : "Volume " + Math.round(session.volume) + "%" + (session.muted ? ", muted" : "")
+            Accessible.name: "Volume " + Math.round(session.volume) + "%" + (session.muted ? ", muted" : "")
+            onClicked: controlBar.toggleVolume()
+            WheelHandler { onWheel: event => controlBar.nudgeVolume(event.angleDelta.y) }
         }
         IconButton {
             objectName: "captionsButton"
             iconName: "captions"
             tip: "Subtitles and audio"
             active: captionsMenu.visible || session.subtitleTrack >= 0
-            onClicked: captionsMenu.open()
+            onClicked: { controlBar.volumePinned = false; captionsMenu.open() }
 
             // Subtitles: the one showing is ticked, or Off. Then audio.
             Menu {
@@ -317,7 +317,7 @@ Item {
             iconName: "gear"
             tip: "Options"
             active: moreMenu.visible
-            onClicked: moreMenu.open()
+            onClicked: { controlBar.volumePinned = false; moreMenu.open() }
 
             Menu {
                 id: moreMenu
@@ -392,6 +392,7 @@ Item {
                     onTriggered: session.screenshot()
                 }
                 MenuItem {
+                    objectName: "diagnosticsItem"
                     text: "Playback diagnostics (I)"
                     checkable: true
                     checked: controlBar.statsShown
@@ -402,7 +403,13 @@ Item {
                 MenuItem { text: "Open a link…"; onTriggered: controlBar.openLinkRequested() }
                 MenuSeparator {}
                 MenuItem { text: "Settings…"; onTriggered: controlBar.settingsRequested() }
-                MenuItem { text: "Keyboard keys (mpv's)"; onTriggered: controlBar.shortcutsRequested() }
+                MenuItem {
+                    objectName: "shortcutsItem"
+                    text: "Keyboard shortcuts"
+                    checkable: true
+                    checked: controlBar.shortcutsShown
+                    onTriggered: controlBar.shortcutsRequested()
+                }
             }
         }
         IconButton {
@@ -417,6 +424,104 @@ Item {
             iconName: "close"
             tip: "Close video (Q)"
             onClicked: session.stop()
+        }
+    }
+
+    // --- Volume slider, above the speaker -------------------------------------
+
+    Rectangle {
+        id: volumePanel
+        objectName: "volumePanel"
+        visible: controlBar.volumeOpen
+        width: 64
+        height: 232
+        x: Math.min(controlBar.width - width - 4, rightGroup.x + speaker.x + speaker.width / 2 - width / 2)
+        y: rightGroup.y - height - 6
+        radius: 12
+        color: Theme.overlay
+        border.color: Theme.line
+        HoverHandler { id: volumePanelHover }
+        // Clicks between the parts stay here (they would pause the video).
+        MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons }
+        WheelHandler { onWheel: event => controlBar.nudgeVolume(event.angleDelta.y) }
+
+        Text {
+            id: volumeValue
+            textFormat: Text.PlainText
+            anchors { top: parent.top; topMargin: 12; horizontalCenter: parent.horizontalCenter }
+            text: Math.round(volumeSlider.pressed ? volumeSlider.value : session.volume) + "%"
+            color: session.volume > 100 ? Theme.accent : Theme.text
+            font.pixelSize: Theme.bodySize
+            font.weight: Font.DemiBold
+        }
+        Slider {
+            id: volumeSlider
+            objectName: "volumeSlider"
+            orientation: Qt.Vertical
+            anchors { top: volumeValue.bottom; topMargin: 8; bottom: muteToggle.top; bottomMargin: 4; horizontalCenter: parent.horizontalCenter }
+            width: 30
+            from: 0; to: session.maxVolume
+            stepSize: 1
+            value: session.volume
+            focusPolicy: Qt.NoFocus
+            // A small catch at 100%, so the normal level is easy to find.
+            onMoved: {
+                session.volume = Math.abs(value - 100) < 3 ? 100 : value
+                if (session.muted) session.muted = false
+            }
+            Accessible.name: "Player volume"
+            Accessible.description: Math.round(session.volume) + "%"
+            background: Item {
+                x: volumeSlider.leftPadding + volumeSlider.availableWidth / 2 - width / 2
+                y: volumeSlider.topPadding
+                width: 4
+                height: volumeSlider.availableHeight
+                Rectangle { anchors.fill: parent; radius: 2; color: Theme.line }
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    width: parent.width
+                    height: (1 - volumeSlider.visualPosition) * parent.height
+                    radius: 2
+                    color: session.muted ? Theme.muted : Theme.accent
+                }
+                // The 100% mark.
+                Rectangle {
+                    y: (1 - 100 / volumeSlider.to) * parent.height - height / 2
+                    x: -4
+                    width: 12
+                    height: 2
+                    color: Theme.text
+                    opacity: 0.7
+                }
+                Text {
+                    textFormat: Text.PlainText
+                    x: 12
+                    y: (1 - 100 / volumeSlider.to) * parent.height - height / 2
+                    text: "100"
+                    color: Theme.muted
+                    font.pixelSize: 10
+                }
+            }
+            handle: Rectangle {
+                x: volumeSlider.leftPadding + volumeSlider.availableWidth / 2 - width / 2
+                y: volumeSlider.topPadding + volumeSlider.visualPosition * (volumeSlider.availableHeight - height)
+                width: volumeSlider.pressed ? 16 : 14
+                height: width
+                radius: width / 2
+                color: Theme.text
+                border.color: "#80000000"
+            }
+        }
+        IconButton {
+            id: muteToggle
+            objectName: "muteButton"
+            anchors { bottom: parent.bottom; bottomMargin: 6; horizontalCenter: parent.horizontalCenter }
+            width: 36; height: 36
+            iconSize: 18
+            iconName: session.muted ? "muted" : "volume0"
+            active: session.muted
+            tip: session.muted ? "Unmute (M)" : "Mute (M)"
+            onClicked: session.muted = !session.muted
         }
     }
 }

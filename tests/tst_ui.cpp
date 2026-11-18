@@ -361,9 +361,6 @@ private slots:
         shot("settings");
         QTest::keyClick(m_window, Qt::Key_Escape);
         QVERIFY(!m_window->property("settingsVisible").toBool());
-        m_window->setProperty("helpVisible", true);
-        shot("shortcuts");
-        m_window->setProperty("helpVisible", false);
     }
 
     // Settings opens over any page and Escape closes it from any of its
@@ -448,6 +445,51 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(captions, "open"));
         shot("player-captions");
         QVERIFY(QMetaObject::invokeMethod(captions, "close"));
+
+        // The speaker opens the volume slider (a click keeps it open; a
+        // second click closes it). Above 100% the speaker takes the accent.
+        QQuickItem* speaker = m_window->findChild<QQuickItem*>(QStringLiteral("volumeButton"));
+        QQuickItem* volumePanel = m_window->findChild<QQuickItem*>(QStringLiteral("volumePanel"));
+        QVERIFY(speaker && volumePanel);
+        QVERIFY(!volumePanel->isVisible());
+        m_window->setProperty("controlsVisible", true);
+        QTest::qWait(250);  // the bar fades in
+        const QPoint onSpeaker = speaker->mapToScene(QPointF(speaker->width() / 2, speaker->height() / 2)).toPoint();
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, onSpeaker);
+        QTRY_VERIFY(volumePanel->isVisible());
+        session.setVolume(120);
+        QCOMPARE(session.volume(), 120.0);
+        QCOMPARE(speaker->property("iconName").toString(), QStringLiteral("volume3"));
+        QCOMPARE(speaker->property("iconColor").value<QColor>().name(), QStringLiteral("#a0b583"));   // dark look's accent
+        shot("player-volume");
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, onSpeaker);
+        QTRY_VERIFY(!volumePanel->isVisible());
+        session.setVolume(20);
+        QCOMPARE(speaker->property("iconName").toString(), QStringLiteral("volume1"));
+        QCOMPARE(speaker->property("iconColor").value<QColor>().name(), QStringLiteral("#eaeee5"));
+        session.setVolume(100);
+
+        // Options › Keyboard shortcuts shows the keys in the middle; the ×,
+        // the same item again, or Esc closes them.
+        QObject* bar = m_window->findChild<QObject*>(QStringLiteral("controlBar"));
+        QQuickItem* sheet = m_window->findChild<QQuickItem*>(QStringLiteral("shortcutsSheet"));
+        QVERIFY(bar && sheet);
+        QVERIFY(QMetaObject::invokeMethod(bar, "shortcutsRequested"));
+        QVERIFY(sheet->isVisible());
+        shot("player-shortcuts");
+        QQuickItem* closeKeys = m_window->findChild<QQuickItem*>(QStringLiteral("closeShortcuts"));
+        QVERIFY(closeKeys);
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, closeKeys->mapToScene(QPointF(closeKeys->width() / 2, closeKeys->height() / 2)).toPoint());
+        QTRY_VERIFY(!sheet->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(bar, "shortcutsRequested"));
+        QVERIFY(sheet->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(bar, "shortcutsRequested"));
+        QVERIFY(!sheet->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(bar, "shortcutsRequested"));
+        m_target.commands.clear();
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QVERIFY(!sheet->isVisible());
+        QVERIFY(!m_target.sent(QStringLiteral("keydown %1").arg(int(Qt::Key_Escape))));
         // The diagnostics stay over the video, not over the pages.
         QQuickItem* stats = nullptr;
         for (QQuickItem* item : m_window->contentItem()->childItems())

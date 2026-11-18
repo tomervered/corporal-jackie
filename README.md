@@ -24,7 +24,7 @@ To play a torrent, choose "Open a link…" (U on the pages) and paste a magnet l
 
 Open a file from Local or the file icon at the top of the pages, by dropping it on the window, or by passing its path on the command line. Drop a subtitle file on a playing video to add it.
 
-Over the video, the keyboard is mpv's: every key goes to mpv and does what mpv's standard [input.conf](https://github.com/mpv-player/mpv/blob/master/etc/input.conf) says, so the app's keys and mpv's never clash. Options › "Keyboard keys (mpv's)" lists the common ones. Three keys differ from mpv, because in mpv they need a Lua script or end the player:
+Over the video, the keyboard is mpv's: every key goes to mpv and does what mpv's standard [input.conf](https://github.com/mpv-player/mpv/blob/master/etc/input.conf) says, so the app's keys and mpv's never clash. Options › Keyboard shortcuts lists the common ones. Three keys differ from mpv, because in mpv they need a Lua script or end the player:
 
 | Key | Action |
 | --- | --- |
@@ -32,7 +32,7 @@ Over the video, the keyboard is mpv's: every key goes to mpv and does what mpv's
 | I | The app's stats: decoder, codec, resolution, FPS, dropped frames |
 | Del, ` | Nothing (mpv's on-screen controller and console) |
 
-The bar under the video is one row of icons, each with a tooltip: play, the time, the seek bar, mute and volume, subtitles and audio tracks (with Load subtitle file), Browse, Options (speed, upscaling, picture, screenshot, playback diagnostics, Settings), full screen and close. On the pages (Home, Discover, Library...), P opens Settings, O opens a file, U a link, / goes to the search box, and B or Esc closes them over a playing video. Esc also closes Settings.
+The bar under the video is one row of icons, each with a tooltip: play, the time, the seek bar, the speaker (hover or click it for a volume slider up to 130%; its waves show the level, and it turns green above 100%), subtitles and audio tracks (with Load subtitle file), Browse, Options (speed, upscaling, picture, screenshot, playback diagnostics, Settings), full screen and close. On the pages (Home, Discover, Library...), P opens Settings, O opens a file, U a link, / goes to the search box, and B or Esc closes them over a playing video. Esc also closes Settings.
 
 When a video has chapters, the seek bar shows a small break at each chapter start and the chapter's name under the pointer, and the bar adds next chapter and a list of every chapter with its start time; pick one to jump there.
 

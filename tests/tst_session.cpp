@@ -152,7 +152,8 @@ private slots:
         QCOMPARE(s.speed(), 4.0);
         QCOMPARE(t.last(), QStringLiteral("speed 4"));
         s.setVolume(150);
-        QCOMPARE(s.volume(), 100.0);
+        QCOMPARE(s.volume(), 130.0);
+        QCOMPARE(t.last(), QStringLiteral("volume 130"));
         s.setVolume(30);
         QCOMPARE(t.last(), QStringLiteral("volume 30"));
         s.setMuted(true);

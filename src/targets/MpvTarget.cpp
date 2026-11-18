@@ -266,6 +266,7 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
     m_vsrTimer->setSingleShot(true);
     m_vsrTimer->setInterval(400);  // a window being resized settles first
     connect(m_vsrTimer, &QTimer::timeout, this, &MpvTarget::applyVsrFilter);
+    setOption(m_mpv, "volume-max", "130");      // PlaybackTarget::kMaxVolume
     setOption(m_mpv, "keep-open", "yes");      // stay on the last frame at the end
     setOption(m_mpv, "idle", "yes");
     setOption(m_mpv, "terminal", "no");
@@ -731,7 +732,7 @@ void MpvTarget::addSubtitleFile(const QByteArray& path, const char* flag, const 
 }
 
 void MpvTarget::setSpeed(double factor)  { setProperty("speed", number(factor)); }
-void MpvTarget::setVolume(double volume) { setProperty("volume", number(qBound(0.0, volume, 100.0))); }
+void MpvTarget::setVolume(double volume) { setProperty("volume", number(qBound(0.0, volume, kMaxVolume))); }
 void MpvTarget::setMuted(bool muted)     { setProperty("mute", muted ? "yes" : "no"); }
 
 void MpvTarget::setSubtitleDelay(double seconds) { setProperty("sub-delay", number(seconds)); }

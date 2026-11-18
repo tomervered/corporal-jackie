@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 
 // An entry in the side bar: an icon and a name. The page that shows has a
-// raised background and an accent edge.
+// raised background.
 ItemDelegate {
     id: nav
     property string iconName
@@ -35,12 +35,5 @@ ItemDelegate {
         color: nav.selected ? Theme.raised : nav.down ? Theme.pressed : nav.hovered ? Theme.hover : "transparent"
         border.width: nav.visualFocus ? 2 : 0
         border.color: Theme.accent
-        Rectangle {
-            visible: nav.selected
-            width: 3; height: parent.height - 2
-            anchors.verticalCenter: parent.verticalCenter
-            radius: 1.5
-            color: Theme.accent
-        }
     }
 }

@@ -196,16 +196,29 @@ Window {
         id: inputLayer
         anchors.fill: parent
         focus: true
+        property bool escapeClosedSheet: false
 
         // Every key goes to mpv, which runs its own bindings (its standard
         // input.conf: Space, arrows, F, M, J...). The app adds none here.
         // mpv repeats a held key itself, so Qt's repeats are dropped.
         Keys.onPressed: event => {
+            // Esc closes the keyboard sheet first (then it leaves full screen).
+            if (event.key === Qt.Key_Escape && root.helpVisible) {
+                root.helpVisible = false
+                inputLayer.escapeClosedSheet = true
+                event.accepted = true
+                return
+            }
             if (!event.isAutoRepeat)
                 session.keyEvent(event.key, event.modifiers, event.text, true)
             event.accepted = true
         }
         Keys.onReleased: event => {
+            if (event.key === Qt.Key_Escape && inputLayer.escapeClosedSheet) {
+                inputLayer.escapeClosedSheet = false
+                event.accepted = true
+                return
+            }
             if (!event.isAutoRepeat)
                 session.keyEvent(event.key, event.modifiers, event.text, false)
             event.accepted = true
@@ -371,18 +384,21 @@ Window {
         streaming: root.streaming
     }
 
-    // mpv's keys, from the Options menu. A click anywhere closes it.
-    MouseArea {
-        anchors.fill: parent
-        visible: root.helpVisible
-        onClicked: { root.helpVisible = false; inputLayer.forceActiveFocus() }
-        ShortcutsOverlay { anchors.centerIn: parent }
+    // mpv's keys, from Options › Keyboard shortcuts, in the middle of the
+    // video. The bar stays usable under it (choosing the item again closes it).
+    ShortcutsOverlay {
+        objectName: "shortcutsSheet"
+        anchors.centerIn: parent
+        anchors.verticalCenterOffset: -20
+        visible: root.helpVisible && !root.pagesVisible
+        onCloseRequested: { root.helpVisible = false; inputLayer.forceActiveFocus() }
     }
 
     // --- Controls bar ---------------------------------------------------------
 
     ControlBar {
         id: controlBar
+        objectName: "controlBar"
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
         // The pages have their own way back to the video.
         visible: session.hasMedia && !root.pagesVisible
@@ -395,7 +411,8 @@ Window {
         onSubtitleFileRequested: subtitleDialog.open()
         onBrowseRequested: root.toggleBrowse()
         onSettingsRequested: root.toggleSettings()
-        onShortcutsRequested: root.helpVisible = true
+        shortcutsShown: root.helpVisible
+        onShortcutsRequested: root.helpVisible = !root.helpVisible
         onFullScreenRequested: root.toggleFullscreen()
         onEpisodesRequested: root.toggleEpisodes()
     }

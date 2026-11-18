@@ -34,6 +34,7 @@ class Session : public QObject
     Q_PROPERTY(int bufferPercent READ bufferPercent NOTIFY bufferingChanged)
     Q_PROPERTY(double volume READ volume WRITE setVolume NOTIFY volumeChanged)
     Q_PROPERTY(bool muted READ muted WRITE setMuted NOTIFY volumeChanged)
+    Q_PROPERTY(double maxVolume READ maxVolume CONSTANT)
     Q_PROPERTY(double speed READ speed WRITE setSpeed NOTIFY speedChanged)
     Q_PROPERTY(QVariantList audioTracks READ audioTracks NOTIFY tracksChanged)
     Q_PROPERTY(QVariantList subtitleTracks READ subtitleTracks NOTIFY tracksChanged)
@@ -91,6 +92,7 @@ public:
     bool buffering() const { return m_buffering; }
     int bufferPercent() const { return m_bufferPercent; }
     double volume() const { return m_volume; }
+    double maxVolume() const { return PlaybackTarget::kMaxVolume; }
     bool muted() const { return m_muted; }
     double speed() const { return m_speed; }
     QVariantList audioTracks() const { return tracksOf(Track::Type::Audio); }

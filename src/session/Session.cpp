@@ -393,7 +393,7 @@ void Session::addExternalSubtitle(const QUrl& url)
 
 void Session::setVolume(double volume)
 {
-    volume = qBound(0.0, volume, 100.0);
+    volume = qBound(0.0, volume, PlaybackTarget::kMaxVolume);
     if (qFuzzyCompare(volume, m_volume))
         return;
     m_volume = volume;

@@ -10,7 +10,7 @@ Every target implements `cj::PlaybackTarget` (`src/session/PlaybackTarget.h`). T
 2. **Events arrive on the Session's thread.** A target that works on other threads must hop back before emitting.
 3. **The target holds no app state.** It does not remember what is "current", what was played before, or user preferences. The Session tells it everything it needs on every `load`.
 4. **Unsupported means unsupported.** A target lists its capabilities. The Session never sends a command the target does not support, and the UI hides or disables that control.
-5. **Times are seconds** as `double`. Volume is 0–100. Speed is a factor (1.0 = normal).
+5. **Times are seconds** as `double`. Volume is 0 to `PlaybackTarget::kMaxVolume` (130); above 100 boosts. Speed is a factor (1.0 = normal).
 
 ## Commands
 
