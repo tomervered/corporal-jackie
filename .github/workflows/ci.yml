@@ -51,7 +51,7 @@ jobs:
       run:
         shell: msys2 {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: msys2/setup-msys2@v2
         with:
@@ -73,7 +73,7 @@ jobs:
       # later in the job does not make the next run build them again.
       - name: Restore the mpv build
         id: mpv-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .deps
           key: mpv-${{ runner.os }}-${{ hashFiles('packaging/windows/build-mpv.sh') }}
@@ -84,7 +84,7 @@ jobs:
 
       - name: Save the mpv build
         if: steps.mpv-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .deps
           key: mpv-${{ runner.os }}-${{ hashFiles('packaging/windows/build-mpv.sh') }}
@@ -92,7 +92,7 @@ jobs:
       # libtorrent with our patch, as a static library (third_party/libtorrent).
       - name: Restore the libtorrent build
         id: lt-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .deps-torrent
           key: libtorrent-${{ runner.os }}-${{ hashFiles('third_party/libtorrent/**') }}
@@ -102,7 +102,7 @@ jobs:
 
       - name: Save the libtorrent build
         if: steps.lt-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .deps-torrent
           key: libtorrent-${{ runner.os }}-${{ hashFiles('third_party/libtorrent/**') }}
@@ -275,12 +275,12 @@ jobs:
           if (-not $env:UPDATE_SIGNING_KEY) { Write-Host "No UPDATE_SIGNING_KEY secret: build not signed, its update package will be refused"; exit 0 }
           packaging/windows/updater/sign-manifest.ps1 -Folder dist -KeyXml $env:UPDATE_SIGNING_KEY
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: CorporalJackie-windows-x64
           path: dist/
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: github.ref == 'refs/heads/main'
         with:
           name: CorporalJackie-windows-manifest
@@ -310,7 +310,7 @@ jobs:
         if: github.ref == 'refs/heads/main' && hashFiles('previous/manifest.txt') != ''
         run: packaging/windows/make-update.sh dist previous update
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: github.ref == 'refs/heads/main' && hashFiles('update/manifest.txt') != ''
         with:
           name: CorporalJackie-windows-x64-update
@@ -433,7 +433,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Windows PowerShell 5.1
         shell: powershell
         run: tests\updater\Test-Updater.ps1
@@ -445,7 +445,7 @@ jobs:
     name: macOS (Apple silicon)
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         env:
@@ -537,7 +537,7 @@ jobs:
           packaging/macos/collect-licenses.sh dist "$CJ_LT_PREFIX"
           ditto -c -k --keepParent dist CorporalJackie-macos-arm64.zip
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: CorporalJackie-macos-arm64
           path: CorporalJackie-macos-arm64.zip
@@ -546,7 +546,7 @@ jobs:
     name: Linux (build and test only)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         timeout-minutes: 15
@@ -611,7 +611,7 @@ jobs:
     name: Linux (tests under ASan and UBSan)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         timeout-minutes: 15
@@ -659,7 +659,7 @@ jobs:
     name: Linux (broker and storage under TSan)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         timeout-minutes: 15
@@ -702,7 +702,7 @@ jobs:
     name: Linux (parser fuzzing)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         timeout-minutes: 15
@@ -740,7 +740,7 @@ jobs:
           build/tests/fuzz/fuzz_parsers -max_total_time=$([ "$CJ_FULL_RUN" = true ] && echo 300 || echo 60) -max_len=8192 -timeout=10 -rss_limit_mb=4096 \
             -artifact_prefix=findings/ corpus tests/fuzz/corpus
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: fuzz-findings
@@ -764,7 +764,7 @@ jobs:
       BASELINE: c6557a3a345f20d7a38b6cbd4562b246e5c18122
       STREMIO_IMAGE: stremio/server:v4.22.5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -839,7 +839,7 @@ jobs:
           sudo tc qdisc del dev lo root
           python3 tests/bench/summarize.py "$CJ_BENCH_OUT" | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: benchmark-results
@@ -855,11 +855,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: CorporalJackie-windows-x64
           path: windows
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: CorporalJackie-macos-arm64
           path: macos

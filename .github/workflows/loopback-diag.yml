@@ -19,7 +19,7 @@ jobs:
       run:
         shell: msys2 {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: msys2/setup-msys2@v2
         with:
@@ -41,7 +41,7 @@ jobs:
       # later in the job does not make the next run build them again.
       - name: Restore the mpv build
         id: mpv-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .deps
           key: mpv-${{ runner.os }}-${{ hashFiles('packaging/windows/build-mpv.sh') }}
@@ -53,7 +53,7 @@ jobs:
       # libtorrent with our patch, as a static library (third_party/libtorrent).
       - name: Restore the libtorrent build
         id: lt-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .deps-torrent
           key: libtorrent-${{ runner.os }}-${{ hashFiles('third_party/libtorrent/**') }}
@@ -119,7 +119,7 @@ jobs:
           echo "== seeder lines with errors or incoming connections"
           grep -E "seeder [0-9]+: \[(peer_disconnected|peer_error|listen_failed|incoming_connection|peer_blocked|peer_connect)" diag-logs/tst_bench.txt | tail -200
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: loopback-diagnostic
@@ -134,7 +134,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         run: brew install qt mpv boost openssl@3 ninja pkgconf
@@ -196,7 +196,7 @@ jobs:
           PY
           done
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: macos-crash-hunt
