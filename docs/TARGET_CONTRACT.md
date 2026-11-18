@@ -63,6 +63,7 @@ Every target implements `cj::PlaybackTarget` (`src/session/PlaybackTarget.h`). T
 | `errorOccurred(error, message)` | Something failed. `error` is a `PlaybackError` (see below). |
 | `statsChanged(stats)` | Free-form diagnostics for the debug overlay, as name → text. |
 | `settingChanged(name, value)` | The target changed a setting by itself, from its own keys: `speed`, `subtitleDelay`, `audioDelay`, `subtitleScale`, `abLoopA`, `abLoopB` (−1 = unset), `aspectRatio` (width ÷ height, 0 = the file's own), `brightness`, `contrast`, `saturation`, `gamma`, `hue`, `hardwareDecoding`, `fullScreen`, `upscaler` (`"off"` when the target had to turn its upscaler off, because the graphics driver could not run it). The Session takes the value and does not send it back. |
+| `upscalerStatusChanged(status, problem)` | What the upscaler is doing, as one line the UI shows as it is (`NVIDIA VSR on · 720p → 1440p`); empty when none runs. A target says "on" only when it can tell the upscale happened (for VSR: the filtered frames are bigger than the video). `problem` is true when it had to turn the upscaler off, and the line says so. |
 | `appActionRequested(action)` | The target's own keys asked for something only the app does: `stop` (close the video) or `stats` (show or hide the stats). |
 
 When the item reaches its end the target sends `stateChanged(Ended)` and keeps the last frame. It does not unload.
