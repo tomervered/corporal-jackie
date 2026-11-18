@@ -160,7 +160,10 @@ constexpr const char* kHwdecOn = "auto-safe";
 
 bool isVsr(Upscaler u) { return u == Upscaler::NvidiaVsr || u == Upscaler::IntelVsr; }
 // The upscalers that are mpv shader files (any GPU).
-bool isShader(Upscaler u) { return u == Upscaler::Fsr || u == Upscaler::Sgsr; }
+bool isShader(Upscaler u)
+{
+    return u == Upscaler::Fsr || u == Upscaler::Sgsr || u == Upscaler::Cas || u == Upscaler::Anime4k;
+}
 
 
 } // namespace
@@ -203,6 +206,8 @@ QString upscalerName(Upscaler u)
     switch (u) {
     case Upscaler::Fsr:       return QStringLiteral("AMD FSR 1");
     case Upscaler::Sgsr:      return QStringLiteral("Snapdragon GSR");
+    case Upscaler::Cas:       return QStringLiteral("AMD CAS");
+    case Upscaler::Anime4k:   return QStringLiteral("Anime4K");
     case Upscaler::NvidiaVsr: return QStringLiteral("NVIDIA VSR");
     case Upscaler::IntelVsr:  return QStringLiteral("Intel VSR");
     default:                  return {};
@@ -385,7 +390,8 @@ Capabilities MpvTarget::capabilities() const
          | Capability::Chapters | Capability::FrameStep | Capability::Screenshot
          | Capability::AbLoop | Capability::AspectRatio | Capability::Crop
          | Capability::VideoEqualizer | Capability::HardwareDecoding | Capability::NativeKeys
-         | Capability::UpscaleFsr | Capability::UpscaleSgsr | m_vsrCaps;
+         | Capability::UpscaleFsr | Capability::UpscaleSgsr | Capability::UpscaleCas
+         | Capability::UpscaleAnime4k | m_vsrCaps;
 }
 
 // mpv's defaults, except where a binding would end mpv itself or needs a Lua
@@ -810,11 +816,14 @@ void MpvTarget::setHardwareDecoding(bool enabled)
     emitStats();
 }
 
-// An upscaler's shader (FSR or SGSR), sized for 'targetHeight' (0 = the size
+// An upscaler's shader (FSR, SGSR, CAS or Anime4K), sized for 'targetHeight' (0 = the size
 // the video is shown at), as an mpv shader file. Null if it cannot be written.
 std::unique_ptr<QTemporaryFile> MpvTarget::writeShader(Upscaler upscaler, int targetHeight)
 {
-    const QString name = upscaler == Upscaler::Sgsr ? QStringLiteral("sgsr1") : QStringLiteral("fsr1");
+    const QString name = upscaler == Upscaler::Sgsr    ? QStringLiteral("sgsr1")
+                       : upscaler == Upscaler::Cas     ? QStringLiteral("cas")
+                       : upscaler == Upscaler::Anime4k ? QStringLiteral("anime4k_upscale_s")
+                                                       : QStringLiteral("fsr1");
     QFile source(QStringLiteral(":/cj/shaders/%1.glsl").arg(name));
     if (!source.open(QIODevice::ReadOnly))
         return nullptr;
@@ -831,6 +840,11 @@ std::unique_ptr<QTemporaryFile> MpvTarget::writeShader(Upscaler upscaler, int ta
         when = h + " LUMA.h / 1.0 >";
         width = "LUMA.w " + h + " * LUMA.h /";
         height = h;
+    }
+    if (upscaler == Upscaler::Anime4k) {
+        // It hooks MAIN and doubles; it is worth running from 1.2x up.
+        when = targetHeight <= 0 ? QByteArray("OUTPUT.w MAIN.w / 1.200 > OUTPUT.h MAIN.h / 1.200 > *")
+                                 : QByteArray::number(targetHeight) + " MAIN.h / 1.200 >";
     }
     text.replace("@WHEN@", when).replace("@WIDTH@", width).replace("@HEIGHT@", height);
 
@@ -1181,6 +1195,8 @@ QString MpvTarget::upscalerLabel() const
     case Upscaler::Off:       return QStringLiteral("off");
     case Upscaler::Fsr:       name = QStringLiteral("AMD FSR 1"); break;
     case Upscaler::Sgsr:      name = QStringLiteral("Snapdragon GSR"); break;
+    case Upscaler::Cas:       name = QStringLiteral("AMD CAS"); break;
+    case Upscaler::Anime4k:   name = QStringLiteral("Anime4K"); break;
     case Upscaler::NvidiaVsr: name = QStringLiteral("NVIDIA VSR"); break;
     case Upscaler::IntelVsr:  name = QStringLiteral("Intel VSR"); break;
     }

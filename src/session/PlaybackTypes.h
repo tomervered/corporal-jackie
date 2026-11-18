@@ -51,13 +51,15 @@ enum class Capability : unsigned {
     UpscaleNvidiaVsr = 1u << 13,  // NVIDIA RTX Video Super Resolution
     UpscaleIntelVsr  = 1u << 14,  // Intel Video Super Resolution
     UpscaleSgsr      = 1u << 16,  // Snapdragon GSR 1 shader: any GPU, lighter than FSR
+    UpscaleCas       = 1u << 17,  // AMD CAS shader (sharpen while scaling): any GPU, light
+    UpscaleAnime4k   = 1u << 18,  // Anime4K (S) shaders: any GPU, for cartoons
 };
 Q_ENUM_NS(Capability)
 Q_DECLARE_FLAGS(Capabilities, Capability)
 
 // How the picture is made bigger than the video's own size. Off is the
 // player's normal scaler and costs nothing extra.
-enum class Upscaler { Off, Fsr, NvidiaVsr, IntelVsr, Sgsr };
+enum class Upscaler { Off, Fsr, NvidiaVsr, IntelVsr, Sgsr, Cas, Anime4k };
 Q_ENUM_NS(Upscaler)
 
 // Where a streamed item (a torrent) is, for the buffering display. Local

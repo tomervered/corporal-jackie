@@ -7,9 +7,10 @@ add_library(cj_targets STATIC
     SleepBlocker.cpp SleepBlocker.h
     GraphicsCards.cpp GraphicsCards.h
 )
-# AMD FSR 1 (MIT) and Snapdragon GSR 1 (BSD-3-Clause), ported to mpv user
-# shaders; see each file's header.
-qt_add_resources(cj_targets "cj_shaders" PREFIX "/cj" FILES shaders/fsr1.glsl shaders/sgsr1.glsl)
+# AMD FSR 1 and CAS (MIT), Snapdragon GSR 1 (BSD-3-Clause) and Anime4K (MIT)
+# as mpv user shaders; see each file's header.
+qt_add_resources(cj_targets "cj_shaders" PREFIX "/cj" FILES
+    shaders/fsr1.glsl shaders/sgsr1.glsl shaders/cas.glsl shaders/anime4k_upscale_s.glsl)
 target_include_directories(cj_targets PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(cj_targets
     PUBLIC  cj_common cj_session Qt6::Core Qt6::Network Qt6::Quick Qt6::OpenGL

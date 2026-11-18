@@ -659,7 +659,7 @@ void Session::applyTargetSetting(const QString& name, const QVariant& value)
     else if (name == QLatin1String("upscaler")) {
         const QString wanted = value.toString();
         Upscaler u = Upscaler::Off;
-        for (const Upscaler candidate : {Upscaler::Sgsr, Upscaler::Fsr, Upscaler::NvidiaVsr, Upscaler::IntelVsr})
+        for (const Upscaler candidate : {Upscaler::Sgsr, Upscaler::Cas, Upscaler::Fsr, Upscaler::Anime4k, Upscaler::NvidiaVsr, Upscaler::IntelVsr})
             if (upscalerName(candidate) == wanted)
                 u = candidate;
         update(m_upscaler, u, &Session::upscalerChanged, this);
@@ -685,7 +685,9 @@ struct UpscalerInfo {
 };
 constexpr UpscalerInfo kUpscalers[] = {
     {Upscaler::Sgsr,      "sgsr",   Capability::UpscaleSgsr},  // lightest first
+    {Upscaler::Cas,       "cas",    Capability::UpscaleCas},
     {Upscaler::Fsr,       "fsr",    Capability::UpscaleFsr},
+    {Upscaler::Anime4k,   "anime4k", Capability::UpscaleAnime4k},
     {Upscaler::NvidiaVsr, "nvidia", Capability::UpscaleNvidiaVsr},
     {Upscaler::IntelVsr,  "intel",  Capability::UpscaleIntelVsr},
 };

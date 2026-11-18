@@ -191,9 +191,21 @@ private slots:
         QVERIFY(!QFile::exists(fixed));
         QTRY_COMPARE_WITH_TIMEOUT(s.stats().value(QStringLiteral("Upscaler")).toString(), QStringLiteral("Snapdragon GSR to 1440p"), 5000);
 
+        // CAS and Anime4K: their own files; Anime4K gets only its WHEN.
+        s.setUpscaler(QStringLiteral("cas"));
+        QTRY_VERIFY_WITH_TIMEOUT(shaders(target).size() == 1 && shaders(target).first() != light, 5000);
+        QVERIFY(readFile(shaders(target).first()).contains("AMD CAS"));
+        QVERIFY(!QFile::exists(light));
+        s.setUpscaler(QStringLiteral("anime4k"));
+        QTRY_VERIFY_WITH_TIMEOUT(shaders(target).size() == 1 && readFile(shaders(target).first()).contains("Anime4K"), 5000);
+        text = readFile(shaders(target).first());
+        QCOMPARE(text.count("//!WHEN 1440 MAIN.h / 1.200 >\n"), 5);
+        QVERIFY(!text.contains("@WHEN@"));
+        const QString cartoon = shaders(target).first();
+
         s.setUpscaler(QStringLiteral("off"));
         QTRY_VERIFY_WITH_TIMEOUT(shaders(target).isEmpty(), 5000);
-        QVERIFY(!QFile::exists(light));
+        QVERIFY(!QFile::exists(cartoon));
         QCOMPARE(s.stats().value(QStringLiteral("Upscaler")).toString(), QStringLiteral("off"));
     }
 

@@ -141,7 +141,7 @@ private:
     int m_outHeight = 0;          // height after the video filters (video-out-params/h)
     QString m_upscalerStatus;     // the line last sent by upscalerStatusChanged
     QTimer* m_vsrTimer = nullptr; // re-sizes the filter once a resize settles
-    // The upscaler's shader (FSR or SGSR) with its sizes filled in, written
+    // The upscaler's shader (FSR, SGSR, CAS or Anime4K) with its sizes filled in, written
     // out when it is picked and removed when it is turned off: mpv loads shaders from files
     // (and caches them by name, so each size gets a new file).
     std::unique_ptr<QTemporaryFile> m_shaderFile;

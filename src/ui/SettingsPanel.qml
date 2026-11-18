@@ -207,7 +207,7 @@ Rectangle {
             Note {
                 visible: session.upscalers.length > 1
                 text: session.upscaler === "off"
-                      ? "Sharpens videos smaller than your screen. Snapdragon GSR is the lightest, for weak graphics chips; AMD FSR is sharper. Off uses no extra memory or graphics power."
+                      ? "Sharpens videos smaller than your screen. Snapdragon GSR and AMD CAS are the lightest, for weak graphics chips; AMD FSR is sharper; Anime4K is for cartoons and anime. Off uses no extra memory or graphics power."
                       : "Uses extra graphics power while a video plays. Turn it off if playback stutters on this computer."
             }
             Note { text: "Press I while playing to see dropped and late frames." }
