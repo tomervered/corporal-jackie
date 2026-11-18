@@ -234,5 +234,14 @@ Rectangle {
             text: controlBar.fullScreen ? "Exit full screen" : "Full screen"
             onClicked: controlBar.fullScreenRequested()
         }
+        // Stops the video and lets go of it (the player's file, buffer and
+        // stream), back to the pages. Q does the same.
+        BarButton {
+            objectName: "closeVideo"
+            text: "Close"
+            ToolTip.visible: hovered
+            ToolTip.text: "Close the video (Q)"
+            onClicked: session.stop()
+        }
     }
 }
