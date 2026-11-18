@@ -25,7 +25,7 @@ Every target implements `cj::PlaybackTarget` (`src/session/PlaybackTarget.h`). T
 | `addExternalSubtitle(url)` | Load a subtitle file and select it. It appears in the next `tracksChanged`. |
 | `addSubtitleTrack(subtitle)` | Add a subtitle (URL, language, label) as a track to pick. Allowed while loading: the target keeps it until the item is loaded, and its usual rules may then show it, the way players show a subtitle next to a video. Added after loading, it is not switched on. |
 | `setSpeed(factor)` | Playback speed. |
-| `setVolume(0–100)` / `setMuted(bool)` | Output volume and mute. |
+| `setVolume(0–130)` / `setMuted(bool)` | Output volume and mute. |
 
 ### Optional commands (behind a capability)
 
