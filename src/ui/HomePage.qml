@@ -84,6 +84,10 @@ Flickable {
                 loading: entry.loading
                 error: entry.error
                 canSeeAll: true
+                // Within half a screen of the view. (Every row made its tiles
+                // and kept their posters, about 2.5 MB a row.)
+                near: y + height >= homePage.contentY - homePage.height / 2
+                      && y <= homePage.contentY + homePage.height * 1.5
                 onOpened: i => nav.openItem(() => browser.openRowItem(false, index, i))
                 onSeeAll: { browser.openCatalog(entry.catalog); nav.discoverType = ""; nav.go("discover") }
                 onFocusedIn: nav.reveal(homePage, homeRow)

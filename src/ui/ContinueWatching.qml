@@ -70,7 +70,7 @@ ListView {
                 anchors.fill: parent
                 source: tile.modelData.poster
                 fillMode: Image.PreserveAspectCrop
-                sourceSize.width: row.tileWidth * 2
+                sourceSize.width: Math.ceil(row.tileWidth * Screen.devicePixelRatio)
                 asynchronous: true
             }
             // How far in
