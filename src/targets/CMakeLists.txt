@@ -22,4 +22,10 @@ endif()
 
 if(APPLE)
     target_link_libraries(cj_targets PRIVATE "-framework IOKit" "-framework CoreFoundation")
+    # Apple MetalFX upscaling. MetalFX is weak-linked: on macOS 12 the
+    # option is simply not offered.
+    target_sources(cj_targets PRIVATE MetalFxUpscaler.mm MetalFxUpscaler.h)
+    set_source_files_properties(MetalFxUpscaler.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+    target_link_libraries(cj_targets PRIVATE
+        "-framework Metal" "-framework IOSurface" "-framework OpenGL" "-weak_framework MetalFX")
 endif()

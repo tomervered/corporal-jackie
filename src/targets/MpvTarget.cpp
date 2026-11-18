@@ -20,6 +20,9 @@
 #include <utility>
 #include <vector>
 
+#ifdef Q_OS_MACOS
+#include "MetalFxUpscaler.h"
+#endif
 
 namespace cj {
 namespace {
@@ -251,8 +254,14 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
         setOption(m_mpv, "ao", "null");
     }
     setOption(m_mpv, "hwdec", kHwdecOn);
-    if (mode == Mode::Video)
+    if (mode == Mode::Video) {
         m_vsrCaps = GraphicsCards::activeVsr();
+#ifdef Q_OS_MACOS
+        if (MetalFxUpscaler::available())
+            m_vsrCaps |= Capability::UpscaleMetalFx;
+        qCInfo(lcTargets) << "MetalFX upscaling" << (MetalFxUpscaler::available() ? "available" : "not available");
+#endif
+    }
     m_vsrTimer = new QTimer(this);
     m_vsrTimer->setSingleShot(true);
     m_vsrTimer->setInterval(400);  // a window being resized settles first
@@ -877,6 +886,8 @@ void MpvTarget::setUpscaler(Upscaler upscaler, int targetHeight)
     } else if (isVsr(upscaler) && m_vsrCaps.testFlag(upscaler == Upscaler::NvidiaVsr ? Capability::UpscaleNvidiaVsr
                                                                                       : Capability::UpscaleIntelVsr)) {
         m_upscaler = upscaler;
+    } else if (upscaler == Upscaler::MetalFx && m_vsrCaps.testFlag(Capability::UpscaleMetalFx)) {
+        m_upscaler = upscaler;  // the video surface does the work (MpvVideoItem)
     } else if (upscaler != Upscaler::Off) {
         qCWarning(lcTargets) << "Upscaler" << int(upscaler) << "is not available here";
     }
@@ -904,6 +915,12 @@ void MpvTarget::applyVsrFilter()
     if (!filter.isEmpty())
         qCInfo(lcTargets).noquote() << "Video filter:" << filter;
     updateUpscalerStatus();
+}
+
+void MpvTarget::renderUpscalerFailed()
+{
+    if (m_upscaler == Upscaler::MetalFx)
+        turnUpscalerOff(QStringLiteral("MetalFX failed on this Mac"));
 }
 
 void MpvTarget::turnUpscalerOff(const QString& why)
@@ -1199,6 +1216,7 @@ QString MpvTarget::upscalerLabel() const
     case Upscaler::Anime4k:   name = QStringLiteral("Anime4K"); break;
     case Upscaler::NvidiaVsr: name = QStringLiteral("NVIDIA VSR"); break;
     case Upscaler::IntelVsr:  name = QStringLiteral("Intel VSR"); break;
+    case Upscaler::MetalFx:   name = QStringLiteral("Apple MetalFX"); break;
     }
     return name + (m_upscaleHeight > 0 ? QStringLiteral(" to %1p").arg(m_upscaleHeight) : QStringLiteral(" to window size"));
 }
