@@ -20,7 +20,7 @@ runs:
         } >> "$GITHUB_ENV"
     # A new entry each run (the key changes with the commit); the newest
     # earlier one, from this branch or from main, is the starting point.
-    - uses: actions/cache@v4
+    - uses: actions/cache@v6
       with:
         path: ${{ github.workspace }}/.ccache
         key: ccache-${{ inputs.name }}-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
