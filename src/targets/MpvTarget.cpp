@@ -486,10 +486,13 @@ void MpvTarget::startLoad(const QByteArray& target, const QString& shown, double
         // broker's (minutes ahead, on disk or in RAM) and a local file needs
         // none: 256 MB there was a second copy of what the broker holds
         // (measured 2026-11-14 on a 1080p torrent in disk mode: the app held
-        // 810 MB with 256 MB, 590 MB with 64 MB).
+        // 810 MB with 256 MB, 590 MB with 64 MB). Nor does a back buffer
+        // help there: going back re-reads from the disk at once, and at 4K
+        // 32 MB was under 10 s, so a step back missed it anyway (a 4K file
+        // measured 2026-11-18 on Linux: 1005 MB with 64 + 32 MB, 946 with 32 + 0).
         const bool web = target.startsWith("http") || target.startsWith("cjhttp");
-        mpv_set_property_string(m_mpv, "demuxer-max-bytes", web ? "256MiB" : "64MiB");
-        mpv_set_property_string(m_mpv, "demuxer-max-back-bytes", web ? "64MiB" : "32MiB");
+        mpv_set_property_string(m_mpv, "demuxer-max-bytes", web ? "256MiB" : "32MiB");
+        mpv_set_property_string(m_mpv, "demuxer-max-back-bytes", web ? "64MiB" : "0");
     }
     applyReferencePolicy(target);
     ++m_loadsInFlight;
