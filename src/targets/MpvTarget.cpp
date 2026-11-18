@@ -159,6 +159,8 @@ constexpr const char* kHwdecOn = "auto-safe";
 #endif
 
 bool isVsr(Upscaler u) { return u == Upscaler::NvidiaVsr || u == Upscaler::IntelVsr; }
+// The upscalers that are mpv shader files (any GPU).
+bool isShader(Upscaler u) { return u == Upscaler::Fsr || u == Upscaler::Sgsr; }
 
 
 } // namespace
@@ -200,6 +202,7 @@ QString upscalerName(Upscaler u)
 {
     switch (u) {
     case Upscaler::Fsr:       return QStringLiteral("AMD FSR 1");
+    case Upscaler::Sgsr:      return QStringLiteral("Snapdragon GSR");
     case Upscaler::NvidiaVsr: return QStringLiteral("NVIDIA VSR");
     case Upscaler::IntelVsr:  return QStringLiteral("Intel VSR");
     default:                  return {};
@@ -214,7 +217,7 @@ QString MpvTarget::upscalerStatus(Upscaler upscaler, int videoHeight, int target
         return {};
     if (target > 0 && target <= videoHeight)
         return QStringLiteral("%1 idle · the video is already %2p").arg(name).arg(videoHeight);
-    if (upscaler == Upscaler::Fsr)
+    if (isShader(upscaler))
         return target > 0 ? QStringLiteral("%1 on · %2p → %3p").arg(name).arg(videoHeight).arg(target)
                           : QStringLiteral("%1 on · %2p → screen size").arg(name).arg(videoHeight);
     // VSR: only the size of the frames the filter hands on shows that the
@@ -382,7 +385,7 @@ Capabilities MpvTarget::capabilities() const
          | Capability::Chapters | Capability::FrameStep | Capability::Screenshot
          | Capability::AbLoop | Capability::AspectRatio | Capability::Crop
          | Capability::VideoEqualizer | Capability::HardwareDecoding | Capability::NativeKeys
-         | Capability::UpscaleFsr | m_vsrCaps;
+         | Capability::UpscaleFsr | Capability::UpscaleSgsr | m_vsrCaps;
 }
 
 // mpv's defaults, except where a binding would end mpv itself or needs a Lua
@@ -807,11 +810,12 @@ void MpvTarget::setHardwareDecoding(bool enabled)
     emitStats();
 }
 
-// The FSR shader, sized for 'targetHeight' (0 = the size the video is shown
-// at), as an mpv shader file. Null if it cannot be written.
-std::unique_ptr<QTemporaryFile> MpvTarget::writeFsrShader(int targetHeight)
+// An upscaler's shader (FSR or SGSR), sized for 'targetHeight' (0 = the size
+// the video is shown at), as an mpv shader file. Null if it cannot be written.
+std::unique_ptr<QTemporaryFile> MpvTarget::writeShader(Upscaler upscaler, int targetHeight)
 {
-    QFile source(QStringLiteral(":/cj/shaders/fsr1.glsl"));
+    const QString name = upscaler == Upscaler::Sgsr ? QStringLiteral("sgsr1") : QStringLiteral("fsr1");
+    QFile source(QStringLiteral(":/cj/shaders/%1.glsl").arg(name));
     if (!source.open(QIODevice::ReadOnly))
         return nullptr;
     // mpv reads "//!" lines up to '\n'; a '\r' from a Windows checkout would
@@ -830,7 +834,7 @@ std::unique_ptr<QTemporaryFile> MpvTarget::writeFsrShader(int targetHeight)
     }
     text.replace("@WHEN@", when).replace("@WIDTH@", width).replace("@HEIGHT@", height);
 
-    auto file = std::make_unique<QTemporaryFile>(QDir::tempPath() + QStringLiteral("/cj-fsr1-XXXXXX.glsl"));
+    auto file = std::make_unique<QTemporaryFile>(QDir::tempPath() + QStringLiteral("/cj-%1-XXXXXX.glsl").arg(name));
     if (!file->open() || file->write(text) != text.size() || !file->flush())
         return nullptr;
     file->close();  // the file stays until the object goes
@@ -846,15 +850,15 @@ void MpvTarget::setUpscaler(Upscaler upscaler, int targetHeight)
     command({"change-list", "glsl-shaders", "clr", ""});
     m_upscaler = Upscaler::Off;
     m_upscaleHeight = targetHeight;
-    if (upscaler == Upscaler::Fsr) {
+    if (isShader(upscaler)) {
         // Kept until mpv has dropped it: the new file replaces it below.
-        std::unique_ptr<QTemporaryFile> file = writeFsrShader(targetHeight);
+        std::unique_ptr<QTemporaryFile> file = writeShader(upscaler, targetHeight);
         if (file) {
             command({"change-list", "glsl-shaders", "append", file->fileName().toUtf8().constData()});
-            m_fsrShader = std::move(file);
-            m_upscaler = Upscaler::Fsr;
+            m_shaderFile = std::move(file);
+            m_upscaler = upscaler;
         } else {
-            qCWarning(lcTargets) << "Could not write the FSR shader; upscaling stays off";
+            qCWarning(lcTargets) << "Could not write the upscaler's shader; upscaling stays off";
         }
     } else if (isVsr(upscaler) && m_vsrCaps.testFlag(upscaler == Upscaler::NvidiaVsr ? Capability::UpscaleNvidiaVsr
                                                                                       : Capability::UpscaleIntelVsr)) {
@@ -862,8 +866,8 @@ void MpvTarget::setUpscaler(Upscaler upscaler, int targetHeight)
     } else if (upscaler != Upscaler::Off) {
         qCWarning(lcTargets) << "Upscaler" << int(upscaler) << "is not available here";
     }
-    if (m_upscaler != Upscaler::Fsr)
-        m_fsrShader.reset();
+    if (!isShader(m_upscaler))
+        m_shaderFile.reset();
 
     // VSR decodes into Direct3D 11 frames, so the filter can work on them.
     if (isVsr(m_upscaler) != wasVsr && m_hwdecEnabled)
@@ -978,11 +982,11 @@ void MpvTarget::processEvents()
             // leave a broken picture: fall back to mpv's own scaling.
             // (The renderer logs as "vo/..." or, through the render API, "libmpv_render".)
             const bool problem = msg->log_level <= MPV_LOG_LEVEL_WARN;
-            if (problem && m_upscaler == Upscaler::Fsr
+            if (problem && isShader(m_upscaler)
                 && (qstrncmp(msg->prefix, "vo", 2) == 0 || qstrncmp(msg->prefix, "libmpv_render", 13) == 0)
                 && (text.contains(QLatin1String("shader"), Qt::CaseInsensitive)
                     || text.contains(QLatin1String("error"), Qt::CaseInsensitive)))
-                turnUpscalerOff(QStringLiteral("The FSR shader failed on this graphics driver"));
+                turnUpscalerOff(QStringLiteral("The upscaler's shader failed on this graphics driver"));
             // The same for VSR: the driver refused it, or the filter could
             // not start (no Direct3D 11 device: another GPU drives the window).
             if (problem && isVsr(m_upscaler)
@@ -1176,6 +1180,7 @@ QString MpvTarget::upscalerLabel() const
     switch (m_upscaler) {
     case Upscaler::Off:       return QStringLiteral("off");
     case Upscaler::Fsr:       name = QStringLiteral("AMD FSR 1"); break;
+    case Upscaler::Sgsr:      name = QStringLiteral("Snapdragon GSR"); break;
     case Upscaler::NvidiaVsr: name = QStringLiteral("NVIDIA VSR"); break;
     case Upscaler::IntelVsr:  name = QStringLiteral("Intel VSR"); break;
     }

@@ -117,7 +117,9 @@ Rectangle {
             color: Theme.text
             font.pixelSize: 14
         }
-        Row {
+        // Wraps when the choices do not fit on one line.
+        Flow {
+            width: parent.width
             spacing: 4
             Repeater {
                 model: choice.options
@@ -205,7 +207,7 @@ Rectangle {
             Note {
                 visible: session.upscalers.length > 1
                 text: session.upscaler === "off"
-                      ? "Sharpens videos smaller than your screen. Off uses no extra memory or graphics power."
+                      ? "Sharpens videos smaller than your screen. Snapdragon GSR is the lightest, for weak graphics chips; AMD FSR is sharper. Off uses no extra memory or graphics power."
                       : "Uses extra graphics power while a video plays. Turn it off if playback stutters on this computer."
             }
             Note { text: "Press I while playing to see dropped and late frames." }

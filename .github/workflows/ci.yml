@@ -533,6 +533,7 @@ jobs:
           ./dist/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test
           # The FSR shader on Apple's OpenGL, playing the test clip.
           CJ_SMOKE_UPSCALER=fsr ./dist/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test tests/data/testsrc-10s.mkv
+          CJ_SMOKE_UPSCALER=sgsr ./dist/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test tests/data/testsrc-10s.mkv
           cp LICENSE dist/LICENSE.txt
           packaging/macos/collect-licenses.sh dist "$CJ_LT_PREFIX"
           ditto -c -k --keepParent dist CorporalJackie-macos-arm64.zip
@@ -605,6 +606,11 @@ jobs:
       - name: Smoke test with the FSR upscaler
         env:
           CJ_SMOKE_UPSCALER: fsr
+        run: xvfb-run -a -s "-screen 0 1280x720x24" ./build/src/app/CorporalJackie --smoke-test tests/data/testsrc-10s.mkv
+
+      - name: Smoke test with the Snapdragon GSR upscaler
+        env:
+          CJ_SMOKE_UPSCALER: sgsr
         run: xvfb-run -a -s "-screen 0 1280x720x24" ./build/src/app/CorporalJackie --smoke-test tests/data/testsrc-10s.mkv
 
   sanitizers:

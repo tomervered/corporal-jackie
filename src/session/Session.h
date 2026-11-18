@@ -55,7 +55,7 @@ class Session : public QObject
     Q_PROPERTY(int gamma READ gamma NOTIFY equalizerChanged)
     Q_PROPERTY(int hue READ hue NOTIFY equalizerChanged)
     Q_PROPERTY(bool hardwareDecoding READ hardwareDecoding WRITE setHardwareDecoding NOTIFY hardwareDecodingChanged)
-    // "off", "fsr", "nvidia" or "intel"; upscalers lists the ones this target can run.
+    // "off", "sgsr", "fsr", "nvidia" or "intel"; upscalers lists the ones this target can run.
     Q_PROPERTY(QString upscaler READ upscaler WRITE setUpscaler NOTIFY upscalerChanged)
     Q_PROPERTY(QStringList upscalers READ upscalers CONSTANT)
     // The height to upscale to, in pixels; 0 = the size the video is shown at.

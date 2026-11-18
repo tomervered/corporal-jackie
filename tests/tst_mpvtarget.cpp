@@ -181,9 +181,19 @@ private slots:
         QVERIFY(!QFile::exists(screenSized));
         QTRY_COMPARE_WITH_TIMEOUT(s.stats().value(QStringLiteral("Upscaler")).toString(), QStringLiteral("AMD FSR 1 to 1440p"), 5000);
 
+        // SGSR, the light one: its own file, the same sizes.
+        s.setUpscaler(QStringLiteral("sgsr"));
+        QTRY_VERIFY_WITH_TIMEOUT(shaders(target).size() == 1 && shaders(target).first() != fixed, 5000);
+        const QString light = shaders(target).first();
+        text = readFile(light);
+        QVERIFY(text.contains("Snapdragon GSR 1"));
+        QVERIFY(text.contains("//!HEIGHT 1440\n"));
+        QVERIFY(!QFile::exists(fixed));
+        QTRY_COMPARE_WITH_TIMEOUT(s.stats().value(QStringLiteral("Upscaler")).toString(), QStringLiteral("Snapdragon GSR to 1440p"), 5000);
+
         s.setUpscaler(QStringLiteral("off"));
         QTRY_VERIFY_WITH_TIMEOUT(shaders(target).isEmpty(), 5000);
-        QVERIFY(!QFile::exists(fixed));
+        QVERIFY(!QFile::exists(light));
         QCOMPARE(s.stats().value(QStringLiteral("Upscaler")).toString(), QStringLiteral("off"));
     }
 
@@ -230,6 +240,7 @@ private slots:
         QCOMPARE(status(Upscaler::NvidiaVsr, 2160, 1440, 2160, false), QStringLiteral("NVIDIA VSR idle · the video is already 2160p"));
         QCOMPARE(status(Upscaler::Fsr, 720, 1440, 720, false), QStringLiteral("AMD FSR 1 on · 720p → 1440p"));
         QCOMPARE(status(Upscaler::Fsr, 720, 0, 720, false), QStringLiteral("AMD FSR 1 on · 720p → screen size"));
+        QCOMPARE(status(Upscaler::Sgsr, 720, 1440, 720, false), QStringLiteral("Snapdragon GSR on · 720p → 1440p"));
         QCOMPARE(status(Upscaler::Off, 720, 1440, 720, false), QString());
         QCOMPARE(status(Upscaler::NvidiaVsr, 0, 1440, 0, true), QString());  // no video yet
     }
