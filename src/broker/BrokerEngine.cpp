@@ -65,6 +65,11 @@ Engine::Engine(const BrokerSettings& s)
     // Room for bursts of alerts (each finished piece is one); a dropped
     // alert costs a 2 s retry in read().
     pack.set_int(lt::settings_pack::alert_queue_size, 20000);
+    // Downloaded blocks wait in memory until the disk thread writes them
+    // and their piece is checked. libtorrent 2.1 (Windows, macOS) allows
+    // 100 MB of that by default, which a 4K torrent fills; 2.0 allowed 1 MB.
+    // 16 MB is half a second at 30 MB/s, and disk writes keep up with that.
+    pack.set_int(lt::settings_pack::max_queued_disk_bytes, 16 * 1024 * 1024);
     // More peers, sooner: announce to every tracker (not just the first that
     // answers in each tier), and open new connections faster at the start.
     pack.set_bool(lt::settings_pack::announce_to_all_tiers, true);
