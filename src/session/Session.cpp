@@ -649,6 +649,14 @@ void Session::applyTargetSetting(const QString& name, const QVariant& value)
         update(m_hardwareDecoding, value.toBool(), &Session::hardwareDecodingChanged, this);
     else if (name == QLatin1String("fullScreen"))
         update(m_fullScreen, value.toBool(), &Session::fullScreenChanged, this);
+    else if (name == QLatin1String("upscaler")) {
+        const QString wanted = value.toString();
+        Upscaler u = Upscaler::Off;
+        for (const Upscaler candidate : {Upscaler::Fsr, Upscaler::NvidiaVsr, Upscaler::IntelVsr})
+            if (upscalerName(candidate) == wanted)
+                u = candidate;
+        update(m_upscaler, u, &Session::upscalerChanged, this);
+    }
     else
         qCInfo(lcSession) << "Unknown setting from the target:" << name;
 }
@@ -660,6 +668,72 @@ void Session::setHardwareDecoding(bool enabled)
     m_hardwareDecoding = enabled;
     m_target->setHardwareDecoding(enabled);
     emit hardwareDecodingChanged();
+}
+
+namespace {
+struct UpscalerInfo {
+    Upscaler upscaler;
+    const char* name;
+    Capability capability;
+};
+constexpr UpscalerInfo kUpscalers[] = {
+    {Upscaler::Fsr,       "fsr",    Capability::UpscaleFsr},
+    {Upscaler::NvidiaVsr, "nvidia", Capability::UpscaleNvidiaVsr},
+    {Upscaler::IntelVsr,  "intel",  Capability::UpscaleIntelVsr},
+};
+} // namespace
+
+QString Session::upscalerName(Upscaler u)
+{
+    for (const UpscalerInfo& info : kUpscalers)
+        if (info.upscaler == u)
+            return QString::fromLatin1(info.name);
+    return QStringLiteral("off");
+}
+
+QStringList Session::upscalers() const
+{
+    QStringList names{QStringLiteral("off")};
+    for (const UpscalerInfo& info : kUpscalers)
+        if (m_target->supports(info.capability))
+            names << QString::fromLatin1(info.name);
+    return names;
+}
+
+void Session::setUpscaler(const QString& name)
+{
+    Upscaler wanted = Upscaler::Off;
+    if (name != QLatin1String("off")) {
+        const auto it = std::find_if(std::begin(kUpscalers), std::end(kUpscalers),
+                                     [&](const UpscalerInfo& info) { return name == QLatin1String(info.name); });
+        if (it == std::end(kUpscalers)) {
+            qCInfo(lcSession) << "Unknown upscaler:" << name;
+            return;
+        }
+        if (!require(it->capability, "This upscaler"))
+            return;
+        wanted = it->upscaler;
+    }
+    if (wanted == m_upscaler)
+        return;
+    m_upscaler = wanted;
+    m_target->setUpscaler(m_upscaler, m_upscaleHeight);
+    emit upscalerChanged();
+}
+
+void Session::setUpscaleHeight(int height)
+{
+    if (height != 0 && (height < 480 || height > 4320)) {
+        qCInfo(lcSession) << "Upscale height out of range:" << height;
+        return;
+    }
+    if (height == m_upscaleHeight)
+        return;
+    m_upscaleHeight = height;
+    // Only an upscaler that is on needs to hear about it.
+    if (m_upscaler != Upscaler::Off)
+        m_target->setUpscaler(m_upscaler, m_upscaleHeight);
+    emit upscalerChanged();
 }
 
 } // namespace cj

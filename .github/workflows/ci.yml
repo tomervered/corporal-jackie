@@ -349,6 +349,25 @@ jobs:
           Write-Host "Exit code: $($p.ExitCode)"
           exit $p.ExitCode
 
+      # The FSR shader on Mesa's OpenGL. No gpu-dumb-mode, which skips user
+      # shaders; the smoke test fails if the shader does not build.
+      - name: Run packaged app with the FSR upscaler
+        timeout-minutes: 3
+        shell: pwsh
+        env:
+          GALLIUM_DRIVER: llvmpipe
+          CJ_SMOKE_UPSCALER: fsr
+        run: |
+          $env:PATH = "$env:SystemRoot\system32;$env:SystemRoot"
+          $clip = Resolve-Path tests\data\testsrc-10s.mkv
+          $p = Start-Process -FilePath dist-test\CorporalJackie.exe -ArgumentList '--smoke-test', "`"$clip`"" -PassThru
+          $null = $p.Handle
+          if (-not $p.WaitForExit(60000)) { Stop-Process -Id $p.Id -Force; Write-Host "App did not exit within 60 s" }
+          $log = Join-Path $env:APPDATA 'Corporal Jackie\logs\corporal-jackie.log'
+          if (Test-Path $log) { Get-Content $log -Tail 60 } else { Write-Host "No log file at $log" }
+          Write-Host "Exit code: $($p.ExitCode)"
+          exit $p.ExitCode
+
       # The update flow on the real package: the test copy above as the
       # install, a next build made from this one (a changed file, a new file,
       # a higher build number), signed with a key made here and thrown away,
@@ -512,6 +531,8 @@ jobs:
           ls "$plugins"
           # The bundle ships only the cocoa platform plugin; the runner has a GUI session.
           ./dist/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test
+          # The FSR shader on Apple's OpenGL, playing the test clip.
+          CJ_SMOKE_UPSCALER=fsr ./dist/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test tests/data/testsrc-10s.mkv
           cp LICENSE dist/LICENSE.txt
           packaging/macos/collect-licenses.sh dist "$CJ_LT_PREFIX"
           ditto -c -k --keepParent dist CorporalJackie-macos-arm64.zip
@@ -576,6 +597,14 @@ jobs:
       - name: Smoke test with video
         env:
           CJ_MPV_OPTS: gpu-dumb-mode=yes
+        run: xvfb-run -a -s "-screen 0 1280x720x24" ./build/src/app/CorporalJackie --smoke-test tests/data/testsrc-10s.mkv
+
+      # The FSR upscaler's shader must build on the driver. Without
+      # gpu-dumb-mode (which skips user shaders) the picture is black on
+      # llvmpipe, but the shader is still compiled, and a failure fails this.
+      - name: Smoke test with the FSR upscaler
+        env:
+          CJ_SMOKE_UPSCALER: fsr
         run: xvfb-run -a -s "-screen 0 1280x720x24" ./build/src/app/CorporalJackie --smoke-test tests/data/testsrc-10s.mkv
 
   sanitizers:

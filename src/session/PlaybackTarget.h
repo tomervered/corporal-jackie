@@ -54,6 +54,11 @@ public:
     virtual void setCrop(const QString&) {}
     virtual void setVideoEqualizer(const VideoEqualizer&) {}
     virtual void setHardwareDecoding(bool) {}
+    // Upscale*: only called with an upscaler whose capability is listed, or
+    // Off. Off must undo the others fully, with nothing left loaded.
+    // targetHeight: the height to upscale to, in pixels; 0 = the size the
+    // video is shown at.
+    virtual void setUpscaler(Upscaler, int /*targetHeight*/) {}
     // NativeKeys: a key pressed or released over the video, as Qt names it.
     // The target runs its own binding for it. False if it has no name for
     // the key (a lone Shift, say).
@@ -79,7 +84,8 @@ signals:
     // "subtitleScale" (double); "abLoopA", "abLoopB" (seconds, -1 = unset);
     // "aspectRatio" (width/height, 0 = the file's own); "brightness",
     // "contrast", "saturation", "gamma", "hue" (int); "hardwareDecoding",
-    // "fullScreen" (bool).
+    // "fullScreen" (bool); "upscaler" (its Session name: "off" when the
+    // target had to turn one off, a driver that cannot run it, say).
     void settingChanged(const QString& name, const QVariant& value);
     // Its own key bindings asked for something only the app can do:
     // "stop" (close the video) or "stats" (show or hide the stats).

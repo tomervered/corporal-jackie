@@ -4,6 +4,7 @@
 #include <QElapsedTimer>
 #include <QObject>
 #include <QPointer>
+#include <QStringList>
 #include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
@@ -54,6 +55,11 @@ class Session : public QObject
     Q_PROPERTY(int gamma READ gamma NOTIFY equalizerChanged)
     Q_PROPERTY(int hue READ hue NOTIFY equalizerChanged)
     Q_PROPERTY(bool hardwareDecoding READ hardwareDecoding WRITE setHardwareDecoding NOTIFY hardwareDecodingChanged)
+    // "off", "fsr", "nvidia" or "intel"; upscalers lists the ones this target can run.
+    Q_PROPERTY(QString upscaler READ upscaler WRITE setUpscaler NOTIFY upscalerChanged)
+    Q_PROPERTY(QStringList upscalers READ upscalers CONSTANT)
+    // The height to upscale to, in pixels; 0 = the size the video is shown at.
+    Q_PROPERTY(int upscaleHeight READ upscaleHeight WRITE setUpscaleHeight NOTIFY upscalerChanged)
     Q_PROPERTY(bool fullScreen READ fullScreen WRITE setFullScreen NOTIFY fullScreenChanged)
     Q_PROPERTY(QVariantMap stats READ stats NOTIFY statsChanged)
     Q_PROPERTY(cj::StreamPhase streamPhase READ streamPhase NOTIFY streamStatusChanged)
@@ -105,6 +111,10 @@ public:
     int hue() const { return m_eq.hue; }
     bool hardwareDecoding() const { return m_hardwareDecoding; }
     bool fullScreen() const { return m_fullScreen; }
+    QString upscaler() const { return upscalerName(m_upscaler); }
+    QStringList upscalers() const;
+    int upscaleHeight() const { return m_upscaleHeight; }
+    static QString upscalerName(Upscaler u);
     StreamPhase streamPhase() const { return m_stream.phase; }
     int streamPercent() const { return m_stream.percent; }
     int streamPeers() const { return m_stream.peers; }
@@ -186,6 +196,10 @@ public:
     Q_INVOKABLE void resetEqualizer();
     void setHardwareDecoding(bool enabled);
     void setFullScreen(bool on);
+    // Unknown names and upscalers the target cannot run are ignored.
+    void setUpscaler(const QString& name);
+    // 0 or 480–4320; anything else is ignored.
+    void setUpscaleHeight(int height);
     // A key over the video, passed to the target's own bindings (mpv's).
     // modifiers is Qt::KeyboardModifiers. False if the target has none.
     Q_INVOKABLE bool keyEvent(int key, int modifiers, const QString& text, bool pressed);
@@ -211,6 +225,7 @@ signals:
     void equalizerChanged();
     void hardwareDecodingChanged();
     void fullScreenChanged();
+    void upscalerChanged();
     // The target's key bindings asked the window for something ("stats").
     void appActionRequested(const QString& action);
     void statsChanged();
@@ -256,6 +271,8 @@ private:
     VideoEqualizer m_eq;
     bool m_hardwareDecoding = true;
     bool m_fullScreen = false;
+    Upscaler m_upscaler = Upscaler::Off;
+    int m_upscaleHeight = 0;
     QVariantMap m_stats;
     StreamStatus m_stream;
     bool m_sourceErrorReported = false;

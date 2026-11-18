@@ -29,6 +29,26 @@ class TestMpvTarget : public QObject
 {
     Q_OBJECT
 
+    static QStringList shaders(MpvTarget& target)
+    {
+        QStringList list;
+        mpv_node node;
+        if (mpv_get_property(target.handle(), "glsl-shaders", MPV_FORMAT_NODE, &node) < 0)
+            return list;
+        if (node.format == MPV_FORMAT_NODE_ARRAY)
+            for (int i = 0; i < node.u.list->num; ++i)
+                if (node.u.list->values[i].format == MPV_FORMAT_STRING)
+                    list << QString::fromUtf8(node.u.list->values[i].u.string);
+        mpv_free_node_contents(&node);
+        return list;
+    }
+
+    static QByteArray readFile(const QString& path)
+    {
+        QFile f(path);
+        return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+    }
+
 private slots:
     void initTestCase() { std::setlocale(LC_NUMERIC, "C"); }
 
@@ -132,6 +152,38 @@ private slots:
         s.setEqualizer(QStringLiteral("contrast"), 20);
         s.play();
         QTRY_COMPARE_WITH_TIMEOUT(s.state(), PlaybackState::Playing, 5000);
+    }
+
+    // FSR is a shader file mpv loads; off must leave nothing loaded or on disk.
+    void upscalerLoadsAndUnloadsTheShader()
+    {
+        MpvTarget target(MpvTarget::Mode::Headless);
+        Session s(&target);
+        QVERIFY(s.upscalers().contains(QStringLiteral("fsr")));
+        QVERIFY(shaders(target).isEmpty());
+
+        s.setUpscaler(QStringLiteral("fsr"));
+        QTRY_COMPARE_WITH_TIMEOUT(shaders(target).size(), 1, 5000);
+        const QString screenSized = shaders(target).first();
+        QByteArray text = readFile(screenSized);
+        QVERIFY(text.contains("FSR 1 EASU"));
+        QVERIFY(text.contains("//!WIDTH OUTPUT.w\n"));
+        QVERIFY(!text.contains("@WHEN@") && !text.contains("@WIDTH@") && !text.contains("@HEIGHT@"));
+
+        s.setUpscaleHeight(1440);
+        QTRY_VERIFY_WITH_TIMEOUT(shaders(target).size() == 1 && shaders(target).first() != screenSized, 5000);
+        const QString fixed = shaders(target).first();
+        text = readFile(fixed);
+        QVERIFY(text.contains("//!WHEN 1440 LUMA.h / 1.0 >\n"));
+        QVERIFY(text.contains("//!WIDTH LUMA.w 1440 * LUMA.h /\n"));
+        QVERIFY(text.contains("//!HEIGHT 1440\n"));
+        QVERIFY(!QFile::exists(screenSized));
+        QTRY_COMPARE_WITH_TIMEOUT(s.stats().value(QStringLiteral("Upscaler")).toString(), QStringLiteral("AMD FSR 1 to 1440p"), 5000);
+
+        s.setUpscaler(QStringLiteral("off"));
+        QTRY_VERIFY_WITH_TIMEOUT(shaders(target).isEmpty(), 5000);
+        QVERIFY(!QFile::exists(fixed));
+        QCOMPARE(s.stats().value(QStringLiteral("Upscaler")).toString(), QStringLiteral("off"));
     }
 
     // Qt's keys as mpv's input.conf names them.

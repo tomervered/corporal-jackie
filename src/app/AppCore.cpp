@@ -28,6 +28,8 @@ namespace cj {
 
 namespace {
 const QString kHwdec = QStringLiteral("playback/hwdec");
+const QString kUpscaler = QStringLiteral("playback/upscaler");
+const QString kUpscaleHeight = QStringLiteral("playback/upscaleHeight");
 const QString kSubtitleStyle = QStringLiteral("subtitles/style");
 const QString kSubtitleScale = QStringLiteral("subtitles/scale");
 const QString kCinemetaRetired = QStringLiteral("addons/cinemetaRetired");
@@ -196,17 +198,24 @@ void AppCore::syncDefaultAddon(bool on)
         m_addons->uninstall(id);
 }
 
-// Hardware decoding and the subtitle look, kept between runs.
+// Hardware decoding, the upscaler and the subtitle look, kept between runs.
+// An upscaler this computer can no longer run (a new graphics card) stays off.
 void AppCore::restorePlaybackSettings()
 {
     Session* session = m_session.get();
     Storage* storage = m_storage.get();
     session->setHardwareDecoding(storage->setting(kHwdec, true).toBool());
+    session->setUpscaleHeight(storage->setting(kUpscaleHeight, 0).toInt());
+    session->setUpscaler(storage->setting(kUpscaler, QStringLiteral("off")).toString());
     session->setSubtitleStyle(styleFromMap(storage->setting(kSubtitleStyle).toMap()));
     session->setSubtitleScale(storage->setting(kSubtitleScale, 1.0).toDouble());
 
     connect(session, &Session::hardwareDecodingChanged, this,
             [session, storage] { storage->setSetting(kHwdec, session->hardwareDecoding()); });
+    connect(session, &Session::upscalerChanged, this, [session, storage] {
+        storage->setSetting(kUpscaler, session->upscaler());
+        storage->setSetting(kUpscaleHeight, session->upscaleHeight());
+    });
     connect(session, &Session::subtitleStyleChanged, this,
             [session, storage] { storage->setSetting(kSubtitleStyle, styleToMap(session->subtitleStyle())); });
     connect(session, &Session::subtitleScaleChanged, this,

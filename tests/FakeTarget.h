@@ -25,7 +25,8 @@ public:
                              Capability::Chapters, Capability::FrameStep, Capability::Screenshot,
                              Capability::AbLoop, Capability::AspectRatio, Capability::Crop,
                              Capability::VideoEqualizer, Capability::HardwareDecoding,
-                             Capability::NativeKeys})
+                             Capability::NativeKeys, Capability::UpscaleFsr,
+                             Capability::UpscaleNvidiaVsr})  // no Intel VSR, to test hiding
             c |= x;
         return c;
     }
@@ -73,6 +74,7 @@ public:
         log("equalizer", e.brightness, e.contrast, e.saturation, e.gamma, e.hue);
     }
     void setHardwareDecoding(bool on) override { log("hwdec", on); }
+    void setUpscaler(Upscaler u, int height) override { log("upscaler", int(u), height); }
     bool keyEvent(int key, Qt::KeyboardModifiers m, const QString&, bool pressed) override
     {
         log(pressed ? "keydown" : "keyup", key, int(m));

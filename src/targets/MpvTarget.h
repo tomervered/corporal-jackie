@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <memory>
 
+class QTemporaryFile;
+
 struct mpv_handle;
 struct mpv_event_property;
 struct mpv_node;
@@ -68,6 +70,7 @@ public:
     void setCrop(const QString& ratio) override;
     void setVideoEqualizer(const VideoEqualizer& eq) override;
     void setHardwareDecoding(bool enabled) override;
+    void setUpscaler(Upscaler upscaler, int targetHeight) override;
     bool keyEvent(int key, Qt::KeyboardModifiers modifiers, const QString& text, bool pressed) override;
     void setFullScreen(bool on) override;
 
@@ -90,6 +93,8 @@ private:
     void applyCrop();
     void bindAppKeys();
     void emitStats();
+    QString upscalerLabel() const;
+    static std::unique_ptr<QTemporaryFile> writeFsrShader(int targetHeight);
     static QList<Track> parseTracks(const ::mpv_node* node);
     static QList<Chapter> parseChapters(const ::mpv_node* node);
 
@@ -113,6 +118,12 @@ private:
     double m_volume = 100;
     bool m_muted = false;
     bool m_hwdecEnabled = true;
+    Upscaler m_upscaler = Upscaler::Off;
+    int m_upscaleHeight = 0;
+    // The FSR shader with its sizes filled in, written out when FSR is
+    // picked and removed when it is turned off: mpv loads shaders from files
+    // (and caches them by name, so each size gets a new file).
+    std::unique_ptr<QTemporaryFile> m_fsrShader;
     bool m_pausedForCache = false;
     int m_cachePercent = 100;
     QString m_cropRatio;
