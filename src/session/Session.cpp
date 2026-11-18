@@ -109,6 +109,13 @@ Session::Session(PlaybackTarget* target, QObject* parent)
     });
     connect(target, &PlaybackTarget::screenshotSaved, this, &Session::screenshotSaved);
     connect(target, &PlaybackTarget::settingChanged, this, &Session::applyTargetSetting);
+    connect(target, &PlaybackTarget::upscalerStatusChanged, this, [this](const QString& status, bool problem) {
+        if (status == m_upscalerStatus && problem == m_upscalerProblem)
+            return;
+        m_upscalerStatus = status;
+        m_upscalerProblem = problem;
+        emit upscalerStatusChanged();
+    });
     connect(target, &PlaybackTarget::appActionRequested, this, [this](const QString& action) {
         if (action == QLatin1String("stop"))
             stop();

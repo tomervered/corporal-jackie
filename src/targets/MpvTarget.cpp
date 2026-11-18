@@ -43,6 +43,7 @@ enum PropertyId : uint64_t {
     PropWidth,
     PropHeight,
     PropOsdHeight,
+    PropOutHeight,
     PropFps,
     PropDropped,
     PropDecoderDropped,
@@ -214,6 +215,35 @@ QString MpvTarget::vsrFilter(Upscaler upscaler, int videoHeight, int targetHeigh
         .arg(factor, 0, 'f', 2);
 }
 
+namespace {
+QString upscalerName(Upscaler u)
+{
+    switch (u) {
+    case Upscaler::Fsr:       return QStringLiteral("AMD FSR 1");
+    case Upscaler::NvidiaVsr: return QStringLiteral("NVIDIA VSR");
+    case Upscaler::IntelVsr:  return QStringLiteral("Intel VSR");
+    default:                  return {};
+    }
+}
+} // namespace
+
+QString MpvTarget::upscalerStatus(Upscaler upscaler, int videoHeight, int target, int outHeight, bool filterSet)
+{
+    const QString name = upscalerName(upscaler);
+    if (name.isEmpty() || videoHeight <= 0)
+        return {};
+    if (target > 0 && target <= videoHeight)
+        return QStringLiteral("%1 idle · the video is already %2p").arg(name).arg(videoHeight);
+    if (upscaler == Upscaler::Fsr)
+        return target > 0 ? QStringLiteral("%1 on · %2p → %3p").arg(name).arg(videoHeight).arg(target)
+                          : QStringLiteral("%1 on · %2p → screen size").arg(name).arg(videoHeight);
+    // VSR: only the size of the frames the filter hands on shows that the
+    // driver did the scaling.
+    if (filterSet && outHeight > videoHeight)
+        return QStringLiteral("%1 on · %2p → %3p").arg(name).arg(videoHeight).arg(outHeight);
+    return QStringLiteral("%1 starting…").arg(name);
+}
+
 MpvTarget::MpvTarget(Mode mode, QObject* parent)
     : PlaybackTarget(parent)
     , m_mode(mode)
@@ -326,6 +356,7 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
         {PropWidth,          "width",                  MPV_FORMAT_INT64},
         {PropHeight,         "height",                 MPV_FORMAT_INT64},
         {PropOsdHeight,      "osd-height",             MPV_FORMAT_INT64},
+        {PropOutHeight,      "video-out-params/h",     MPV_FORMAT_INT64},
         {PropFps,            "estimated-vf-fps",       MPV_FORMAT_DOUBLE},
         {PropDropped,        "frame-drop-count",       MPV_FORMAT_INT64},
         {PropDecoderDropped, "decoder-frame-drop-count", MPV_FORMAT_INT64},
@@ -861,6 +892,7 @@ void MpvTarget::setUpscaler(Upscaler upscaler, int targetHeight)
     applyVsrFilter();
 
     qCInfo(lcTargets).noquote() << "Upscaler:" << upscalerLabel();
+    updateUpscalerStatus();
     emitStats();
 }
 
@@ -873,13 +905,30 @@ void MpvTarget::applyVsrFilter()
     setProperty("vf", filter.toUtf8());
     if (!filter.isEmpty())
         qCInfo(lcTargets).noquote() << "Video filter:" << filter;
+    updateUpscalerStatus();
 }
 
 void MpvTarget::turnUpscalerOff(const QString& why)
 {
+    const QString name = upscalerName(m_upscaler);
     qCWarning(lcTargets).noquote() << why << "; upscaling turned off";
     setUpscaler(Upscaler::Off, m_upscaleHeight);
     emit settingChanged(QStringLiteral("upscaler"), QStringLiteral("off"));
+    m_upscalerStatus = QStringLiteral("%1 off · this graphics card or driver could not run it").arg(name);
+    emit upscalerStatusChanged(m_upscalerStatus, true);
+}
+
+void MpvTarget::updateUpscalerStatus()
+{
+    const int target = m_upscaleHeight > 0 ? m_upscaleHeight : m_shownHeight;
+    const QString status = upscalerStatus(m_upscaler, m_videoHeight, target, m_outHeight, !m_vsrFilter.isEmpty());
+    if (status == m_upscalerStatus)
+        return;
+    m_upscalerStatus = status;
+    if (!status.isEmpty())
+        qCInfo(lcTargets).noquote() << "Upscaler status:" << status;
+    emit upscalerStatusChanged(status, false);
+    emitStats();
 }
 
 // --- Events -----------------------------------------------------------------------
@@ -1058,14 +1107,22 @@ void MpvTarget::handleProperty(uint64_t id, const mpv_event_property* p)
         break;
     case PropHeight:
         m_videoHeight = int(intOf(p));
+        m_outHeight = 0;  // the next file's filtered size is not known yet
         applyCrop();
         applyVsrFilter();
+        updateUpscalerStatus();
         emitStats();
+        break;
+    case PropOutHeight:
+        m_outHeight = int(intOf(p));
+        updateUpscalerStatus();
         break;
     case PropOsdHeight:
         m_shownHeight = int(intOf(p));
         if (isVsr(m_upscaler) && m_upscaleHeight == 0)
             m_vsrTimer->start();
+        else
+            updateUpscalerStatus();
         break;
     case PropFps:
         m_fps = doubleOf(p);
@@ -1154,6 +1211,7 @@ void MpvTarget::emitStats()
         {QStringLiteral("Codec"), m_videoCodec.isEmpty() ? QStringLiteral("-") : m_videoCodec},
         {QStringLiteral("Resolution"), m_videoWidth > 0 ? QStringLiteral("%1×%2").arg(m_videoWidth).arg(m_videoHeight) : QStringLiteral("-")},
         {QStringLiteral("Upscaler"), upscalerLabel()},
+        {QStringLiteral("Upscaler now"), m_upscalerStatus.isEmpty() ? QStringLiteral("-") : m_upscalerStatus},
         {QStringLiteral("FPS"), m_fps > 0 ? QString::number(m_fps, 'f', 2) : QStringLiteral("-")},
         // Dropped by the output (too slow to draw, or timing), dropped by
         // the decoder (too slow to decode), late, and shown at the wrong

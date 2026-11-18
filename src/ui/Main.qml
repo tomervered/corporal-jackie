@@ -285,6 +285,43 @@ Window {
         fontSize: 16
     }
 
+    // What the upscaler is doing ("NVIDIA VSR on · 720p → 1440p"), top left:
+    // for a few seconds each time that changes, and whenever the controls
+    // show. Green: running; grey: idle or starting; amber: it could not run.
+    Rectangle {
+        id: upscalerBadge
+        objectName: "upscalerBadge"
+        anchors { top: parent.top; left: parent.left; margins: 16 }
+        visible: session.hasMedia && session.upscalerStatus !== "" && !root.pagesVisible
+                 && (upscalerBadgeTimer.running || root.controlsVisible)
+        width: badgeRow.implicitWidth + 24
+        height: badgeRow.implicitHeight + 12
+        radius: height / 2
+        color: "#a0000000"
+        Row {
+            id: badgeRow
+            anchors.centerIn: parent
+            spacing: 8
+            Rectangle {
+                anchors.verticalCenter: parent.verticalCenter
+                width: 10; height: 10; radius: 5
+                color: session.upscalerProblem ? "#f0a030"
+                     : session.upscalerStatus.indexOf(" on · ") >= 0 ? "#40c060" : "#909090"
+            }
+            Text {
+                textFormat: Text.PlainText
+                text: session.upscalerStatus
+                color: Theme.text
+                font.pixelSize: 14
+            }
+        }
+        Timer { id: upscalerBadgeTimer; interval: 5000 }
+        Connections {
+            target: session
+            function onUpscalerStatusChanged() { if (session.upscalerStatus !== "") upscalerBadgeTimer.restart() }
+        }
+    }
+
     // Buffering. A torrent that stalls mid-play shows here too, even before
     // mpv's own buffer runs out.
     Toast {

@@ -273,6 +273,22 @@ private slots:
         QCOMPARE(t.last(), QStringLiteral("upscaler 1 0"));
     }
 
+    // The target's line about its upscaler reaches the UI as it is.
+    void upscalerStatusFromTheTarget()
+    {
+        FakeTarget t;
+        Session s(&t);
+        QSignalSpy changed(&s, &Session::upscalerStatusChanged);
+        emit t.upscalerStatusChanged(QStringLiteral("NVIDIA VSR on · 720p → 1440p"), false);
+        QCOMPARE(s.upscalerStatus(), QStringLiteral("NVIDIA VSR on · 720p → 1440p"));
+        QVERIFY(!s.upscalerProblem());
+        emit t.upscalerStatusChanged(QStringLiteral("NVIDIA VSR on · 720p → 1440p"), false);  // same: no signal
+        QCOMPARE(changed.count(), 1);
+        emit t.upscalerStatusChanged(QStringLiteral("NVIDIA VSR off · this graphics card or driver could not run it"), true);
+        QVERIFY(s.upscalerProblem());
+        QCOMPARE(changed.count(), 2);
+    }
+
     void abLoopCycle()
     {
         FakeTarget t;

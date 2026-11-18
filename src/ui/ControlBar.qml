@@ -191,6 +191,40 @@ Rectangle {
                     }
                 }
 
+                // Upscaling, without opening Settings: the same choices.
+                Menu {
+                    id: upscaleMenu
+                    title: "Upscaling: " + Format.upscalerLabel(session.upscaler)
+                    enabled: session.upscalers.length > 1
+                    Instantiator {
+                        model: session.upscalers
+                        delegate: PlainMenuItem {
+                            text: Format.upscalerLabel(modelData)
+                            checkable: true
+                            checked: session.upscaler === modelData
+                            onTriggered: session.upscaler = modelData
+                        }
+                        onObjectAdded: (index, object) => upscaleMenu.insertItem(index, object)
+                        onObjectRemoved: (index, object) => upscaleMenu.removeItem(object)
+                    }
+                }
+                Menu {
+                    id: upscaleToMenu
+                    title: "Upscale to: " + (Format.upscaleTargets.find(t => t[0] === session.upscaleHeight) || [0, "?"])[1]
+                    enabled: session.upscaler !== "off"
+                    Instantiator {
+                        model: Format.upscaleTargets
+                        delegate: PlainMenuItem {
+                            text: modelData[1]
+                            checkable: true
+                            checked: session.upscaleHeight === modelData[0]
+                            onTriggered: session.upscaleHeight = modelData[0]
+                        }
+                        onObjectAdded: (index, object) => upscaleToMenu.insertItem(index, object)
+                        onObjectRemoved: (index, object) => upscaleToMenu.removeItem(object)
+                    }
+                }
+
                 MenuSeparator {}
                 MenuItem {
                     text: "Aspect ratio: " + (session.aspectRatio || "automatic")

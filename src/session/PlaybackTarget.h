@@ -87,6 +87,10 @@ signals:
     // "fullScreen" (bool); "upscaler" (its Session name: "off" when the
     // target had to turn one off, a driver that cannot run it, say).
     void settingChanged(const QString& name, const QVariant& value);
+    // What the upscaler is doing now, as one line for the screen
+    // ("NVIDIA VSR on · 720p → 1440p"); empty when none is on or no video
+    // plays. problem: it could not run (the line then says why).
+    void upscalerStatusChanged(const QString& status, bool problem);
     // Its own key bindings asked for something only the app can do:
     // "stop" (close the video) or "stats" (show or hide the stats).
     void appActionRequested(const QString& action);

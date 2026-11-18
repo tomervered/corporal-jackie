@@ -212,6 +212,19 @@ private slots:
         QCOMPARE(vf(Upscaler::Fsr, 720, 1440, 0), QString());
         QCOMPARE(vf(Upscaler::NvidiaVsr, 0, 1440, 0), QString());
         QCOMPARE(vf(Upscaler::NvidiaVsr, 720, 0, 0), QString());
+
+        // The line on screen: VSR says "on" only once the filter hands on
+        // bigger frames, which is what shows the driver did the work.
+        const auto status = MpvTarget::upscalerStatus;
+        QCOMPARE(status(Upscaler::NvidiaVsr, 720, 1440, 0, true), QStringLiteral("NVIDIA VSR starting…"));
+        QCOMPARE(status(Upscaler::NvidiaVsr, 720, 1440, 720, true), QStringLiteral("NVIDIA VSR starting…"));
+        QCOMPARE(status(Upscaler::NvidiaVsr, 720, 1440, 1440, true), QStringLiteral("NVIDIA VSR on · 720p → 1440p"));
+        QCOMPARE(status(Upscaler::IntelVsr, 1080, 1440, 1080, false), QStringLiteral("Intel VSR starting…"));
+        QCOMPARE(status(Upscaler::NvidiaVsr, 2160, 1440, 2160, false), QStringLiteral("NVIDIA VSR idle · the video is already 2160p"));
+        QCOMPARE(status(Upscaler::Fsr, 720, 1440, 720, false), QStringLiteral("AMD FSR 1 on · 720p → 1440p"));
+        QCOMPARE(status(Upscaler::Fsr, 720, 0, 720, false), QStringLiteral("AMD FSR 1 on · 720p → screen size"));
+        QCOMPARE(status(Upscaler::Off, 720, 1440, 720, false), QString());
+        QCOMPARE(status(Upscaler::NvidiaVsr, 0, 1440, 0, true), QString());  // no video yet
     }
 
     // Qt's keys as mpv's input.conf names them.

@@ -17,3 +17,9 @@ function signedMs(seconds) {
     const ms = Math.round(seconds * 1000)
     return (ms > 0 ? "+" : "") + ms + " ms"
 }
+
+// The upscalers by their Session names, and the heights they can aim for.
+function upscalerLabel(name) {
+    return ({ off: "Off", fsr: "AMD FSR", nvidia: "NVIDIA VSR", intel: "Intel VSR", metalfx: "Apple MetalFX" })[name] || name
+}
+var upscaleTargets = [[0, "Screen size"], [1080, "1080p"], [1440, "1440p"], [2160, "4K"]]

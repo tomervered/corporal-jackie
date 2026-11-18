@@ -84,6 +84,11 @@ public:
     // mpv's vf for VSR: scale the video (videoHeight) up to targetHeight, or
     // to shownHeight when that is 0. Empty when there is nothing to do.
     static QString vsrFilter(Upscaler upscaler, int videoHeight, int targetHeight, int shownHeight);
+    // The line upscalerStatusChanged sends. target: the height to reach (the
+    // shown height for "screen size"); outHeight: the height the video
+    // filters hand on (a VSR filter that works makes it bigger than
+    // videoHeight); filterSet: a VSR filter is in place. Public for tests.
+    static QString upscalerStatus(Upscaler upscaler, int videoHeight, int target, int outHeight, bool filterSet);
 
 private:
     Q_INVOKABLE void processEvents();
@@ -103,6 +108,7 @@ private:
     QString upscalerLabel() const;
     void applyVsrFilter();
     void turnUpscalerOff(const QString& why);
+    void updateUpscalerStatus();
     static std::unique_ptr<QTemporaryFile> writeFsrShader(int targetHeight);
     static QList<Track> parseTracks(const ::mpv_node* node);
     static QList<Chapter> parseChapters(const ::mpv_node* node);
@@ -132,6 +138,8 @@ private:
     Capabilities m_vsrCaps;       // found once, at start (Windows only)
     QString m_vsrFilter;          // the vf now set, empty for none
     int m_shownHeight = 0;        // mpv's output height (osd-height)
+    int m_outHeight = 0;          // height after the video filters (video-out-params/h)
+    QString m_upscalerStatus;     // the line last sent by upscalerStatusChanged
     QTimer* m_vsrTimer = nullptr; // re-sizes the filter once a resize settles
     // The FSR shader with its sizes filled in, written out when FSR is
     // picked and removed when it is turned off: mpv loads shaders from files

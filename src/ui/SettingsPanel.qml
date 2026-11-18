@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import "Notices.js" as Notices
+import "Format.js" as Format
 import QtQuick.Dialogs
 
 // Settings (press P): hardware decoding, applied at once; where torrents are
@@ -172,16 +173,14 @@ Rectangle {
             Choice {
                 visible: session.upscalers.length > 1
                 title: "Upscaling"
-                options: session.upscalers.map(name => [name, ({
-                    off: "Off", fsr: "AMD FSR", nvidia: "NVIDIA VSR", intel: "Intel VSR", metalfx: "Apple MetalFX"
-                })[name] || name])
+                options: session.upscalers.map(name => [name, Format.upscalerLabel(name)])
                 value: session.upscaler
                 onPicked: v => session.upscaler = v
             }
             Choice {
                 visible: session.upscaler !== "off"
                 title: "Upscale to"
-                options: [[0, "Screen size"], [1080, "1080p"], [1440, "1440p"], [2160, "4K"]]
+                options: Format.upscaleTargets
                 value: session.upscaleHeight
                 onPicked: v => session.upscaleHeight = v
             }
