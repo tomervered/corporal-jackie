@@ -16,8 +16,8 @@ Rectangle {
     readonly property bool hasEpisodes: browser.playingEpisodes.length > 0
 
     color: Theme.panel
-    border.color: "#30ffffff"
-    radius: 12
+    border.color: Theme.line
+    radius: 10
 
     // Clicks and scrolls on the panel stay here, away from the video below.
     MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons; onWheel: wheel => wheel.accepted = true }
@@ -69,10 +69,11 @@ Rectangle {
             font.weight: Font.DemiBold
             elide: Text.ElideRight
         }
-        BarButton {
+        IconButton {
             id: closeButton
             anchors { right: parent.right; verticalCenter: parent.verticalCenter }
-            text: "✕"
+            iconName: "close"
+            tip: "Close episodes"
             onClicked: panel.closeRequested()
         }
     }

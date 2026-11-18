@@ -2,7 +2,8 @@ import QtQuick
 import QtQuick.Controls.Basic
 
 // The app's pages: Home, Discover, search results, an item's details, the
-// ways to play it, Library, Add-ons and Your folders. They fill the window
+// ways to play it, Library, Add-ons, Local (your folders) and Settings, with
+// the side bar and a search box at the top of each. They fill the window
 // when nothing plays, and cover the video when opened with B. They bind to
 // `browser` and `library`; picking a way to play hands it to the session.
 //
@@ -12,13 +13,20 @@ Rectangle {
     id: pages
 
     property string page: "home"   // home, discover, search, detail, streams, library, addons, folders
+    // Settings shows over whichever page is open, and closes back to it.
+    property bool settingsOpen: false
+    readonly property string shownPage: settingsOpen ? "settings" : page
+    readonly property var titles: ({
+        home: "Home", discover: "Discover", search: "Search", library: "Library",
+        addons: "Add-ons", folders: "Local", settings: "Settings", detail: ""
+    })
     property var history: []
     property string searchType: ""     // the type picked on the search page; "" = all
     property string discoverType: ""   // the type picked on Discover
     property string streamSort: "best" // how ways to play are ordered: best, seeders, largest, smallest
     property var hiddenProviders: []   // add-ons whose ways to play are left out
     signal closeRequested()        // back to the video
-    signal settingsRequested()
+    signal settingsRequested()     // opens or closes Settings
     signal openFileRequested()
     signal openLinkRequested()
     signal message(string text, bool isError)
@@ -32,9 +40,23 @@ Rectangle {
     }
     // Top-level pages from the side bar start a fresh history.
     function goTop(next) {
+        if (settingsOpen) settingsRequested()
         history = []
         page = next
+        Qt.callLater(focusPage)
     }
+    function openDiscover() {
+        if (browser.catalogIndex < 0 && browser.catalogs.length > 0) browser.openCatalog(0)
+        goTop("discover")
+    }
+    // A search of every add-on, from the box at the top of every page.
+    function searchAll(text) {
+        if (text.trim() === "") return
+        browser.searchAll(text, searchType)
+        if (settingsOpen) settingsRequested()
+        go("search")
+    }
+    function focusSearch() { globalSearch.forceActiveFocus(); globalSearch.selectAll() }
     function back() {
         if (history.length > 0) {
             page = history[history.length - 1]
@@ -81,8 +103,10 @@ Rectangle {
 
     // Clicks and scrolls stay here, away from the video below.
     MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons; onWheel: wheel => wheel.accepted = true }
-    Keys.onEscapePressed: pages.back()
-    Keys.onBackPressed: pages.back()
+    // Escape closes Settings, else goes back. Settings' own controls let it
+    // through (a closed drop-down, a switch), so it works from any of them.
+    Keys.onEscapePressed: settingsOpen ? settingsRequested() : pages.back()
+    Keys.onBackPressed: settingsOpen ? settingsRequested() : pages.back()
     // Shortcuts that work on every page, unless a text field takes the key.
     Keys.onPressed: event => {
         switch (event.key) {
@@ -90,7 +114,7 @@ Rectangle {
         case Qt.Key_O: pages.openFileRequested(); break
         case Qt.Key_U: pages.openLinkRequested(); break
         case Qt.Key_B: if (session.hasMedia) pages.closeRequested(); break
-        case Qt.Key_Slash: pages.goTop("home"); homePage.focusSearch(); break
+        case Qt.Key_Slash: pages.focusSearch(); break
         // Enter presses the focused button, as Space does.
         case Qt.Key_Return: case Qt.Key_Enter: {
             // click() is Qt 6.8 and later; before that, send the signal.
@@ -108,7 +132,11 @@ Rectangle {
     // Each page starts with the keyboard on its main list, so arrows and
     // Enter work at once.
     onPageChanged: Qt.callLater(focusPage)
+    onSettingsOpenChanged: Qt.callLater(focusPage)
     function focusPage() {
+        // The first-run screen keeps the keyboard until it is answered.
+        if (!preferences.privacyChosen) return
+        if (settingsOpen) { settingsPage.takeFocus(); return }
         const current = pageItems[page]
         if (current) current.takeFocus()
     }
@@ -120,74 +148,202 @@ Rectangle {
 
     // --- Side bar ----------------------------------------------------------------
 
-    Column {
+    Rectangle {
         id: sideBar
-        anchors { left: parent.left; top: parent.top; bottom: parent.bottom; margins: 16 }
-        width: 180
-        spacing: 4
-        Text {
-            textFormat: Text.PlainText
-            text: "Corporal Jackie"
-            color: Theme.text
-            font.pixelSize: 18
-            font.weight: Font.DemiBold
-            bottomPadding: 14
-            leftPadding: 8
+        objectName: "sideBar"
+        anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
+        width: pages.width < 760 ? 132 : Theme.sideBarWidth
+        color: Theme.panel
+        Rectangle { anchors { right: parent.right; top: parent.top; bottom: parent.bottom } width: 1; color: Theme.divider }
+
+        Column {
+            anchors { left: parent.left; right: parent.right; top: parent.top; margins: 12; topMargin: 22 }
+            spacing: 4
+            Row {
+                spacing: 10
+                leftPadding: 2
+                bottomPadding: 26
+                Image {
+                    anchors.verticalCenter: parent.verticalCenter
+                    source: "images/logo.png"
+                    width: 36; height: 36
+                    sourceSize: Qt.size(72, 72)
+                    smooth: true
+                    mipmap: true
+                }
+                Text {
+                    textFormat: Text.PlainText
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: sideBar.width - 36 - 10 - 26
+                    text: "Corporal Jackie"
+                    color: Theme.text
+                    font.pixelSize: 16
+                    font.weight: Font.DemiBold
+                    wrapMode: Text.WordWrap
+                    lineHeight: 0.95
+                }
+            }
+            NavButton { text: "Home"; iconName: "home"; selected: pages.shownPage === "home"; onClicked: pages.goTop("home") }
+            NavButton {
+                text: "Discover"
+                iconName: "discover"
+                selected: pages.shownPage === "discover"
+                onClicked: pages.openDiscover()
+            }
+            NavButton { text: "Library"; iconName: "library"; selected: pages.shownPage === "library"; onClicked: pages.goTop("library") }
+            NavButton { text: "Add-ons"; iconName: "addons"; selected: pages.shownPage === "addons"; onClicked: pages.goTop("addons") }
+            NavButton { text: "Local"; iconName: "local"; selected: pages.shownPage === "folders"; onClicked: pages.goTop("folders") }
         }
-        NavButton { text: "Home"; selected: pages.page === "home"; onClicked: pages.goTop("home") }
-        NavButton {
-            text: "Discover"
-            selected: pages.page === "discover"
-            onClicked: {
-                if (browser.catalogIndex < 0 && browser.catalogs.length > 0) browser.openCatalog(0)
-                pages.goTop("discover")
+
+        Column {
+            anchors { left: parent.left; right: parent.right; bottom: parent.bottom; margins: 12; bottomMargin: 16 }
+            spacing: 4
+            // What plays behind the pages, and the way back to it.
+            Rectangle {
+                objectName: "nowPlaying"
+                visible: session.hasMedia || session.loading
+                width: parent.width
+                height: nowColumn.implicitHeight + 20
+                radius: 8
+                color: Theme.raised
+                border.color: Theme.line
+                Column {
+                    id: nowColumn
+                    anchors { left: parent.left; right: parent.right; top: parent.top; margins: 10 }
+                    spacing: 8
+                    Text {
+                        textFormat: Text.PlainText
+                        width: parent.width
+                        text: session.loading && !session.hasMedia ? "Opening…" : session.paused ? "Paused" : "Playing"
+                        color: Theme.muted
+                        font.pixelSize: 12
+                    }
+                    Text {
+                        textFormat: Text.PlainText
+                        width: parent.width
+                        text: session.title
+                        visible: text !== ""
+                        color: Theme.text
+                        font.pixelSize: 14
+                        font.weight: Font.DemiBold
+                        elide: Text.ElideRight
+                        maximumLineCount: 2
+                        wrapMode: Text.Wrap
+                    }
+                    AppButton {
+                        objectName: "backToVideo"
+                        width: parent.width
+                        primary: true
+                        iconName: "play"
+                        text: "Back to video"
+                        onClicked: pages.closeRequested()
+                    }
+                }
+            }
+            NavButton {
+                text: "Settings"
+                iconName: "settings"
+                selected: pages.settingsOpen
+                onClicked: pages.settingsRequested()
+            }
+            Text {
+                textFormat: Text.PlainText
+                leftPadding: 14
+                text: "Version " + appVersion
+                color: Theme.faint
+                font.pixelSize: 11
             }
         }
-        NavButton { text: "Library"; selected: pages.page === "library"; onClicked: pages.goTop("library") }
-        NavButton { text: "Add-ons"; selected: pages.page === "addons"; onClicked: pages.goTop("addons") }
-        NavButton { text: "Your folders"; selected: pages.page === "folders"; onClicked: pages.goTop("folders") }
-        NavButton { text: "Settings"; onClicked: pages.settingsRequested() }
-        Item { width: 1; height: 16 }
-        NavButton {
-            visible: session.hasMedia || session.loading
-            text: "▶  Back to the video"
-            onClicked: pages.closeRequested()
-        }
     }
-    Text {
-        textFormat: Text.PlainText
-        anchors { left: sideBar.left; bottom: parent.bottom; margins: 0; leftMargin: 8; bottomMargin: 16 }
-        text: "Version " + appVersion
-        color: Theme.faint
-        font.pixelSize: 11
-    }
+
+    // --- The page ------------------------------------------------------------------
 
     Item {
         id: content
-        anchors { left: sideBar.right; right: parent.right; top: parent.top; bottom: parent.bottom; margins: 16; leftMargin: 24 }
+        anchors { left: sideBar.right; right: parent.right; top: parent.top; bottom: parent.bottom
+                  leftMargin: pages.width < 760 ? 14 : 32; rightMargin: pages.width < 760 ? 14 : 32; topMargin: 22 }
 
-        // Back, on every page reached from another one
-        Button {
-            id: backButton
-            visible: pages.history.length > 0
-            anchors { left: parent.left; top: parent.top }
-            text: "‹ Back"
-            onClicked: pages.back()
+        // The title, Back on a page reached from another one, and search,
+        // which is the same on every page: it asks every add-on.
+        Item {
+            id: header
+            objectName: "pageHeader"
+            anchors { left: parent.left; right: parent.right; top: parent.top }
+            height: 44
+            Row {
+                anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+                width: Math.max(0, headerTools.x - 16)
+                spacing: 6
+                IconButton {
+                    id: backButton
+                    objectName: "backButton"
+                    visible: pages.history.length > 0 && !pages.settingsOpen
+                    anchors.verticalCenter: parent.verticalCenter
+                    iconName: "back"
+                    tip: "Back (Esc)"
+                    takesFocus: true
+                    onClicked: pages.back()
+                }
+                PageTitle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: parent.width - (backButton.visible ? backButton.width + 6 : 0)
+                    text: pages.titles[pages.shownPage] !== undefined ? pages.titles[pages.shownPage]
+                        : pages.shownPage === "streams" ? browser.streamsTitle : ""
+                }
+            }
+            Row {
+                id: headerTools
+                anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                spacing: 4
+                AppField {
+                    id: globalSearch
+                    objectName: "globalSearch"
+                    search: true
+                    width: Math.min(290, content.width * 0.4)
+                    anchors.verticalCenter: parent.verticalCenter
+                    placeholderText: "Search titles"
+                    Accessible.name: "Search all your add-ons"
+                    onAccepted: pages.searchAll(text)
+                    Keys.onEscapePressed: event => {
+                        if (text !== "") { text = ""; event.accepted = true } else event.accepted = false
+                    }
+                }
+                IconButton {
+                    anchors.verticalCenter: parent.verticalCenter
+                    iconName: "link"
+                    tip: "Open a link or magnet (U)"
+                    takesFocus: true
+                    onClicked: pages.openLinkRequested()
+                }
+                IconButton {
+                    anchors.verticalCenter: parent.verticalCenter
+                    iconName: "file"
+                    tip: "Open a video file (O)"
+                    takesFocus: true
+                    onClicked: pages.openFileRequested()
+                }
+            }
         }
-        // Where a page goes: below Back when it shows, else the whole area.
+        // Where a page goes.
         Item {
             id: pageArea
-            anchors { left: parent.left; right: parent.right; top: backButton.visible ? backButton.bottom : parent.top
-                      bottom: parent.bottom; topMargin: backButton.visible ? 12 : 0 }
+            anchors { left: parent.left; right: parent.right; top: header.bottom; bottom: parent.bottom; topMargin: 18 }
         }
 
-        HomePage { id: homePage; nav: pages; anchors.fill: parent; visible: pages.page === "home" }
-        SearchPage { id: searchPage; nav: pages; anchors.fill: pageArea; visible: pages.page === "search" }
-        DiscoverPage { id: discoverPage; nav: pages; anchors.fill: pageArea; visible: pages.page === "discover" }
-        DetailPage { id: detailPage; nav: pages; anchors.fill: pageArea; visible: pages.page === "detail" }
-        StreamsPage { id: streamsPage; nav: pages; anchors.fill: pageArea; visible: pages.page === "streams" }
-        LibraryPage { id: libraryPage; nav: pages; anchors.fill: parent; visible: pages.page === "library" }
-        AddonsPage { id: addonsPage; nav: pages; anchors.fill: parent; visible: pages.page === "addons" }
-        FoldersPage { id: foldersPage; nav: pages; anchors.fill: parent; visible: pages.page === "folders" }
+        HomePage { id: homePage; nav: pages; anchors.fill: pageArea; visible: pages.shownPage === "home" }
+        SearchPage { id: searchPage; nav: pages; anchors.fill: pageArea; visible: pages.shownPage === "search" }
+        DiscoverPage { id: discoverPage; nav: pages; anchors.fill: pageArea; visible: pages.shownPage === "discover" }
+        DetailPage { id: detailPage; nav: pages; anchors.fill: pageArea; visible: pages.shownPage === "detail" }
+        StreamsPage { id: streamsPage; nav: pages; anchors.fill: pageArea; visible: pages.shownPage === "streams" }
+        LibraryPage { id: libraryPage; nav: pages; anchors.fill: pageArea; visible: pages.shownPage === "library" }
+        AddonsPage { id: addonsPage; nav: pages; anchors.fill: pageArea; visible: pages.shownPage === "addons" }
+        FoldersPage { id: foldersPage; nav: pages; anchors.fill: pageArea; visible: pages.shownPage === "folders" }
+        SettingsPanel {
+            id: settingsPage
+            objectName: "settingsPanel"
+            anchors.fill: pageArea
+            visible: pages.settingsOpen
+            onCloseRequested: pages.settingsRequested()
+        }
     }
 }

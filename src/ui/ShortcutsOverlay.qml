@@ -7,7 +7,7 @@ Rectangle {
     height: helpGrid.implicitHeight + 48
     radius: 12
     color: Theme.overlay
-    border.color: "#30ffffff"
+    border.color: Theme.line
     Grid {
         id: helpGrid
         anchors.centerIn: parent

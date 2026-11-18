@@ -171,6 +171,30 @@ private slots:
         QVERIFY(run.core.preferences().useTorrents() && run.core.preferences().allowUploads());
     }
 
+    // The look (Settings > Appearance) is kept, and only known modes and
+    // #rrggbb colours are taken.
+    void theLookIsKept()
+    {
+        {
+            Run run(m_root->path());
+            Preferences& p = run.core.preferences();
+            QCOMPARE(p.colorMode(), QStringLiteral("dark"));
+            QSignalSpy changed(&p, &Preferences::appearanceChanged);
+            p.setColorMode(QStringLiteral("bright"));
+            p.setColorMode(QStringLiteral("neon"));   // not a mode
+            QCOMPARE(p.colorMode(), QStringLiteral("bright"));
+            p.setColorEdits({{QStringLiteral("bright"), QVariantMap{{QStringLiteral("accent"), QStringLiteral("#AA3300")},
+                                                                     {QStringLiteral("text"), QStringLiteral("red")}}},
+                             {QStringLiteral("neon"), QVariantMap{{QStringLiteral("accent"), QStringLiteral("#000000")}}}});
+            QCOMPARE(changed.count(), 2);
+        }
+        Run run(m_root->path());
+        const Preferences& p = run.core.preferences();
+        QCOMPARE(p.colorMode(), QStringLiteral("bright"));
+        const QVariantMap expected{{QStringLiteral("bright"), QVariantMap{{QStringLiteral("accent"), QStringLiteral("#aa3300")}}}};
+        QCOMPARE(p.colorEdits(), expected);
+    }
+
     // A torrent while torrents are off never reaches the player.
     void torrentsOffAreRefusedBeforeThePlayer()
     {

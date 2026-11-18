@@ -6,8 +6,8 @@ Text {
     required property string section
     text: section
     color: Theme.accent
-    font.pixelSize: 15
+    font.pixelSize: Theme.bodySize
     font.weight: Font.DemiBold
-    topPadding: 12
-    bottomPadding: 4
+    topPadding: 14
+    bottomPadding: 6
 }

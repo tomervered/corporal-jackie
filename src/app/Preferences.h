@@ -39,6 +39,10 @@ class Preferences : public QObject
     // The answers saved before the screen was last changed, to start it from
     // when it asks again: {catalogAddon, dht, trackers, portMapping}.
     Q_PROPERTY(QVariantMap earlierChoices READ earlierChoices CONSTANT)
+    // The look: "dark" (olive), "oled" or "bright", and the colours the
+    // person changed in each, as {mode: {accent, canvas, panel, text}}.
+    Q_PROPERTY(QString colorMode READ colorMode WRITE setColorMode NOTIFY appearanceChanged)
+    Q_PROPERTY(QVariantMap colorEdits READ colorEdits WRITE setColorEdits NOTIFY appearanceChanged)
 
 public:
     // defaultCacheFolder: the torrent cache under the app's cache folder.
@@ -74,6 +78,11 @@ public:
     Q_INVOKABLE void choosePrivacy(bool catalogAddon, bool dht, bool publicTrackers, bool portMapping,
                                    bool torrents = false, bool uploads = false);
 
+    QString colorMode() const { return m_colorMode; }
+    void setColorMode(const QString& mode);
+    QVariantMap colorEdits() const { return m_colorEdits; }
+    void setColorEdits(const QVariantMap& edits);
+
     void setTorrentsInMemory(bool on);
     void setMemoryCapMB(int mb);
     void setDiskCacheGB(int gb);
@@ -92,6 +101,7 @@ signals:
     void privacyChanged();
     // The catalog add-on went from off to on or back: install or remove it.
     void catalogAddonChoiceChanged(bool on);
+    void appearanceChanged();
 
 private:
     void save();
@@ -112,6 +122,8 @@ private:
     bool m_torrents = false;
     bool m_uploads = false;
     QVariantMap m_earlier;
+    QString m_colorMode = QStringLiteral("dark");
+    QVariantMap m_colorEdits;
     struct Started { bool inMemory; int memoryCapMB; int diskCacheGB; QString folder; } m_started;
 };
 

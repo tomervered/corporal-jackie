@@ -4,6 +4,9 @@
 #include "Storage.h"
 
 #include <QDir>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QRegularExpression>
 
 namespace cj {
 
@@ -27,6 +30,34 @@ const QString kUploads = QStringLiteral("privacy/uploads");
 // 2: playing torrents and uploading (2026-11-15).
 const QString kPrivacyVersion = QStringLiteral("privacy/version");
 constexpr int kPrivacyScreenVersion = 2;
+const QString kColorMode = QStringLiteral("ui/colorMode");
+const QString kColorEdits = QStringLiteral("ui/colorEdits");   // JSON text
+
+bool knownMode(const QString& mode)
+{
+    return mode == QLatin1String("dark") || mode == QLatin1String("oled") || mode == QLatin1String("bright");
+}
+
+// Only #rrggbb values for the four colours of a known mode are kept.
+QVariantMap cleanEdits(const QVariantMap& edits)
+{
+    static const QRegularExpression hex(QStringLiteral("^#[0-9a-fA-F]{6}$"));
+    QVariantMap out;
+    for (auto mode = edits.begin(); mode != edits.end(); ++mode) {
+        if (!knownMode(mode.key()))
+            continue;
+        QVariantMap colors;
+        const QVariantMap given = mode.value().toMap();
+        for (const char* key : {"accent", "canvas", "panel", "text"}) {
+            const QString value = given.value(QLatin1String(key)).toString();
+            if (hex.match(value).hasMatch())
+                colors.insert(QLatin1String(key), value.toLower());
+        }
+        if (!colors.isEmpty())
+            out.insert(mode.key(), colors);
+    }
+    return out;
+}
 } // namespace
 
 Preferences::Preferences(Storage& storage, const QString& defaultCacheFolder, QObject* parent)
@@ -63,6 +94,9 @@ Preferences::Preferences(Storage& storage, const QString& defaultCacheFolder, QO
     m_portMapping = m_privacyChosen && value(kPortMapping, false).toBool();
     m_torrents = m_privacyChosen && value(kTorrents, false).toBool();
     m_uploads = m_privacyChosen && value(kUploads, false).toBool();
+    const QString mode = value(kColorMode, QStringLiteral("dark")).toString();
+    m_colorMode = knownMode(mode) ? mode : QStringLiteral("dark");
+    m_colorEdits = cleanEdits(QJsonDocument::fromJson(value(kColorEdits, QString()).toString().toUtf8()).object().toVariantMap());
     m_started = {m_inMemory, m_memoryCapMB, m_diskCacheGB, effectiveFolder()};
 }
 
@@ -219,6 +253,25 @@ void Preferences::save()
                             << m_diskCacheGB << "GB disk, folder" << effectiveFolder()
                             << (restartNeeded() ? "(applies after a restart)" : "");
     emit changed();
+}
+
+void Preferences::setColorMode(const QString& mode)
+{
+    if (!knownMode(mode) || mode == m_colorMode)
+        return;
+    m_colorMode = mode;
+    m_storage.setSetting(kColorMode, mode);
+    emit appearanceChanged();
+}
+
+void Preferences::setColorEdits(const QVariantMap& edits)
+{
+    const QVariantMap clean = cleanEdits(edits);
+    if (clean == m_colorEdits)
+        return;
+    m_colorEdits = clean;
+    m_storage.setSetting(kColorEdits, QString::fromUtf8(QJsonDocument(QJsonObject::fromVariantMap(clean)).toJson(QJsonDocument::Compact)));
+    emit appearanceChanged();
 }
 
 } // namespace cj

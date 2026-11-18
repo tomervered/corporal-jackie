@@ -1,0 +1,36 @@
+.pragma library
+// The icons of Icon.qml, shared by all of them: name: [SVG path data on a
+// 24 x 24 grid, filled (true) or drawn as lines].
+var paths = {
+    home: ["m3 10 9-7 9 7v10h-6v-7H9v7H3z", false],
+    discover: ["M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0zM16 8l-3 6-5 2 3-6z", false],
+    library: ["M4 4v16m5-16v16m5-16v16m3-15 4 14", false],
+    addons: ["M4 5h6a3 3 0 1 1 6 0h4v6a3 3 0 1 0 0 6v3H4z", false],
+    local: ["M3 6h7l2 3h9v11H3z", false],
+    settings: ["M3 7h3m6 0h9M3 17h10m6 0h2M6 7a3 3 0 1 0 6 0a3 3 0 1 0-6 0zM13 17a3 3 0 1 0 6 0a3 3 0 1 0-6 0z", false],
+    search: ["M4 11a7 7 0 1 0 14 0a7 7 0 1 0-14 0zm12 5 5 5", false],
+    play: ["M6 3l15 9-15 9z", true],
+    pause: ["M6 4h4v16H6zM14 4h4v16h-4z", true],
+    next: ["M5 4l10 8-10 8zM17 4h2v16h-2z", true],
+    chapters: ["M4 5h3v14H4zM11 6h9M11 12h9M11 18h9", false],
+    volume: ["M3 9h4l5-4v14l-5-4H3zM16 9a5 5 0 0 1 0 6M18 6a9 9 0 0 1 0 12", false],
+    muted: ["M3 9h4l5-4v14l-5-4H3zM16 9l6 6m0-6-6 6", false],
+    captions: ["M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zM10 10a2 2 0 1 0 0 4m7-4a2 2 0 1 0 0 4", false],
+    gear: ["M9.8 2h4.4l.6 2.5 1.5.9 2.5-.8 2.2 3.8-1.9 1.8v1.9l1.9 1.8-2.2 3.8-2.5-.8-1.5.9-.6 2.5H9.8l-.6-2.5-1.5-.9-2.5.8L3 13.9l1.9-1.8v-1.9L3 8.4l2.2-3.8 2.5.8 1.5-.9zM12 7.4a3.9 3.9 0 1 0 0 7.8 3.9 3.9 0 0 0 0-7.8z", true],
+    fullscreen: ["M3 9V4h5m8 0h5v5m0 6v5h-5m-8 0H3v-5", false],
+    windowed: ["M8 3v5H3m13-5v5h5m0 8h-5v5M3 16h5v5", false],
+    close: ["M6 6l12 12M18 6 6 18", false],
+    episodes: ["M3 5h18v11H3zM8 20h8M12 16v4", false],
+    browse: ["M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z", false],
+    link: ["M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1", false],
+    file: ["M6 3h8l5 5v13H6zM14 3v5h5", false],
+    back: ["M15 5l-7 7 7 7", false],
+    chevronRight: ["M9 5l7 7-7 7", false],
+    chevronDown: ["M5 9l7 7 7-7", false],
+    plus: ["M12 5v14M5 12h14", false],
+    check: ["M5 12l5 5 9-10", false],
+    up: ["M6 15l6-6 6 6", false],
+    down: ["M6 9l6 6 6-6", false],
+    trash: ["M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13", false],
+    refresh: ["M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5", false]
+};

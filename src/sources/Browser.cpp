@@ -212,7 +212,7 @@ QVariantList Browser::catalogs() const
 {
     QVariantList out;
     for (const CatalogRef& c : m_catalogs)
-        out << QVariantMap{{"name", c.name}, {"type", c.type}, {"adapter", c.adapter},
+        out << QVariantMap{{"name", c.name}, {"type", c.type}, {"adapter", c.adapter}, {"provider", c.provider},
                            {"searchable", c.searchable}, {"searchOnly", c.searchOnly},
                            {"genres", c.genres}, {"genreRequired", c.genreRequired}};
     return out;

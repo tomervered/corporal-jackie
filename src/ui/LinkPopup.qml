@@ -9,7 +9,7 @@ Popup {
     modal: true
     focus: true
     padding: 20
-    background: Rectangle { radius: 12; color: Theme.overlay; border.color: "#30ffffff" }
+    background: Rectangle { radius: 12; color: Theme.overlay; border.color: Theme.line }
     onOpened: { linkField.text = ""; linkField.paste(); linkField.selectAll(); linkField.forceActiveFocus() }
     Column {
         width: parent.width
@@ -29,7 +29,7 @@ Popup {
             color: Theme.muted
             font.pixelSize: 13
         }
-        TextField {
+        AppField {
             id: linkField
             width: parent.width
             placeholderText: "magnet:?xt=urn:btih:…"
@@ -38,8 +38,8 @@ Popup {
         Row {
             anchors.right: parent.right
             spacing: 8
-            Button { text: "Cancel"; onClicked: popup.close() }
-            Button { text: "Open"; enabled: linkField.text.trim() !== ""; onClicked: popup.openRequested(linkField.text) }
+            AppButton { text: "Cancel"; onClicked: popup.close() }
+            AppButton { primary: true; text: "Open"; enabled: linkField.text.trim() !== ""; onClicked: popup.openRequested(linkField.text) }
         }
     }
 }

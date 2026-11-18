@@ -20,6 +20,7 @@
 #include <QGuiApplication>
 #include <QImageReader>
 #include <QLocale>
+#include <QColor>
 #include <QDir>
 #include <QJSValue>
 #include <QQmlApplicationEngine>
@@ -365,6 +366,43 @@ private slots:
         m_window->setProperty("helpVisible", false);
     }
 
+    // Settings opens over any page and Escape closes it from any of its
+    // controls (the audit found Tab, then Escape, left it open). The other
+    // looks restyle the pages.
+    void settingsEscapeAndLooks()
+    {
+        call("goTop", "home");
+        QVERIFY(QMetaObject::invokeMethod(m_window, "toggleSettings"));
+        QTRY_VERIFY(m_window->property("settingsVisible").toBool());
+        QCOMPARE(m_pages->property("shownPage").toString(), QStringLiteral("settings"));
+        for (int i = 0; i < 6; ++i)
+            QTest::keyClick(m_window, Qt::Key_Tab);
+        QQuickItem* focused = m_window->activeFocusItem();
+        QVERIFY(focused);
+        QQuickItem* panel = m_window->findChild<QQuickItem*>(QStringLiteral("settingsPanel"));
+        QVERIFY(panel);
+        QVERIFY2(panel->isAncestorOf(focused) || m_pages->isAncestorOf(focused), focused->metaObject()->className());
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTRY_VERIFY(!m_window->property("settingsVisible").toBool());
+        QCOMPARE(page(), QStringLiteral("home"));
+
+        Preferences& p = m_core->preferences();
+        for (const char* mode : {"bright", "oled", "dark"}) {
+            p.setColorMode(QString::fromLatin1(mode));
+            QCOMPARE(m_pages->property("color").value<QColor>().name(),
+                     QString::fromLatin1(qstrcmp(mode, "bright") == 0 ? "#f7f8f3" : qstrcmp(mode, "oled") == 0 ? "#000000" : "#171b16"));
+            shot(QStringLiteral("home-") + QString::fromLatin1(mode));
+            // Words on the accent stay readable: white on bright's dark olive.
+            QQuickItem* resume = m_window->findChild<QQuickItem*>(QStringLiteral("resumeButton"));
+            QVERIFY(resume);
+            QColor words;
+            for (QQuickItem* c : resume->property("contentItem").value<QQuickItem*>()->childItems())
+                if (c->inherits("QQuickText"))
+                    words = c->property("color").value<QColor>();
+            QCOMPARE(words.name(), QString::fromLatin1(qstrcmp(mode, "bright") == 0 ? "#ffffff" : "#000000"));
+        }
+    }
+
     void playerKeys()
     {
         Session& session = m_core->session();
@@ -405,6 +443,21 @@ private slots:
         QTest::mouseClick(m_window, Qt::LeftButton, {}, next->mapToScene(QPointF(next->width() / 2, next->height() / 2)).toPoint());
         QTRY_COMPARE(m_target.last(), QStringLiteral("chapter 1"));
         shot("player");
+        QObject* captions = m_window->findChild<QObject*>(QStringLiteral("captionsMenu"));
+        QVERIFY(captions);
+        QVERIFY(QMetaObject::invokeMethod(captions, "open"));
+        shot("player-captions");
+        QVERIFY(QMetaObject::invokeMethod(captions, "close"));
+        // The diagnostics stay over the video, not over the pages.
+        QQuickItem* stats = nullptr;
+        for (QQuickItem* item : m_window->contentItem()->childItems())
+            if (QByteArray(item->metaObject()->className()).startsWith("StatsOverlay"))
+                stats = item;
+        QVERIFY(stats && stats->isVisible());
+        m_window->setProperty("browseVisible", true);
+        QVERIFY(!stats->isVisible());
+        m_window->setProperty("browseVisible", false);
+        QVERIFY(stats->isVisible());
         m_target.requestAppAction(QStringLiteral("stats"));
         emit m_target.chaptersChanged({});
         QTRY_VERIFY(!next->isVisible());

@@ -16,6 +16,30 @@ Window {
     minimumHeight: 360
     visible: true
     color: "black"
+
+    // The look: Theme follows the saved choice, and Qt's own controls (menus,
+    // tooltips, scroll bars, dialogs' parts) take their colours from it.
+    Binding { target: Theme; property: "mode"; value: preferences.colorMode }
+    Binding { target: Theme; property: "edits"; value: preferences.colorEdits }
+    palette {
+        window: Theme.panel
+        windowText: Theme.text
+        base: Theme.panel
+        text: Theme.text
+        button: Theme.panel
+        buttonText: Theme.text
+        brightText: Theme.text
+        highlight: Theme.accent
+        highlightedText: Theme.accentText
+        light: Theme.raised
+        midlight: Theme.pressed
+        mid: Theme.line
+        dark: Theme.line
+        shadow: "#000000"
+        placeholderText: Theme.muted
+        toolTipBase: Theme.panel
+        toolTipText: Theme.text
+    }
     title: (session.hasMedia || session.loading) && session.title !== "" ? session.title + " — Corporal Jackie" : "Corporal Jackie"
 
     property bool controlsVisible: true
@@ -23,7 +47,7 @@ Window {
     property bool helpVisible: false
     property bool browseVisible: false
     // The pages fill the window when nothing plays, and cover the video on B.
-    readonly property bool pagesVisible: browseVisible || (!session.hasMedia && !session.loading)
+    readonly property bool pagesVisible: browseVisible || settingsVisible || (!session.hasMedia && !session.loading)
     property bool settingsVisible: false
     property bool episodesVisible: false
     property string errorText: ""
@@ -71,10 +95,11 @@ Window {
         if (!root.browseVisible) inputLayer.forceActiveFocus()
     }
 
+    // Settings is a page: over a video it shows the pages, and closing it
+    // goes back to where it was opened from.
     function toggleSettings() {
         root.settingsVisible = !root.settingsVisible
-        if (root.settingsVisible) settingsPanel.forceActiveFocus()
-        else if (root.pagesVisible) pagesView.show()
+        if (root.pagesVisible) pagesView.focusPage()
         else inputLayer.forceActiveFocus()
     }
 
@@ -235,25 +260,12 @@ Window {
         objectName: "pages"
         visible: root.pagesVisible
         anchors.fill: parent
-        // Above the control bar, which stays usable while they are open.
-        anchors.bottomMargin: session.hasMedia ? 64 : 0
-        onCloseRequested: { root.browseVisible = false; inputLayer.forceActiveFocus() }
+        settingsOpen: root.settingsVisible
+        onCloseRequested: { root.browseVisible = false; root.settingsVisible = false; inputLayer.forceActiveFocus() }
         onSettingsRequested: root.toggleSettings()
         onOpenFileRequested: openDialog.open()
         onOpenLinkRequested: linkPopup.open()
         onMessage: (text, isError) => { if (isError) { root.errorText = text; errorTimer.restart() } else root.osd(text) }
-    }
-
-    // --- Settings (press P) ----------------------------------------------------
-
-    SettingsPanel {
-        id: settingsPanel
-        visible: root.settingsVisible
-        anchors { top: parent.top; bottom: parent.bottom; right: parent.right; margins: 16 }
-        // Above the control bar, which stays usable while it is open.
-        anchors.bottomMargin: session.hasMedia ? 72 : 16
-        width: Math.min(520, parent.width - 32)
-        onCloseRequested: { root.settingsVisible = false; inputLayer.forceActiveFocus() }
     }
 
     // --- Episodes of the series that is playing ---------------------------------
@@ -352,9 +364,10 @@ Window {
         }
     }
 
+    // Over the video only: the pages hide it, and it comes back with the video.
     StatsOverlay {
         anchors { top: parent.top; left: parent.left; margins: 12 }
-        visible: root.statsVisible
+        visible: root.statsVisible && !root.pagesVisible
         streaming: root.streaming
     }
 
@@ -371,10 +384,14 @@ Window {
     ControlBar {
         id: controlBar
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-        visible: session.hasMedia
+        // The pages have their own way back to the video.
+        visible: session.hasMedia && !root.pagesVisible
         shown: root.controlsVisible
         fullScreen: root.visibility === Window.FullScreen
+        statsShown: root.statsVisible
+        onStatsRequested: root.statsVisible = !root.statsVisible
         onOpenRequested: openDialog.open()
+        onOpenLinkRequested: linkPopup.open()
         onSubtitleFileRequested: subtitleDialog.open()
         onBrowseRequested: root.toggleBrowse()
         onSettingsRequested: root.toggleSettings()
@@ -389,7 +406,7 @@ Window {
         id: privacyScreen
         anchors.fill: parent
         visible: !preferences.privacyChosen
-        onVisibleChanged: if (visible) forceActiveFocus(); else inputLayer.forceActiveFocus()
+        onVisibleChanged: if (visible) forceActiveFocus(); else if (root.pagesVisible) pagesView.focusPage(); else inputLayer.forceActiveFocus()
         Component.onCompleted: if (visible) forceActiveFocus()
     }
 }

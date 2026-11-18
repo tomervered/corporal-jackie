@@ -33,13 +33,13 @@ ItemDelegate {
         Rectangle {
             visible: rowItem.progress > 0 && rowItem.progress < 1
             width: Math.min(200, parent.width); height: 3; radius: 1
-            color: "#30ffffff"
+            color: Theme.divider
             Rectangle { width: parent.width * Math.max(0, rowItem.progress); height: parent.height; color: Theme.accent }
         }
     }
     background: Rectangle {
         radius: 6
-        color: rowItem.down ? "#40ffffff" : rowItem.hovered || rowItem.highlighted ? "#1fffffff" : "transparent"
+        color: rowItem.down ? Theme.pressed : rowItem.highlighted ? Theme.raised : rowItem.hovered ? Theme.hover : "transparent"
         border.color: rowItem.highlighted ? Theme.accent : "transparent"
     }
 }

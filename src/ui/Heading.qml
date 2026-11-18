@@ -5,7 +5,7 @@ import QtQuick.Controls.Basic
 Text {
     textFormat: Text.PlainText
     color: Theme.text
-    font.pixelSize: 18
+    font.pixelSize: Theme.headingSize
     font.weight: Font.DemiBold
     elide: Text.ElideRight
 }

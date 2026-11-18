@@ -3,10 +3,12 @@
 Owns pages, controls and user input. Never calls mpv, libtorrent or the network directly: it binds only to the context properties the app gives it (`session`, `browser`, `library`, `preferences`, `caches`).
 
 - `Main.qml`: the window: video, keyboard and mouse, overlays, and where the parts below go.
-- Player: `ControlBar`, `BarButton`, `PlainMenuItem`, `EpisodesPanel` (the episodes of the series that plays), `LinkPopup`, `Toast`, `StatsOverlay`, `ShortcutsOverlay`, and `Format.js` for times and rates.
-- `Pages.qml`: the side bar, page history and shared keys. Each page is its own file (`HomePage`, `SearchPage`, `DiscoverPage`, `DetailPage`, `StreamsPage`, `LibraryPage`, `AddonsPage`, `FoldersPage`) and has `takeFocus()`.
-- `SettingsPanel.qml`, `ContinueWatching.qml`.
-- Pieces: `Theme` (colours and sizes, a singleton), `Muted`, `Heading`, `PageTitle`, `SectionLabel`, `RowItem`, `PosterTile`, `PosterRow`, `NavButton`, `Chip`.
+- Player: `ControlBar` (one row of icons), `BarButton`, `PlainMenuItem`, `EpisodesPanel` (the episodes of the series that plays), `LinkPopup`, `Toast`, `StatsOverlay`, `ShortcutsOverlay`, and `Format.js` for times and rates.
+- `Pages.qml`: the side bar, the header with the search of every add-on, page history and shared keys. Each page is its own file (`HomePage`, `SearchPage`, `DiscoverPage`, `DetailPage`, `StreamsPage`, `LibraryPage`, `AddonsPage`, `FoldersPage` (shown as Local), `SettingsPanel`) and has `takeFocus()`.
+- `ContinueWatching.qml`.
+- Pieces: `Theme` (the three looks, their colours, type sizes and spacing; a singleton that Main.qml points at the saved look), `Icon` with `Icons.js` (line icons drawn with Qt Quick Shapes from SVG path data), `IconButton`, `AppButton`, `AppField`, `AppCombo`, `AppSwitch`, `Muted`, `Heading`, `PageTitle`, `SectionLabel`, `RowItem`, `PosterTile`, `PosterRow`, `NavButton`, `Chip`. `images/logo.png` is the side bar's badge.
+
+Use the App* controls, not Qt's Button, TextField, ComboBox and Switch: they take the look's colours, and AppCombo shows its entries as plain text. A Theme property must not be named on<Something> (QML reads that as a change handler).
 
 The file list is in `QmlFiles.cmake`, used by the app and by `tests/tst_ui`, which loads this window against a fake player and fails on any QML warning.
 

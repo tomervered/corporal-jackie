@@ -2,7 +2,8 @@ import QtQuick
 import QtQuick.Controls.Basic
 import CorporalJackie.Player   // KeyedList
 
-// A titled, scrolling row of posters. Arrow keys move, Enter opens.
+// A titled, scrolling row of posters, sized so a whole number of them fill
+// the width. Arrow keys move, Enter opens. "See all" opens the whole list.
 Column {
     id: posterRow
     property string title
@@ -18,14 +19,30 @@ Column {
     function takeFocus() { rowList.forceActiveFocus() }
     signal focusedIn()   // the keyboard moved into this row: scroll it into view
     width: parent ? parent.width : 400
-    spacing: 8
-    Row {
-        spacing: 12
-        Heading { text: posterRow.title; anchors.verticalCenter: parent.verticalCenter }
+    spacing: 12
+
+    readonly property int columns: Math.max(2, Math.floor((width + Theme.posterGap) / (140 + Theme.posterGap)))
+    readonly property real tileWidth: Math.floor((width - (columns - 1) * Theme.posterGap) / columns)
+
+    Item {
+        width: parent.width
+        height: Math.max(rowTitle.implicitHeight, seeAllButton.implicitHeight)
+        Heading {
+            id: rowTitle
+            anchors { left: parent.left; right: seeAllButton.left; rightMargin: 12; verticalCenter: parent.verticalCenter }
+            text: posterRow.title
+        }
         ToolButton {
+            id: seeAllButton
             visible: posterRow.canSeeAll && posterRow.items.length > 0
-            anchors.verticalCenter: parent.verticalCenter
-            contentItem: Text { textFormat: Text.PlainText; text: "See all ›"; color: Theme.accent; font.pixelSize: 13 }
+            anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+            Accessible.name: "See all of " + posterRow.title
+            contentItem: Row {
+                spacing: 2
+                Text { textFormat: Text.PlainText; anchors.verticalCenter: parent.verticalCenter; text: "See all"; color: Theme.accent; font.pixelSize: Theme.smallSize + 1; font.weight: Font.DemiBold }
+                Icon { anchors.verticalCenter: parent.verticalCenter; name: "chevronRight"; size: 14; color: Theme.accent }
+            }
+            background: Rectangle { radius: Theme.radius; color: seeAllButton.hovered ? Theme.hover : "transparent" }
             onClicked: posterRow.seeAll()
         }
     }
@@ -40,9 +57,9 @@ Column {
         id: rowList
         visible: posterRow.items.length > 0
         width: parent.width
-        height: Theme.posterWidth * 1.5 + 44
+        height: posterRow.tileWidth * 1.5 + 66
         orientation: ListView.Horizontal
-        spacing: 14
+        spacing: Theme.posterGap
         clip: true
         activeFocusOnTab: true
         keyNavigationEnabled: true
@@ -50,11 +67,16 @@ Column {
         model: posterRow.near ? rowModel : null
         highlightFollowsCurrentItem: true
         highlightMoveDuration: 120
+        // Room for the focus outline.
+        topMargin: 3
+        leftMargin: 3
+        rightMargin: 3
         ScrollBar.horizontal: ScrollBar { policy: rowList.contentWidth > rowList.width ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
         delegate: PosterTile {
             required property var entry
             required property int index
             item: entry
+            posterWidth: posterRow.tileWidth - 2
             current: ListView.isCurrentItem && rowList.activeFocus
             onActivated: { rowList.currentIndex = index; posterRow.opened(index) }
         }

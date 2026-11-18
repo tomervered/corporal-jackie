@@ -2,63 +2,152 @@ import QtQuick
 import QtQuick.Controls.Basic
 import CorporalJackie.Player   // KeyedList
 
-// Home: search, what to go on watching, and a row from each list of every
-// add-on and folder.
+// Home: the film to go on with, large; the rest of Continue Watching; and a
+// row from each list of every add-on and folder, each with See all. With
+// nothing to go on with, the ways to open something instead.
 Flickable {
     id: homePage
     required property Item nav   // the Pages: go(), back(), openItem() and the picked types
-    // With nothing playing, typing searches. Over a video the keyboard starts
-    // on the first row instead, so B (and the other letters) still work.
-    function focusSearch() { homeSearch.forceActiveFocus() }
+    // The keyboard starts on Resume (or the first row), so Enter and the
+    // arrows work at once, and B (and the other letters) still reach the pages.
     function takeFocus() {
-        if (!session.hasMedia) homeSearch.forceActiveFocus()
+        if (hero.visible) resumeButton.forceActiveFocus()
         else if (homeContinue.count > 0) homeContinue.forceActiveFocus()
         else if (homeRows.count > 0) homeRows.itemAt(0).takeFocus()
-        else homeSearch.forceActiveFocus()
+        else openVideoButton.forceActiveFocus()
     }
+
+    readonly property var latest: library.continueWatching.length > 0 ? library.continueWatching[0] : null
+    function remaining(item) {
+        const left = Math.max(0, item.duration - item.position)
+        return left >= 3600 ? Math.floor(left / 3600) + " h " + Math.round((left % 3600) / 60) + " min left"
+                            : Math.max(1, Math.round(left / 60)) + " min left"
+    }
+    function clock(seconds) {
+        const s = Math.floor(seconds), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60
+        return (h > 0 ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(r).padStart(2, "0")
+    }
+    readonly property real columnsWidth: width - 14
 
     contentHeight: homeColumn.implicitHeight + 24
     clip: true
+    boundsBehavior: Flickable.StopAtBounds
     ScrollBar.vertical: ScrollBar {}
     Column {
         id: homeColumn
-        width: homePage.width - 14
-        spacing: 18
+        width: homePage.columnsWidth
+        spacing: 26
 
-        Row {
+        // --- Go on watching ----------------------------------------------------
+        Rectangle {
+            id: hero
+            objectName: "homeHero"
+            visible: homePage.latest !== null
             width: parent.width
-            spacing: 8
-            TextField {
-                id: homeSearch
-                width: Math.min(460, parent.width - openButtons.width - 8)
-                placeholderText: "Search all your add-ons"
-                onAccepted: {
-                    if (text.trim() === "") return
-                    browser.searchAll(text, "")
-                    nav.searchType = ""
-                    nav.go("search")
+            height: 225
+            radius: 10
+            color: Theme.panel
+            clip: true
+            // The poster, cropped, on the right, faded into the panel.
+            Image {
+                anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
+                width: parent.width * 0.62
+                source: homePage.latest ? homePage.latest.poster : ""
+                fillMode: Image.PreserveAspectCrop
+                verticalAlignment: Image.AlignTop
+                sourceSize.width: 640
+                asynchronous: true
+                opacity: 0.85
+            }
+            Rectangle {
+                anchors.fill: parent
+                gradient: Gradient {
+                    orientation: Gradient.Horizontal
+                    GradientStop { position: 0.03; color: Theme.panel }
+                    GradientStop { position: 0.38; color: Qt.rgba(Theme.panel.r, Theme.panel.g, Theme.panel.b, 0.9) }
+                    GradientStop { position: 0.8; color: Qt.rgba(Theme.panel.r, Theme.panel.g, Theme.panel.b, 0.15) }
                 }
             }
-            Row {
-                id: openButtons
-                spacing: 8
-                Button { text: "Open a video…"; onClicked: nav.openFileRequested() }
-                Button { text: "Open a link…"; onClicked: nav.openLinkRequested() }
+            Column {
+                anchors { left: parent.left; leftMargin: 30; verticalCenter: parent.verticalCenter }
+                width: parent.width * 0.55
+                spacing: 4
+                Text { textFormat: Text.PlainText; text: "Continue watching"; color: Theme.muted; font.pixelSize: Theme.smallSize }
+                Text {
+                    textFormat: Text.PlainText
+                    width: parent.width
+                    text: homePage.latest ? homePage.latest.name : ""
+                    color: Theme.text
+                    font.pixelSize: 34
+                    font.weight: Font.Bold
+                    font.letterSpacing: -0.8
+                    elide: Text.ElideRight
+                }
+                Text {
+                    textFormat: Text.PlainText
+                    width: parent.width
+                    text: !homePage.latest ? ""
+                        : (homePage.latest.subtitle !== "" ? homePage.latest.subtitle + " · " : "Paused at " + homePage.clock(homePage.latest.position) + " · ")
+                          + homePage.remaining(homePage.latest)
+                    color: Theme.muted
+                    font.pixelSize: Theme.smallSize + 1
+                    elide: Text.ElideRight
+                    bottomPadding: 14
+                }
+                Row {
+                    spacing: 8
+                    AppButton {
+                        id: resumeButton
+                        objectName: "resumeButton"
+                        primary: true
+                        iconName: "play"
+                        text: "Resume"
+                        onClicked: { library.resume(homePage.latest.key); nav.closeRequested() }
+                    }
+                    AppButton {
+                        visible: homePage.latest !== null && homePage.latest.canOpen === true
+                        text: "Details"
+                        onClicked: { const k = homePage.latest.itemKey; library.open(k) }
+                    }
+                }
             }
         }
-        Muted {
+
+        // --- Nothing to go on with: how to open something ---------------------
+        Rectangle {
+            visible: !hero.visible
             width: parent.width
-            text: "Drop a video, a subtitle file or a magnet link anywhere on the window to open it."
+            height: openColumn.implicitHeight + 48
+            radius: 10
+            color: Theme.panel
+            Column {
+                id: openColumn
+                anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: 30 }
+                spacing: 6
+                Text { textFormat: Text.PlainText; text: "Watch something"; color: Theme.text; font.pixelSize: 26; font.weight: Font.Bold }
+                Muted {
+                    width: parent.width
+                    text: "Open a file or paste a magnet link, search above, or pick from the lists below. You can also drop a video, a subtitle file or a magnet link anywhere on the window."
+                    bottomPadding: 12
+                }
+                Row {
+                    spacing: 8
+                    AppButton { id: openVideoButton; primary: true; iconName: "file"; text: "Open a video…"; onClicked: nav.openFileRequested() }
+                    AppButton { iconName: "link"; text: "Open a link…"; onClicked: nav.openLinkRequested() }
+                }
+            }
         }
 
         Column {
             width: parent.width
             visible: homeContinue.count > 0
-            spacing: 8
-            Heading { text: "Continue watching" }
+            spacing: 12
+            Heading { text: "Also in progress" }
             ContinueWatching {
                 id: homeContinue
+                skip: 1
                 width: parent.width
+                tileWidth: homeRows.count > 0 ? homeRows.itemAt(0).tileWidth - 2 : 148
                 height: implicitHeight
                 activeFocusOnTab: true
                 onResumed: nav.closeRequested()
@@ -68,7 +157,7 @@ Flickable {
         Muted {
             width: parent.width
             visible: browser.catalogs.length === 0
-            text: "Nothing to browse yet. Install an add-on under Add-ons, or add a folder with videos under Your folders."
+            text: "Nothing to browse yet. Install an add-on under Add-ons, or add a folder with videos under Local."
         }
         // Updated in place: a row that finishes loading leaves the others be.
         KeyedList { id: homeRowsModel; keyRole: "catalog"; values: browser.homeRows }

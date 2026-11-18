@@ -52,10 +52,10 @@ Item {
     Row {
         id: detailHeader
         width: parent.width
-        spacing: 18
+        spacing: 24
         Image {
             id: detailPoster
-            width: 150; height: 225
+            width: 170; height: 255
             source: browser.detail.poster || ""
             visible: status === Image.Ready
             fillMode: Image.PreserveAspectCrop
@@ -63,9 +63,9 @@ Item {
             asynchronous: true
         }
         Column {
-            width: parent.width - (detailPoster.visible ? detailPoster.width + 18 : 0)
+            width: parent.width - (detailPoster.visible ? detailPoster.width + 24 : 0)
             spacing: 8
-            PageTitle { width: parent.width; text: browser.detail.name || "" }
+            PageTitle { width: parent.width; text: browser.detail.name || ""; wrapMode: Text.Wrap; maximumLineCount: 2 }
             Muted {
                 width: parent.width
                 visible: text !== ""
@@ -81,21 +81,24 @@ Item {
             }
             Row {
                 spacing: 8
-                Button {
+                AppButton {
                     id: findStreamsButton
                     objectName: "findStreams"
                     visible: detailPage.isMovie && !browser.detailLoading && !detailPage.streamsAsked
+                    primary: true
+                    iconName: "play"
                     text: "Find streams"
                     onClicked: detailPage.askForStreams()
                     Keys.onReturnPressed: detailPage.askForStreams()
                     Keys.onEnterPressed: detailPage.askForStreams()
                 }
-                Button {
+                AppButton {
                     id: libraryButton
                     // Reads library.items so it updates when the library changes.
                     readonly property bool saved: library.items.length >= 0 && library.contains(browser.detail.key || "")
                     visible: (browser.detail.id || "") !== ""
-                    text: saved ? "✓ In your library" : "+ Add to library"
+                    iconName: saved ? "check" : "plus"
+                    text: saved ? "In your library" : "Add to library"
                     onClicked: saved ? library.remove(browser.detail.key) : library.add(browser.detail)
                 }
             }
