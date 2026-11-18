@@ -169,6 +169,28 @@ Rectangle {
                 checked: session.hardwareDecoding
                 onToggled: on => session.hardwareDecoding = on
             }
+            Choice {
+                visible: session.upscalers.length > 1
+                title: "Upscaling"
+                options: session.upscalers.map(name => [name, ({
+                    off: "Off", fsr: "AMD FSR", nvidia: "NVIDIA VSR", intel: "Intel VSR", metalfx: "Apple MetalFX"
+                })[name] || name])
+                value: session.upscaler
+                onPicked: v => session.upscaler = v
+            }
+            Choice {
+                visible: session.upscaler !== "off"
+                title: "Upscale to"
+                options: [[0, "Screen size"], [1080, "1080p"], [1440, "1440p"], [2160, "4K"]]
+                value: session.upscaleHeight
+                onPicked: v => session.upscaleHeight = v
+            }
+            Note {
+                visible: session.upscalers.length > 1
+                text: session.upscaler === "off"
+                      ? "Sharpens videos smaller than your screen. Off uses no extra memory or graphics power."
+                      : "Uses extra graphics power while a video plays. Turn it off if playback stutters on this computer."
+            }
             Note { text: "Press I while playing to see dropped and late frames." }
 
             // --- Subtitles ------------------------------------------------------------

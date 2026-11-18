@@ -161,7 +161,12 @@ int main(int argc, char* argv[])
         // With a file, the smoke test also checks that it loads and plays.
         // withFile by value: this block ends long before the timer fires.
         const bool withFile = !args.positionalArguments().isEmpty();
-        QTimer::singleShot(withFile ? 4000 : 1000, &app, [&, withFile] {
+        // CJ_SMOKE_UPSCALER=fsr: play with that upscaler on, and fail if the
+        // graphics driver could not run it (the target turns it off then).
+        const QString upscaler = qEnvironmentVariable("CJ_SMOKE_UPSCALER");
+        if (!upscaler.isEmpty())
+            session.setUpscaler(upscaler);
+        QTimer::singleShot(withFile ? 4000 : 1000, &app, [&, withFile, upscaler] {
             // Add-ons are reached over HTTPS: a package without Qt's TLS
             // plugin would install nothing.
             if (!QSslSocket::supportsSsl()) {
@@ -184,6 +189,11 @@ int main(int argc, char* argv[])
                 qCCritical(lcApp) << "Smoke test failed: file did not play (state:"
                                   << session.state() << "position:" << session.position() << ")";
                 QCoreApplication::exit(2);
+                return;
+            }
+            if (!upscaler.isEmpty() && session.upscaler() != upscaler) {
+                qCCritical(lcApp).noquote() << "Smoke test failed: upscaler" << upscaler << "is" << session.upscaler();
+                QCoreApplication::exit(6);
                 return;
             }
             qCInfo(lcApp) << "Smoke test passed: window opened" << (withFile ? "and the file played" : "")

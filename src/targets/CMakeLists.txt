@@ -6,6 +6,8 @@ add_library(cj_targets STATIC
     MpvVideoItem.cpp MpvVideoItem.h
     SleepBlocker.cpp SleepBlocker.h
 )
+# AMD FSR 1, ported to an mpv user shader (MIT; see the file's header).
+qt_add_resources(cj_targets "cj_shaders" PREFIX "/cj" FILES shaders/fsr1.glsl)
 target_include_directories(cj_targets PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(cj_targets
     PUBLIC  cj_common cj_session Qt6::Core Qt6::Network Qt6::Quick Qt6::OpenGL

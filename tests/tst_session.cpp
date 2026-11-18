@@ -225,11 +225,52 @@ private slots:
         s.cycleCrop();
         s.setEqualizer(QStringLiteral("hue"), 10);
         s.setHardwareDecoding(false);
+        s.setUpscaler(QStringLiteral("fsr"));
+        s.setUpscaleHeight(2160);  // stored, but no upscaler is on to hear it
         s.nextChapter();
         QCOMPARE(t.commands.size(), before);
+        QCOMPARE(s.upscaler(), QStringLiteral("off"));
+        QCOMPARE(s.upscalers(), QStringList{QStringLiteral("off")});
         QCOMPARE(s.subtitleDelay(), 0.0);
         QCOMPARE(s.aspectRatio(), QString());
         QVERIFY(!s.supports(QStringLiteral("FrameStep")));
+    }
+
+    void upscalerChoice()
+    {
+        FakeTarget t;  // FSR and NVIDIA VSR, no Intel VSR
+        Session s(&t);
+        QCOMPARE(s.upscalers(), (QStringList{QStringLiteral("off"), QStringLiteral("fsr"), QStringLiteral("nvidia")}));
+        QCOMPARE(s.upscaler(), QStringLiteral("off"));
+        QCOMPARE(s.upscaleHeight(), 0);
+
+        QSignalSpy changed(&s, &Session::upscalerChanged);
+        s.setUpscaler(QStringLiteral("fsr"));
+        QCOMPARE(t.last(), QStringLiteral("upscaler 1 0"));
+        QCOMPARE(s.upscaler(), QStringLiteral("fsr"));
+        s.setUpscaleHeight(1440);
+        QCOMPARE(t.last(), QStringLiteral("upscaler 1 1440"));
+        s.setUpscaler(QStringLiteral("nvidia"));
+        QCOMPARE(t.last(), QStringLiteral("upscaler 2 1440"));
+        QCOMPARE(changed.count(), 3);
+
+        // Not on this target, unknown, or out of range: nothing changes.
+        const int before = t.commands.size();
+        s.setUpscaler(QStringLiteral("intel"));
+        s.setUpscaler(QStringLiteral("magic"));
+        s.setUpscaleHeight(100);
+        s.setUpscaleHeight(1440);  // same as now
+        QCOMPARE(t.commands.size(), before);
+        QCOMPARE(s.upscaler(), QStringLiteral("nvidia"));
+        QCOMPARE(s.upscaleHeight(), 1440);
+
+        s.setUpscaler(QStringLiteral("off"));
+        QCOMPARE(t.last(), QStringLiteral("upscaler 0 1440"));
+        // While off, a new height is kept for later but not sent.
+        s.setUpscaleHeight(0);
+        QCOMPARE(t.last(), QStringLiteral("upscaler 0 1440"));
+        s.setUpscaler(QStringLiteral("fsr"));
+        QCOMPARE(t.last(), QStringLiteral("upscaler 1 0"));
     }
 
     void abLoopCycle()
@@ -307,6 +348,10 @@ private slots:
         QCOMPARE(s.contrast(), 3);
         t.changeSetting(QStringLiteral("hardwareDecoding"), false);
         QVERIFY(!s.hardwareDecoding());
+        s.setUpscaler(QStringLiteral("fsr"));
+        t.commands.clear();
+        t.changeSetting(QStringLiteral("upscaler"), QStringLiteral("off"));
+        QCOMPARE(s.upscaler(), QStringLiteral("off"));
         t.changeSetting(QStringLiteral("fullScreen"), true);
         QVERIFY(s.fullScreen());
         QVERIFY(t.commands.isEmpty());

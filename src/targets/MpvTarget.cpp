@@ -6,8 +6,10 @@
 #include "Session.h"
 
 #include <QFile>
+#include <QDir>
 #include <QFileInfo>
 #include <QMetaObject>
+#include <QTemporaryFile>
 #include <mpv/client.h>
 
 #include <algorithm>
@@ -291,7 +293,8 @@ Capabilities MpvTarget::capabilities() const
     return Capability::SubtitleDelay | Capability::SubtitleStyle | Capability::AudioDelay
          | Capability::Chapters | Capability::FrameStep | Capability::Screenshot
          | Capability::AbLoop | Capability::AspectRatio | Capability::Crop
-         | Capability::VideoEqualizer | Capability::HardwareDecoding | Capability::NativeKeys;
+         | Capability::VideoEqualizer | Capability::HardwareDecoding | Capability::NativeKeys
+         | Capability::UpscaleFsr;
 }
 
 // mpv's defaults, except where a binding would end mpv itself or needs a Lua
@@ -716,6 +719,61 @@ void MpvTarget::setHardwareDecoding(bool enabled)
     emitStats();
 }
 
+// The FSR shader, sized for 'targetHeight' (0 = the size the video is shown
+// at), as an mpv shader file. Null if it cannot be written.
+std::unique_ptr<QTemporaryFile> MpvTarget::writeFsrShader(int targetHeight)
+{
+    QFile source(QStringLiteral(":/cj/shaders/fsr1.glsl"));
+    if (!source.open(QIODevice::ReadOnly))
+        return nullptr;
+    QByteArray text = source.readAll();
+    QByteArray when, width, height;
+    if (targetHeight <= 0) {
+        when = "OUTPUT.w LUMA.w / 1.0 > OUTPUT.h LUMA.h / 1.0 > *";
+        width = "OUTPUT.w";
+        height = "OUTPUT.h";
+    } else {
+        const QByteArray h = QByteArray::number(targetHeight);
+        when = h + " LUMA.h / 1.0 >";
+        width = "LUMA.w " + h + " * LUMA.h /";
+        height = h;
+    }
+    text.replace("@WHEN@", when).replace("@WIDTH@", width).replace("@HEIGHT@", height);
+
+    auto file = std::make_unique<QTemporaryFile>(QDir::tempPath() + QStringLiteral("/cj-fsr1-XXXXXX.glsl"));
+    if (!file->open() || file->write(text) != text.size() || !file->flush())
+        return nullptr;
+    file->close();  // the file stays until the object goes
+    return file;
+}
+
+// Off clears the shader list, so mpv frees the passes and their textures.
+void MpvTarget::setUpscaler(Upscaler upscaler, int targetHeight)
+{
+    if (upscaler == m_upscaler && targetHeight == m_upscaleHeight)
+        return;
+    command({"change-list", "glsl-shaders", "clr", ""});
+    m_upscaler = Upscaler::Off;
+    m_upscaleHeight = targetHeight;
+    if (upscaler == Upscaler::Fsr) {
+        // Kept until mpv has dropped it: the new file replaces it below.
+        std::unique_ptr<QTemporaryFile> file = writeFsrShader(targetHeight);
+        if (file) {
+            command({"change-list", "glsl-shaders", "append", file->fileName().toUtf8().constData()});
+            m_fsrShader = std::move(file);
+            m_upscaler = Upscaler::Fsr;
+        } else {
+            qCWarning(lcTargets) << "Could not write the FSR shader; upscaling stays off";
+        }
+    } else if (upscaler != Upscaler::Off) {
+        qCWarning(lcTargets) << "Upscaler" << int(upscaler) << "is not available here";
+    }
+    if (m_upscaler == Upscaler::Off)
+        m_fsrShader.reset();
+    qCInfo(lcTargets).noquote() << "Upscaler:" << upscalerLabel();
+    emitStats();
+}
+
 // --- Events -----------------------------------------------------------------------
 
 void MpvTarget::processEvents()
@@ -777,8 +835,19 @@ void MpvTarget::processEvents()
             break;
         case MPV_EVENT_LOG_MESSAGE: {
             const auto* msg = static_cast<mpv_event_log_message*>(event->data);
-            qCWarning(lcTargets).noquote() << "mpv" << msg->prefix << ":"
-                                           << logging::redactText(QString::fromUtf8(msg->text).trimmed());
+            const QString text = QString::fromUtf8(msg->text).trimmed();
+            qCWarning(lcTargets).noquote() << "mpv" << msg->prefix << ":" << logging::redactText(text);
+            // A graphics driver that cannot build the upscaler's shader would
+            // leave a broken picture: fall back to mpv's own scaling.
+            // (The renderer logs as "vo/..." or, through the render API, "libmpv_render".)
+            if (m_upscaler == Upscaler::Fsr
+                && (qstrncmp(msg->prefix, "vo", 2) == 0 || qstrncmp(msg->prefix, "libmpv_render", 13) == 0)
+                && (text.contains(QLatin1String("shader"), Qt::CaseInsensitive)
+                    || text.contains(QLatin1String("error"), Qt::CaseInsensitive))) {
+                qCWarning(lcTargets) << "The FSR shader failed on this graphics driver; upscaling turned off";
+                setUpscaler(Upscaler::Off, m_upscaleHeight);
+                emit settingChanged(QStringLiteral("upscaler"), QStringLiteral("off"));
+            }
             break;
         }
         case MPV_EVENT_HOOK: {
@@ -946,6 +1015,18 @@ void MpvTarget::handleProperty(uint64_t id, const mpv_event_property* p)
     }
 }
 
+QString MpvTarget::upscalerLabel() const
+{
+    QString name;
+    switch (m_upscaler) {
+    case Upscaler::Off:       return QStringLiteral("off");
+    case Upscaler::Fsr:       name = QStringLiteral("AMD FSR 1"); break;
+    case Upscaler::NvidiaVsr: name = QStringLiteral("NVIDIA VSR"); break;
+    case Upscaler::IntelVsr:  name = QStringLiteral("Intel VSR"); break;
+    }
+    return name + (m_upscaleHeight > 0 ? QStringLiteral(" to %1p").arg(m_upscaleHeight) : QStringLiteral(" to window size"));
+}
+
 void MpvTarget::emitStats()
 {
     const bool hw = !m_hwdecCurrent.isEmpty() && m_hwdecCurrent != QLatin1String("no");
@@ -954,6 +1035,7 @@ void MpvTarget::emitStats()
         {QStringLiteral("HW decoding"), m_hwdecEnabled ? QStringLiteral("allowed") : QStringLiteral("off")},
         {QStringLiteral("Codec"), m_videoCodec.isEmpty() ? QStringLiteral("-") : m_videoCodec},
         {QStringLiteral("Resolution"), m_videoWidth > 0 ? QStringLiteral("%1×%2").arg(m_videoWidth).arg(m_videoHeight) : QStringLiteral("-")},
+        {QStringLiteral("Upscaler"), upscalerLabel()},
         {QStringLiteral("FPS"), m_fps > 0 ? QString::number(m_fps, 'f', 2) : QStringLiteral("-")},
         // Dropped by the output (too slow to draw, or timing), dropped by
         // the decoder (too slow to decode), late, and shown at the wrong

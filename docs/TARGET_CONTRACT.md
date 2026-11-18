@@ -42,6 +42,7 @@ Every target implements `cj::PlaybackTarget` (`src/session/PlaybackTarget.h`). T
 | `Crop` | `setCrop(text)` | Crop to an aspect, e.g. `"2.39:1"`; `""` = none. **Local only.** |
 | `VideoEqualizer` | `setVideoEqualizer(eq)` | Brightness, contrast, saturation, gamma, hue, each −100…100. **Local only.** |
 | `HardwareDecoding` | `setHardwareDecoding(bool)` | Allow GPU decoding. **Local only.** |
+| `UpscaleFsr`, `UpscaleNvidiaVsr`, `UpscaleIntelVsr` | `setUpscaler(upscaler, targetHeight)` | Upscale the picture with that method, to `targetHeight` pixels high (0 = the size it is shown at). Each method has its own capability, so the UI lists only those this computer can run. `Off` is always allowed and must leave nothing loaded. **Local only.** |
 | `NativeKeys` | `keyEvent(key, modifiers, text, pressed)` | A key over the video, in Qt's terms. The target runs its own binding for it (mpv's input.conf) and reports what changed with `settingChanged`. `key` 0 with `pressed` false releases every held key. |
 
 `setFullScreen(bool)` has no capability: the window owns full screen, and a target with its own key for it hears about every change so the two agree.
@@ -61,7 +62,7 @@ Every target implements `cj::PlaybackTarget` (`src/session/PlaybackTarget.h`). T
 | `volumeChanged(volume, muted)` | When output volume or mute changes, from any cause. |
 | `errorOccurred(error, message)` | Something failed. `error` is a `PlaybackError` (see below). |
 | `statsChanged(stats)` | Free-form diagnostics for the debug overlay, as name → text. |
-| `settingChanged(name, value)` | The target changed a setting by itself, from its own keys: `speed`, `subtitleDelay`, `audioDelay`, `subtitleScale`, `abLoopA`, `abLoopB` (−1 = unset), `aspectRatio` (width ÷ height, 0 = the file's own), `brightness`, `contrast`, `saturation`, `gamma`, `hue`, `hardwareDecoding`, `fullScreen`. The Session takes the value and does not send it back. |
+| `settingChanged(name, value)` | The target changed a setting by itself, from its own keys: `speed`, `subtitleDelay`, `audioDelay`, `subtitleScale`, `abLoopA`, `abLoopB` (−1 = unset), `aspectRatio` (width ÷ height, 0 = the file's own), `brightness`, `contrast`, `saturation`, `gamma`, `hue`, `hardwareDecoding`, `fullScreen`, `upscaler` (`"off"` when the target had to turn its upscaler off, because the graphics driver could not run it). The Session takes the value and does not send it back. |
 | `appActionRequested(action)` | The target's own keys asked for something only the app does: `stop` (close the video) or `stats` (show or hide the stats). |
 
 When the item reaches its end the target sends `stateChanged(Ended)` and keeps the last frame. It does not unload.
