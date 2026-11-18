@@ -109,6 +109,13 @@ Session::Session(PlaybackTarget* target, QObject* parent)
     });
     connect(target, &PlaybackTarget::screenshotSaved, this, &Session::screenshotSaved);
     connect(target, &PlaybackTarget::settingChanged, this, &Session::applyTargetSetting);
+    connect(target, &PlaybackTarget::upscalerStatusChanged, this, [this](const QString& status, bool problem) {
+        if (status == m_upscalerStatus && problem == m_upscalerProblem)
+            return;
+        m_upscalerStatus = status;
+        m_upscalerProblem = problem;
+        emit upscalerStatusChanged();
+    });
     connect(target, &PlaybackTarget::appActionRequested, this, [this](const QString& action) {
         if (action == QLatin1String("stop"))
             stop();
@@ -652,7 +659,7 @@ void Session::applyTargetSetting(const QString& name, const QVariant& value)
     else if (name == QLatin1String("upscaler")) {
         const QString wanted = value.toString();
         Upscaler u = Upscaler::Off;
-        for (const Upscaler candidate : {Upscaler::Fsr, Upscaler::NvidiaVsr, Upscaler::IntelVsr})
+        for (const Upscaler candidate : {Upscaler::Sgsr, Upscaler::Cas, Upscaler::Fsr, Upscaler::Anime4k, Upscaler::NvidiaVsr, Upscaler::IntelVsr, Upscaler::MetalFx})
             if (upscalerName(candidate) == wanted)
                 u = candidate;
         update(m_upscaler, u, &Session::upscalerChanged, this);
@@ -677,9 +684,13 @@ struct UpscalerInfo {
     Capability capability;
 };
 constexpr UpscalerInfo kUpscalers[] = {
+    {Upscaler::Sgsr,      "sgsr",   Capability::UpscaleSgsr},  // lightest first
+    {Upscaler::Cas,       "cas",    Capability::UpscaleCas},
     {Upscaler::Fsr,       "fsr",    Capability::UpscaleFsr},
+    {Upscaler::Anime4k,   "anime4k", Capability::UpscaleAnime4k},
     {Upscaler::NvidiaVsr, "nvidia", Capability::UpscaleNvidiaVsr},
     {Upscaler::IntelVsr,  "intel",  Capability::UpscaleIntelVsr},
+    {Upscaler::MetalFx,   "metalfx", Capability::UpscaleMetalFx},
 };
 } // namespace
 

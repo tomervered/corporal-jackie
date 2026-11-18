@@ -8,6 +8,7 @@
 #include <memory>
 
 class QTemporaryFile;
+class QTimer;
 
 struct mpv_handle;
 struct mpv_event_property;
@@ -41,6 +42,13 @@ public:
     // Called by the video surface once its render context exists. In Video
     // mode mpv cannot open a file before that, so earlier loads wait for it.
     Q_INVOKABLE void markRenderReady();
+    // For the video surface, which runs MetalFX itself: what to draw.
+    Upscaler upscaler() const { return m_upscaler; }
+    int upscaleHeight() const { return m_upscaleHeight; }
+    int videoWidth() const { return m_videoWidth; }
+    int videoHeight() const { return m_videoHeight; }
+    // The video surface could not run MetalFX: turn it off.
+    Q_INVOKABLE void renderUpscalerFailed();
 
     QString name() const override;
     Capabilities capabilities() const override;
@@ -77,6 +85,17 @@ public:
     // A Qt key as mpv's input.conf names it ("SPACE", "Ctrl+s", "Shift+LEFT",
     // "F"), or empty if mpv has no name for it.
     static QString keyName(int key, Qt::KeyboardModifiers modifiers, const QString& text);
+    // Which Video Super Resolution a graphics card has, from its DXGI vendor
+    // id and name. Public for tests.
+    static Capabilities vsrCapabilities(unsigned vendorId, const QString& adapterName);
+    // mpv's vf for VSR: scale the video (videoHeight) up to targetHeight, or
+    // to shownHeight when that is 0. Empty when there is nothing to do.
+    static QString vsrFilter(Upscaler upscaler, int videoHeight, int targetHeight, int shownHeight);
+    // The line upscalerStatusChanged sends. target: the height to reach (the
+    // shown height for "screen size"); outHeight: the height the video
+    // filters hand on (a VSR filter that works makes it bigger than
+    // videoHeight); filterSet: a VSR filter is in place. Public for tests.
+    static QString upscalerStatus(Upscaler upscaler, int videoHeight, int target, int outHeight, bool filterSet);
 
 private:
     Q_INVOKABLE void processEvents();
@@ -94,7 +113,10 @@ private:
     void bindAppKeys();
     void emitStats();
     QString upscalerLabel() const;
-    static std::unique_ptr<QTemporaryFile> writeFsrShader(int targetHeight);
+    void applyVsrFilter();
+    void turnUpscalerOff(const QString& why);
+    void updateUpscalerStatus();
+    static std::unique_ptr<QTemporaryFile> writeShader(Upscaler upscaler, int targetHeight);
     static QList<Track> parseTracks(const ::mpv_node* node);
     static QList<Chapter> parseChapters(const ::mpv_node* node);
 
@@ -120,10 +142,16 @@ private:
     bool m_hwdecEnabled = true;
     Upscaler m_upscaler = Upscaler::Off;
     int m_upscaleHeight = 0;
-    // The FSR shader with its sizes filled in, written out when FSR is
-    // picked and removed when it is turned off: mpv loads shaders from files
+    Capabilities m_vsrCaps;       // VSR (Windows) or MetalFX (macOS), found once at start
+    QString m_vsrFilter;          // the vf now set, empty for none
+    int m_shownHeight = 0;        // mpv's output height (osd-height)
+    int m_outHeight = 0;          // height after the video filters (video-out-params/h)
+    QString m_upscalerStatus;     // the line last sent by upscalerStatusChanged
+    QTimer* m_vsrTimer = nullptr; // re-sizes the filter once a resize settles
+    // The upscaler's shader (FSR, SGSR, CAS or Anime4K) with its sizes filled in, written
+    // out when it is picked and removed when it is turned off: mpv loads shaders from files
     // (and caches them by name, so each size gets a new file).
-    std::unique_ptr<QTemporaryFile> m_fsrShader;
+    std::unique_ptr<QTemporaryFile> m_shaderFile;
     bool m_pausedForCache = false;
     int m_cachePercent = 100;
     QString m_cropRatio;

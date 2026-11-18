@@ -1,0 +1,464 @@
+diff --git a/meson.build b/meson.build
+index fb10be5..d75f42e 100644
+--- a/meson.build
++++ b/meson.build
+@@ -1413,6 +1413,12 @@ if features['d3d9-hwaccel'] and features['d3d11']
+     sources += files('video/out/d3d11/hwdec_dxva2dxgi.c')
+ endif
+ 
++# D3D11 frames on a WGL OpenGL context (Corporal Jackie patch).
++features += {'gl-dxinterop-d3d11': features['gl-win32'] and features['d3d-hwaccel']}
++if features['gl-dxinterop-d3d11']
++    sources += files('video/out/opengl/hwdec_d3d11gldx.c')
++endif
++
+ gl_dxinterop_d3d9 = get_option('gl-dxinterop-d3d9').require(
+     features['gl-dxinterop'] and features['d3d9-hwaccel'],
+     error_message: 'gl-dxinterop and d3d9-hwaccel were not found!',
+diff --git a/video/out/gpu/hwdec.c b/video/out/gpu/hwdec.c
+index be39c50..2a5e37b 100644
+--- a/video/out/gpu/hwdec.c
++++ b/video/out/gpu/hwdec.c
+@@ -31,6 +31,7 @@ extern const struct ra_hwdec_driver ra_hwdec_vdpau;
+ extern const struct ra_hwdec_driver ra_hwdec_dxva2egl;
+ extern const struct ra_hwdec_driver ra_hwdec_d3d11egl;
+ extern const struct ra_hwdec_driver ra_hwdec_dxva2gldx;
++extern const struct ra_hwdec_driver ra_hwdec_d3d11gldx;
+ extern const struct ra_hwdec_driver ra_hwdec_d3d11va;
+ extern const struct ra_hwdec_driver ra_hwdec_dxva2dxgi;
+ extern const struct ra_hwdec_driver ra_hwdec_cuda;
+@@ -63,6 +64,9 @@ const struct ra_hwdec_driver *const ra_hwdec_drivers[] = {
+ #if HAVE_GL_DXINTEROP_D3D9
+     &ra_hwdec_dxva2gldx,
+ #endif
++#if HAVE_GL_DXINTEROP_D3D11
++    &ra_hwdec_d3d11gldx,
++#endif
+ #if HAVE_CUDA_INTEROP
+     &ra_hwdec_cuda,
+ #endif
+diff --git a/video/out/opengl/hwdec_d3d11gldx.c b/video/out/opengl/hwdec_d3d11gldx.c
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/video/out/opengl/hwdec_d3d11gldx.c
+@@ -0,0 +1,419 @@
++/*
++ * This file is part of mpv.
++ *
++ * mpv is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * mpv is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
++ */
++
++// D3D11 frames on a native (WGL) OpenGL context, through
++// WGL_NV_DX_interop2. NVIDIA, AMD and Intel drivers support it.
++//
++// The interop cannot share NV12/P010 textures or texture arrays, so each
++// frame is converted to one RGB texture by the D3D11 video processor and that
++// texture is handed to OpenGL. The point of this hwdec is that a D3D11 device
++// exists for the libmpv render API on Windows, so vf_d3d11vpp (and its
++// NVIDIA/Intel Video Super Resolution) works there.
++//
++// Added for Corporal Jackie (packaging/windows/mpv-patches).
++
++#include <d3d11.h>
++#include <dxgi.h>
++#include <string.h>
++
++#include <libavutil/hwcontext.h>
++#include <libavutil/hwcontext_d3d11va.h>
++
++#include "common/common.h"
++#include "osdep/windows_utils.h"
++#include "video/out/gpu/hwdec.h"
++#include "ra_gl.h"
++#include "video/hwdec.h"
++#include "video/d3d.h"
++
++// for WGL_ACCESS_READ_ONLY_NV and the WGL_NV_DX_interop function types
++#include <GL/wglext.h>
++
++// ID3D10Multithread's IID, here so that no extra import library is needed.
++static const GUID cj_IID_ID3D10Multithread =
++    {0x9b7e4e00, 0x342c, 0x4106, {0xa1, 0x9f, 0x4f, 0x27, 0x04, 0xf6, 0x89, 0xf0}};
++
++// IDXGIFactory1's IID, for the same reason.
++static const GUID cj_IID_IDXGIFactory1 =
++    {0x770aae78, 0xf26f, 0x4dba, {0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87}};
++
++struct priv_owner {
++    struct mp_hwdec_ctx hwctx;
++    ID3D11Device *device;
++    ID3D11DeviceContext *device_ctx;
++    ID3D11VideoDevice *video_dev;
++    ID3D11VideoContext *video_ctx;
++    HANDLE gl_device;
++
++    PFNWGLDXOPENDEVICENVPROC DXOpenDeviceNV;
++    PFNWGLDXCLOSEDEVICENVPROC DXCloseDeviceNV;
++    PFNWGLDXREGISTEROBJECTNVPROC DXRegisterObjectNV;
++    PFNWGLDXUNREGISTEROBJECTNVPROC DXUnregisterObjectNV;
++    PFNWGLDXLOCKOBJECTSNVPROC DXLockObjectsNV;
++    PFNWGLDXUNLOCKOBJECTSNVPROC DXUnlockObjectsNV;
++};
++
++struct priv {
++    ID3D11Texture2D *rgb_tex;
++    ID3D11VideoProcessorEnumerator *vp_enum;
++    ID3D11VideoProcessor *vp;
++    ID3D11VideoProcessorOutputView *out_view;
++    GLuint gl_tex;
++    HANDLE gl_obj;
++    bool locked;
++};
++
++static void uninit(struct ra_hwdec *hw)
++{
++    struct priv_owner *p = hw->priv;
++
++    hwdec_devices_remove(hw->devs, &p->hwctx);
++    av_buffer_unref(&p->hwctx.av_device_ref);
++
++    if (p->gl_device)
++        p->DXCloseDeviceNV(p->gl_device);
++    SAFE_RELEASE(p->video_ctx);
++    SAFE_RELEASE(p->video_dev);
++    SAFE_RELEASE(p->device_ctx);
++    SAFE_RELEASE(p->device);
++}
++
++// The DXGI adapter the OpenGL context runs on, found by its vendor. On a
++// laptop with two GPUs the default adapter is often the other one, and
++// WGL_NV_DX_interop2 needs the D3D11 device on the same GPU as OpenGL.
++// NULL: use the default adapter.
++static IDXGIAdapter1 *gl_adapter(struct ra_hwdec *hw)
++{
++    GL *gl = ra_gl_get(hw->ra_ctx->ra);
++    const char *vendor = (const char *)gl->GetString(GL_VENDOR);
++    const char *renderer = (const char *)gl->GetString(GL_RENDERER);
++    UINT want = 0;
++    if (vendor && strstr(vendor, "NVIDIA"))
++        want = 0x10DE;
++    else if (vendor && strstr(vendor, "Intel"))
++        want = 0x8086;
++    else if (vendor && (strstr(vendor, "AMD") || strstr(vendor, "ATI")))
++        want = 0x1002;
++    MP_VERBOSE(hw, "OpenGL runs on %s (%s)\n", renderer ? renderer : "?", vendor ? vendor : "?");
++    if (!want)
++        return NULL;
++
++    // dxgi.dll stays loaded: the D3D11 runtime uses it anyway.
++    HMODULE dxgi = LoadLibraryW(L"dxgi.dll");
++    if (!dxgi)
++        return NULL;
++    HRESULT (WINAPI *create_factory)(REFIID, void **) =
++        (void *)GetProcAddress(dxgi, "CreateDXGIFactory1");
++    IDXGIFactory1 *factory = NULL;
++    if (!create_factory || FAILED(create_factory(&cj_IID_IDXGIFactory1, (void **)&factory)))
++        return NULL;
++
++    IDXGIAdapter1 *found = NULL, *adapter = NULL;
++    for (UINT i = 0; !found && SUCCEEDED(IDXGIFactory1_EnumAdapters1(factory, i, &adapter)); i++) {
++        DXGI_ADAPTER_DESC1 desc;
++        if (SUCCEEDED(IDXGIAdapter1_GetDesc1(adapter, &desc)) && desc.VendorId == want &&
++            !(desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE))
++        {
++            found = adapter;
++        } else {
++            IDXGIAdapter1_Release(adapter);
++        }
++    }
++    IDXGIFactory1_Release(factory);
++    return found;
++}
++
++static int init(struct ra_hwdec *hw)
++{
++    struct priv_owner *p = hw->priv;
++    HRESULT hr;
++
++    if (!ra_is_gl(hw->ra_ctx->ra))
++        return -1;
++
++    // Only a WGL context has these; on any other context they are NULL.
++    p->DXOpenDeviceNV = (void *)wglGetProcAddress("wglDXOpenDeviceNV");
++    p->DXCloseDeviceNV = (void *)wglGetProcAddress("wglDXCloseDeviceNV");
++    p->DXRegisterObjectNV = (void *)wglGetProcAddress("wglDXRegisterObjectNV");
++    p->DXUnregisterObjectNV = (void *)wglGetProcAddress("wglDXUnregisterObjectNV");
++    p->DXLockObjectsNV = (void *)wglGetProcAddress("wglDXLockObjectsNV");
++    p->DXUnlockObjectsNV = (void *)wglGetProcAddress("wglDXUnlockObjectsNV");
++    if (!p->DXOpenDeviceNV || !p->DXCloseDeviceNV || !p->DXRegisterObjectNV ||
++        !p->DXUnregisterObjectNV || !p->DXLockObjectsNV || !p->DXUnlockObjectsNV)
++    {
++        MP_VERBOSE(hw, "WGL_NV_DX_interop2 is not available.\n");
++        return -1;
++    }
++
++    d3d_load_dlls();
++    if (!d3d11_D3D11CreateDevice) {
++        MP_VERBOSE(hw, "Failed to load D3D11 library\n");
++        return -1;
++    }
++    // On the GPU that runs OpenGL (an explicit adapter needs driver type UNKNOWN).
++    IDXGIAdapter1 *adapter = gl_adapter(hw);
++    hr = d3d11_D3D11CreateDevice((IDXGIAdapter *)adapter,
++                                 adapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE, NULL,
++                                 D3D11_CREATE_DEVICE_VIDEO_SUPPORT |
++                                 D3D11_CREATE_DEVICE_BGRA_SUPPORT,
++                                 NULL, 0, D3D11_SDK_VERSION, &p->device,
++                                 NULL, NULL);
++    SAFE_RELEASE(adapter);
++    if (FAILED(hr)) {
++        MP_VERBOSE(hw, "Failed to create D3D11 device: %s\n", mp_HRESULT_to_str(hr));
++        return -1;
++    }
++
++    // The decoder and this mapper use the device from different threads.
++    ID3D10Multithread *multithread;
++    hr = ID3D11Device_QueryInterface(p->device, &cj_IID_ID3D10Multithread,
++                                     (void **)&multithread);
++    if (FAILED(hr))
++        return -1;
++    ID3D10Multithread_SetMultithreadProtected(multithread, TRUE);
++    ID3D10Multithread_Release(multithread);
++
++    hr = ID3D11Device_QueryInterface(p->device, &IID_ID3D11VideoDevice,
++                                     (void **)&p->video_dev);
++    if (FAILED(hr))
++        return -1;
++    ID3D11Device_GetImmediateContext(p->device, &p->device_ctx);
++    hr = ID3D11DeviceContext_QueryInterface(p->device_ctx, &IID_ID3D11VideoContext,
++                                            (void **)&p->video_ctx);
++    if (FAILED(hr))
++        return -1;
++
++    // Fails if the D3D11 device is on another GPU than the GL context.
++    p->gl_device = p->DXOpenDeviceNV(p->device);
++    if (!p->gl_device) {
++        MP_VERBOSE(hw, "Failed to open the D3D11 device for OpenGL: %s\n",
++                   mp_LastError_to_str());
++        return -1;
++    }
++
++    static const int subfmts[] = {IMGFMT_NV12, IMGFMT_P010, 0};
++    p->hwctx = (struct mp_hwdec_ctx){
++        .driver_name = hw->driver->name,
++        .av_device_ref = d3d11_wrap_device_ref(p->device),
++        .supported_formats = subfmts,
++        .hw_imgfmt = IMGFMT_D3D11,
++    };
++    if (!p->hwctx.av_device_ref) {
++        MP_VERBOSE(hw, "Failed to create hwdevice_ctx\n");
++        return -1;
++    }
++
++    hwdec_devices_add(hw->devs, &p->hwctx);
++    return 0;
++}
++
++static void mapper_uninit(struct ra_hwdec_mapper *mapper)
++{
++    struct priv_owner *o = mapper->owner->priv;
++    struct priv *p = mapper->priv;
++    GL *gl = ra_gl_get(mapper->ra);
++
++    if (p->gl_obj) {
++        if (p->locked)
++            o->DXUnlockObjectsNV(o->gl_device, 1, &p->gl_obj);
++        o->DXUnregisterObjectNV(o->gl_device, p->gl_obj);
++        p->gl_obj = NULL;
++    }
++    ra_tex_free(mapper->ra, &mapper->tex[0]);
++    if (p->gl_tex)
++        gl->DeleteTextures(1, &p->gl_tex);
++    p->gl_tex = 0;
++    SAFE_RELEASE(p->out_view);
++    SAFE_RELEASE(p->vp);
++    SAFE_RELEASE(p->vp_enum);
++    SAFE_RELEASE(p->rgb_tex);
++}
++
++static int mapper_init(struct ra_hwdec_mapper *mapper)
++{
++    struct priv_owner *o = mapper->owner->priv;
++    struct priv *p = mapper->priv;
++    GL *gl = ra_gl_get(mapper->ra);
++    HRESULT hr;
++
++    const int w = mapper->src_params.w, h = mapper->src_params.h;
++
++    D3D11_TEXTURE2D_DESC td = {
++        .Width = w,
++        .Height = h,
++        .MipLevels = 1,
++        .ArraySize = 1,
++        .Format = DXGI_FORMAT_B8G8R8A8_UNORM,
++        .SampleDesc.Count = 1,
++        .Usage = D3D11_USAGE_DEFAULT,
++        .BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE,
++        // NVIDIA's interop shows black for textures that are not shared.
++        .MiscFlags = D3D11_RESOURCE_MISC_SHARED,
++    };
++    hr = ID3D11Device_CreateTexture2D(o->device, &td, NULL, &p->rgb_tex);
++    if (FAILED(hr)) {
++        MP_ERR(mapper, "Failed to create the RGB texture: %s\n", mp_HRESULT_to_str(hr));
++        return -1;
++    }
++
++    D3D11_VIDEO_PROCESSOR_CONTENT_DESC vpdesc = {
++        .InputFrameFormat = D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
++        .InputWidth = w,
++        .InputHeight = h,
++        .OutputWidth = w,
++        .OutputHeight = h,
++        .Usage = D3D11_VIDEO_USAGE_PLAYBACK_NORMAL,
++    };
++    hr = ID3D11VideoDevice_CreateVideoProcessorEnumerator(o->video_dev, &vpdesc, &p->vp_enum);
++    if (FAILED(hr))
++        goto fail;
++    hr = ID3D11VideoDevice_CreateVideoProcessor(o->video_dev, p->vp_enum, 0, &p->vp);
++    if (FAILED(hr))
++        goto fail;
++
++    D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC outdesc = {
++        .ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D,
++    };
++    hr = ID3D11VideoDevice_CreateVideoProcessorOutputView(o->video_dev,
++            (ID3D11Resource *)p->rgb_tex, p->vp_enum, &outdesc, &p->out_view);
++    if (FAILED(hr))
++        goto fail;
++
++    // As vf_d3d11vpp sets it up: no driver "enhancements", matrix and range
++    // from the video, full-range RGB out.
++    ID3D11VideoContext_VideoProcessorSetStreamAutoProcessingMode(o->video_ctx, p->vp, 0, FALSE);
++    D3D11_VIDEO_PROCESSOR_COLOR_SPACE in_csp = {
++        .YCbCr_Matrix = mapper->src_params.repr.sys != PL_COLOR_SYSTEM_BT_601,
++        .Nominal_Range = mapper->src_params.repr.levels == PL_COLOR_LEVELS_FULL ? 2 : 1,
++    };
++    D3D11_VIDEO_PROCESSOR_COLOR_SPACE out_csp = {
++        .RGB_Range = 0,  // 0-255
++    };
++    ID3D11VideoContext_VideoProcessorSetStreamColorSpace(o->video_ctx, p->vp, 0, &in_csp);
++    ID3D11VideoContext_VideoProcessorSetOutputColorSpace(o->video_ctx, p->vp, &out_csp);
++
++    gl->GenTextures(1, &p->gl_tex);
++    gl->BindTexture(GL_TEXTURE_2D, p->gl_tex);
++    gl->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
++    gl->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
++    gl->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++    gl->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++    gl->BindTexture(GL_TEXTURE_2D, 0);
++
++    p->gl_obj = o->DXRegisterObjectNV(o->gl_device, p->rgb_tex, p->gl_tex,
++                                      GL_TEXTURE_2D, WGL_ACCESS_READ_ONLY_NV);
++    if (!p->gl_obj) {
++        MP_ERR(mapper, "Failed to register the D3D11 texture with OpenGL: %s\n",
++               mp_LastError_to_str());
++        return -1;
++    }
++
++    struct ra_tex_params params = {
++        .dimensions = 2,
++        .w = w,
++        .h = h,
++        .d = 1,
++        .format = ra_find_unorm_format(mapper->ra, 1, 4),
++        .render_src = true,
++        .src_linear = true,
++    };
++    if (!params.format)
++        return -1;
++    mapper->tex[0] = ra_create_wrapped_tex(mapper->ra, &params, p->gl_tex);
++    if (!mapper->tex[0])
++        return -1;
++
++    mapper->dst_params = mapper->src_params;
++    mapper->dst_params.imgfmt = IMGFMT_RGB0;
++    mapper->dst_params.hw_subfmt = 0;
++    mapper->dst_params.repr.sys = PL_COLOR_SYSTEM_RGB;
++    mapper->dst_params.repr.levels = PL_COLOR_LEVELS_FULL;
++    return 0;
++
++fail:
++    MP_ERR(mapper, "Failed to set up the D3D11 video processor: %s\n", mp_HRESULT_to_str(hr));
++    return -1;
++}
++
++static int mapper_map(struct ra_hwdec_mapper *mapper)
++{
++    struct priv_owner *o = mapper->owner->priv;
++    struct priv *p = mapper->priv;
++    HRESULT hr;
++
++    if (p->locked) {
++        o->DXUnlockObjectsNV(o->gl_device, 1, &p->gl_obj);
++        p->locked = false;
++    }
++
++    ID3D11Texture2D *tex = (void *)mapper->src->planes[0];
++    int slice = (intptr_t)mapper->src->planes[1];
++
++    D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC indesc = {
++        .ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D,
++        .Texture2D = { .ArraySlice = slice },
++    };
++    ID3D11VideoProcessorInputView *in_view = NULL;
++    hr = ID3D11VideoDevice_CreateVideoProcessorInputView(o->video_dev,
++            (ID3D11Resource *)tex, p->vp_enum, &indesc, &in_view);
++    if (FAILED(hr)) {
++        MP_ERR(mapper, "Failed to create the input view: %s\n", mp_HRESULT_to_str(hr));
++        return -1;
++    }
++
++    RECT rc = {0, 0, mapper->src->w, mapper->src->h};
++    ID3D11VideoContext_VideoProcessorSetStreamSourceRect(o->video_ctx, p->vp, 0, TRUE, &rc);
++    ID3D11VideoContext_VideoProcessorSetStreamDestRect(o->video_ctx, p->vp, 0, TRUE, &rc);
++    D3D11_VIDEO_PROCESSOR_STREAM stream = {
++        .Enable = TRUE,
++        .pInputSurface = in_view,
++    };
++    hr = ID3D11VideoContext_VideoProcessorBlt(o->video_ctx, p->vp, p->out_view, 0, 1, &stream);
++    ID3D11VideoProcessorInputView_Release(in_view);
++    if (FAILED(hr)) {
++        MP_ERR(mapper, "VideoProcessorBlt failed: %s\n", mp_HRESULT_to_str(hr));
++        return -1;
++    }
++
++    // Hand the conversion to the GPU before OpenGL takes the texture: NVIDIA
++    // does not flush the D3D11 queue on lock, and OpenGL would read a texture
++    // that was never drawn (black).
++    ID3D11DeviceContext_Flush(o->device_ctx);
++
++    // Locking for OpenGL waits for the D3D11 work above.
++    if (!o->DXLockObjectsNV(o->gl_device, 1, &p->gl_obj)) {
++        MP_ERR(mapper, "Failed to lock the texture for OpenGL: %s\n", mp_LastError_to_str());
++        return -1;
++    }
++    p->locked = true;
++    return 0;
++}
++
++const struct ra_hwdec_driver ra_hwdec_d3d11gldx = {
++    .name = "d3d11-dxinterop",
++    .priv_size = sizeof(struct priv_owner),
++    .imgfmts = {IMGFMT_D3D11, 0},
++    .device_type = AV_HWDEVICE_TYPE_D3D11VA,
++    .init = init,
++    .uninit = uninit,
++    .mapper = &(const struct ra_hwdec_mapper_driver){
++        .priv_size = sizeof(struct priv),
++        .init = mapper_init,
++        .uninit = mapper_uninit,
++        .map = mapper_map,
++    },
++};

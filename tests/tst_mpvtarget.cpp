@@ -3,6 +3,7 @@
 // needs no GPU. Everything is checked through the Session, the way the UI sees it.
 
 #include "FakeHttpServer.h"
+#include "GraphicsCards.h"
 #include "MpvTarget.h"
 #include "ScopedHttp.h"
 #include "Session.h"
@@ -180,10 +181,96 @@ private slots:
         QVERIFY(!QFile::exists(screenSized));
         QTRY_COMPARE_WITH_TIMEOUT(s.stats().value(QStringLiteral("Upscaler")).toString(), QStringLiteral("AMD FSR 1 to 1440p"), 5000);
 
+        // SGSR, the light one: its own file, the same sizes.
+        s.setUpscaler(QStringLiteral("sgsr"));
+        QTRY_VERIFY_WITH_TIMEOUT(shaders(target).size() == 1 && shaders(target).first() != fixed, 5000);
+        const QString light = shaders(target).first();
+        text = readFile(light);
+        QVERIFY(text.contains("Snapdragon GSR 1"));
+        QVERIFY(text.contains("//!HEIGHT 1440\n"));
+        QVERIFY(!QFile::exists(fixed));
+        QTRY_COMPARE_WITH_TIMEOUT(s.stats().value(QStringLiteral("Upscaler")).toString(), QStringLiteral("Snapdragon GSR to 1440p"), 5000);
+
+        // CAS and Anime4K: their own files; Anime4K gets only its WHEN.
+        s.setUpscaler(QStringLiteral("cas"));
+        QTRY_VERIFY_WITH_TIMEOUT(shaders(target).size() == 1 && shaders(target).first() != light, 5000);
+        QVERIFY(readFile(shaders(target).first()).contains("AMD CAS"));
+        QVERIFY(!QFile::exists(light));
+        s.setUpscaler(QStringLiteral("anime4k"));
+        QTRY_VERIFY_WITH_TIMEOUT(shaders(target).size() == 1 && readFile(shaders(target).first()).contains("Anime4K"), 5000);
+        text = readFile(shaders(target).first());
+        QCOMPARE(text.count("//!WHEN 1440 MAIN.h / 1.200 >\n"), 5);
+        QVERIFY(!text.contains("@WHEN@"));
+        const QString cartoon = shaders(target).first();
+
         s.setUpscaler(QStringLiteral("off"));
         QTRY_VERIFY_WITH_TIMEOUT(shaders(target).isEmpty(), 5000);
-        QVERIFY(!QFile::exists(fixed));
+        QVERIFY(!QFile::exists(cartoon));
         QCOMPARE(s.stats().value(QStringLiteral("Upscaler")).toString(), QStringLiteral("off"));
+    }
+
+    // Which cards get VSR, and the filter it runs as. Plain functions, so
+    // they are checked on every platform; VSR itself needs Windows and the card.
+    void videoSuperResolutionRules()
+    {
+        const auto caps = [](unsigned vendor, const char* name) {
+            return MpvTarget::vsrCapabilities(vendor, QString::fromLatin1(name));
+        };
+        QCOMPARE(caps(0x10DE, "NVIDIA GeForce RTX 4060"), Capabilities(Capability::UpscaleNvidiaVsr));
+        QCOMPARE(caps(0x10DE, "NVIDIA GeForce GTX 1660"), Capabilities());
+        QCOMPARE(caps(0x8086, "Intel(R) Arc(TM) A770 Graphics"), Capabilities(Capability::UpscaleIntelVsr));
+        QCOMPARE(caps(0x8086, "Intel(R) Iris(R) Xe Graphics"), Capabilities(Capability::UpscaleIntelVsr));
+        QCOMPARE(caps(0x8086, "Intel(R) UHD Graphics 630"), Capabilities());  // a 10th gen i3
+        QCOMPARE(caps(0x8086, "Intel(R) UHD Graphics"), Capabilities(Capability::UpscaleIntelVsr));  // 12th-14th gen laptop
+        QCOMPARE(caps(0x8086, "Intel(R) UHD Graphics 770"), Capabilities(Capability::UpscaleIntelVsr));
+        QCOMPARE(caps(0x8086, "Intel(R) Arc(TM) Graphics"), Capabilities(Capability::UpscaleIntelVsr));  // Core Ultra
+        QCOMPARE(caps(0x8086, "Intel(R) Iris(R) Plus Graphics"), Capabilities());
+        QCOMPARE(caps(0x8086, "Intel(R) HD Graphics 620"), Capabilities());
+        QCOMPARE(caps(0x10DE, "NVIDIA GeForce RTX 4060 Laptop GPU"), Capabilities(Capability::UpscaleNvidiaVsr));
+        QCOMPARE(caps(0x1002, "AMD Radeon RX 7600"), Capabilities());
+        QCOMPARE(caps(0x1414, "Microsoft Basic Render Driver"), Capabilities());
+
+        const auto vf = MpvTarget::vsrFilter;
+        QCOMPARE(vf(Upscaler::NvidiaVsr, 720, 1440, 0), QStringLiteral("d3d11vpp=scaling-mode=nvidia:scale=2.00"));
+        QCOMPARE(vf(Upscaler::IntelVsr, 1080, 2160, 0), QStringLiteral("d3d11vpp=scaling-mode=intel:scale=2.00"));
+        // 0 = the size shown; steps of 0.05, at most 4x.
+        QCOMPARE(vf(Upscaler::NvidiaVsr, 480, 0, 1000), QStringLiteral("d3d11vpp=scaling-mode=nvidia:scale=2.10"));
+        QCOMPARE(vf(Upscaler::NvidiaVsr, 240, 2160, 0), QStringLiteral("d3d11vpp=scaling-mode=nvidia:scale=4.00"));
+        // Nothing to make bigger, not VSR, or not known yet: no filter.
+        QCOMPARE(vf(Upscaler::NvidiaVsr, 2160, 1440, 0), QString());
+        QCOMPARE(vf(Upscaler::Fsr, 720, 1440, 0), QString());
+        QCOMPARE(vf(Upscaler::NvidiaVsr, 0, 1440, 0), QString());
+        QCOMPARE(vf(Upscaler::NvidiaVsr, 720, 0, 0), QString());
+
+        // The line on screen: VSR says "on" only once the filter hands on
+        // bigger frames, which is what shows the driver did the work.
+        const auto status = MpvTarget::upscalerStatus;
+        QCOMPARE(status(Upscaler::NvidiaVsr, 720, 1440, 0, true), QStringLiteral("NVIDIA VSR starting…"));
+        QCOMPARE(status(Upscaler::NvidiaVsr, 720, 1440, 720, true), QStringLiteral("NVIDIA VSR starting…"));
+        QCOMPARE(status(Upscaler::NvidiaVsr, 720, 1440, 1440, true), QStringLiteral("NVIDIA VSR on · 720p → 1440p"));
+        QCOMPARE(status(Upscaler::IntelVsr, 1080, 1440, 1080, false), QStringLiteral("Intel VSR starting…"));
+        QCOMPARE(status(Upscaler::NvidiaVsr, 2160, 1440, 2160, false), QStringLiteral("NVIDIA VSR idle · the video is already 2160p"));
+        QCOMPARE(status(Upscaler::Fsr, 720, 1440, 720, false), QStringLiteral("AMD FSR 1 on · 720p → 1440p"));
+        QCOMPARE(status(Upscaler::Fsr, 720, 0, 720, false), QStringLiteral("AMD FSR 1 on · 720p → screen size"));
+        QCOMPARE(status(Upscaler::Sgsr, 720, 1440, 720, false), QStringLiteral("Snapdragon GSR on · 720p → 1440p"));
+        QCOMPARE(status(Upscaler::Off, 720, 1440, 720, false), QString());
+        QCOMPARE(status(Upscaler::NvidiaVsr, 0, 1440, 0, true), QString());  // no video yet
+    }
+
+    // Windows' per-program graphics card entry: read and rewritten without
+    // losing the other settings Windows keeps in the same string.
+    void graphicsCardPreferenceEntry()
+    {
+        QCOMPARE(GraphicsCards::gpuPreferenceIn(QString()), 0);
+        QCOMPARE(GraphicsCards::gpuPreferenceIn(QStringLiteral("GpuPreference=2;")), 2);
+        QCOMPARE(GraphicsCards::gpuPreferenceIn(QStringLiteral("SwapEffectUpgradeEnable=1;GpuPreference=1;")), 1);
+        QCOMPARE(GraphicsCards::gpuPreferenceIn(QStringLiteral("GpuPreference=9;")), 0);
+        QCOMPARE(GraphicsCards::withGpuPreference(QString(), 2), QStringLiteral("GpuPreference=2;"));
+        QCOMPARE(GraphicsCards::withGpuPreference(QStringLiteral("GpuPreference=2;"), 0), QString());
+        QCOMPARE(GraphicsCards::withGpuPreference(QStringLiteral("SwapEffectUpgradeEnable=1;GpuPreference=2;"), 1),
+                 QStringLiteral("GpuPreference=1;SwapEffectUpgradeEnable=1;"));
+        QCOMPARE(GraphicsCards::withGpuPreference(QStringLiteral("SwapEffectUpgradeEnable=1;GpuPreference=2;"), 0),
+                 QStringLiteral("SwapEffectUpgradeEnable=1;"));
     }
 
     // Qt's keys as mpv's input.conf names them.

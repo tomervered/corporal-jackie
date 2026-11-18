@@ -3,6 +3,7 @@
 #include "AppInfo.h"
 #include "Browser.h"
 #include "Caches.h"
+#include "GraphicsCards.h"
 #include "Library.h"
 #include "LocalLibrary.h"
 #include "Logging.h"
@@ -70,6 +71,7 @@ AppCore::AppCore(const QString& dataDir, const QString& cacheDir, QObject* paren
 {
     importOldSettings();
     m_preferences = std::make_unique<Preferences>(*m_storage, QDir(cacheDir).filePath(QStringLiteral("torrents")));
+    m_graphics = std::make_unique<GraphicsCards>();
 }
 
 AppCore::~AppCore() = default;
@@ -152,6 +154,7 @@ void AppCore::exposeTo(QQmlContext* context) const
     context->setContextProperty(QStringLiteral("preferences"), m_preferences.get());
     context->setContextProperty(QStringLiteral("library"), m_library.get());
     context->setContextProperty(QStringLiteral("caches"), m_caches.get());
+    context->setContextProperty(QStringLiteral("graphics"), m_graphics.get());
 }
 
 void AppCore::shutDown()

@@ -11,6 +11,13 @@
 #include <QSurfaceFormat>
 #include <mpv/render_gl.h>
 
+#include <algorithm>
+#include <memory>
+
+#ifdef Q_OS_MACOS
+#include "MetalFxUpscaler.h"
+#endif
+
 namespace cj {
 namespace {
 
@@ -37,6 +44,11 @@ public:
         auto* video = static_cast<MpvVideoItem*>(item);
         if (!m_ctx && video->target())
             createContext(video, video->target());
+        MpvTarget* t = video->target();
+        m_target = t;
+        m_metalFx = t && t->upscaler() == Upscaler::MetalFx;
+        m_upscaleHeight = t ? t->upscaleHeight() : 0;
+        m_videoSize = t ? QSize(t->videoWidth(), t->videoHeight()) : QSize();
     }
 
     QOpenGLFramebufferObject* createFramebufferObject(const QSize& size) override
@@ -51,6 +63,12 @@ public:
         if (!m_ctx)
             return;
         QOpenGLFramebufferObject* target = framebufferObject();
+#ifdef Q_OS_MACOS
+        if (m_metalFx && renderWithMetalFx(target))
+            return;
+        if (!m_metalFx)
+            m_upscaler.reset();  // off: give back its textures
+#endif
         mpv_opengl_fbo fbo{static_cast<int>(target->handle()), target->width(), target->height(), 0};
         int flipY = 0;
         mpv_render_param params[] = {
@@ -65,6 +83,52 @@ public:
     }
 
 private:
+#ifdef Q_OS_MACOS
+    // mpv draws the frame small, about at the video's own size, and MetalFX
+    // scales it up to the surface (or to the chosen height, then stretched).
+    // False when there is nothing to scale up: draw as usual.
+    bool renderWithMetalFx(QOpenGLFramebufferObject* target)
+    {
+        const QSize out = target->size();
+        if (m_videoSize.width() <= 0 || m_videoSize.height() <= 0 || out.isEmpty())
+            return false;
+        // Height the video is shown at inside the surface (letterboxed).
+        const double shown = std::min<double>(out.height(),
+                                              double(out.width()) * m_videoSize.height() / m_videoSize.width());
+        const double goal = m_upscaleHeight > 0 ? std::min<double>(m_upscaleHeight, shown) : shown;
+        const double factor = std::clamp(goal / m_videoSize.height(), 1.0, 3.0);
+        if (factor < 1.05)
+            return false;
+        const QSize made = (QSizeF(out) * (goal / shown)).toSize();
+        const QSize drawn = (QSizeF(made) / factor).toSize().expandedTo(QSize(1, 1));
+
+        if (!m_upscaler)
+            m_upscaler = std::make_unique<MetalFxUpscaler>();
+        bool ok = m_upscaler->prepare(drawn, made);
+        if (ok) {
+            mpv_opengl_fbo fbo{static_cast<int>(m_upscaler->inputFramebuffer()), drawn.width(), drawn.height(), 0};
+            int flipY = 0;
+            mpv_render_param params[] = {
+                {MPV_RENDER_PARAM_OPENGL_FBO, &fbo},
+                {MPV_RENDER_PARAM_FLIP_Y, &flipY},
+                {MPV_RENDER_PARAM_INVALID, nullptr},
+            };
+            QQuickOpenGLUtils::resetOpenGLState();
+            mpv_render_context_render(m_ctx, params);
+            ok = m_upscaler->upscaleInto(target->handle(), out);
+            QQuickOpenGLUtils::resetOpenGLState();
+        }
+        if (!ok) {
+            m_upscaler.reset();
+            m_metalFx = false;
+            if (m_target)
+                QMetaObject::invokeMethod(m_target.data(), "renderUpscalerFailed", Qt::QueuedConnection);
+            return false;
+        }
+        return true;
+    }
+#endif
+
     void createContext(MpvVideoItem* item, MpvTarget* player)
     {
         mpv_opengl_init_params gl{getProcAddress, nullptr};
@@ -88,6 +152,14 @@ private:
     }
 
     mpv_render_context* m_ctx = nullptr;
+    // Copied from the target in synchronize().
+    QPointer<MpvTarget> m_target;
+    bool m_metalFx = false;
+    int m_upscaleHeight = 0;
+    QSize m_videoSize;
+#ifdef Q_OS_MACOS
+    std::unique_ptr<MetalFxUpscaler> m_upscaler;  // made the first time it is used
+#endif
 };
 
 } // namespace

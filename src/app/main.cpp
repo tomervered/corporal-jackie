@@ -163,7 +163,13 @@ int main(int argc, char* argv[])
         const bool withFile = !args.positionalArguments().isEmpty();
         // CJ_SMOKE_UPSCALER=fsr: play with that upscaler on, and fail if the
         // graphics driver could not run it (the target turns it off then).
-        const QString upscaler = qEnvironmentVariable("CJ_SMOKE_UPSCALER");
+        // One this computer does not have (MetalFX on a CI Mac without a
+        // GPU for it, say) is skipped.
+        QString upscaler = qEnvironmentVariable("CJ_SMOKE_UPSCALER");
+        if (!upscaler.isEmpty() && !session.upscalers().contains(upscaler)) {
+            qCInfo(lcApp).noquote() << "Smoke test: upscaler" << upscaler << "is not available here; not tested";
+            upscaler.clear();
+        }
         if (!upscaler.isEmpty())
             session.setUpscaler(upscaler);
         QTimer::singleShot(withFile ? 4000 : 1000, &app, [&, withFile, upscaler] {

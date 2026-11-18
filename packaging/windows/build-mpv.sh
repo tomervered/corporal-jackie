@@ -13,7 +13,8 @@ PREFIX=$1
 FFMPEG_VERSION=n7.1.5
 LIBPLACEBO_VERSION=v7.349.0
 MPV_VERSION=v0.41.0
-STAMP="$PREFIX/.built-$FFMPEG_VERSION-$LIBPLACEBO_VERSION-$MPV_VERSION-2"
+PATCHES="$(cd "$(dirname "$0")" && pwd)/mpv-patches"
+STAMP="$PREFIX/.built-$FFMPEG_VERSION-$LIBPLACEBO_VERSION-$MPV_VERSION-5"
 
 if [ -f "$STAMP" ]; then
     echo "Using cached build in $PREFIX"
@@ -71,6 +72,11 @@ echo "::endgroup::"
 echo "::group::mpv $MPV_VERSION"
 git clone --depth 1 --branch "$MPV_VERSION" https://github.com/mpv-player/mpv.git "$SRC/mpv"
 cd "$SRC/mpv"
+# Our patches (see mpv-patches/README.md): a D3D11 hwdec for the OpenGL
+# render API, which NVIDIA/Intel Video Super Resolution needs.
+for patch in "$PATCHES"/*.patch; do
+    git apply --verbose "$patch"
+done
 meson setup build --prefix="$PREFIX" --buildtype=release \
     -Dlibmpv=true -Dcplayer=false -Dtests=false \
     -Dlua=disabled -Djavascript=disabled -Dlibarchive=disabled \

@@ -76,7 +76,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .deps
-          key: mpv-${{ runner.os }}-${{ hashFiles('packaging/windows/build-mpv.sh') }}
+          key: mpv-${{ runner.os }}-${{ hashFiles('packaging/windows/build-mpv.sh', 'packaging/windows/mpv-patches/**') }}
 
       - name: Build FFmpeg, libplacebo and mpv (playback only)
         timeout-minutes: 40
@@ -87,7 +87,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .deps
-          key: mpv-${{ runner.os }}-${{ hashFiles('packaging/windows/build-mpv.sh') }}
+          key: mpv-${{ runner.os }}-${{ hashFiles('packaging/windows/build-mpv.sh', 'packaging/windows/mpv-patches/**') }}
 
       # libtorrent with our patch, as a static library (third_party/libtorrent).
       - name: Restore the libtorrent build
@@ -533,6 +533,11 @@ jobs:
           ./dist/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test
           # The FSR shader on Apple's OpenGL, playing the test clip.
           CJ_SMOKE_UPSCALER=fsr ./dist/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test tests/data/testsrc-10s.mkv
+          for u in sgsr cas anime4k; do
+            CJ_SMOKE_UPSCALER=$u ./dist/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test tests/data/testsrc-10s.mkv
+          done
+          # MetalFX, if this runner's GPU has it (the log says either way).
+          CJ_SMOKE_UPSCALER=metalfx ./dist/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test tests/data/testsrc-10s.mkv
           cp LICENSE dist/LICENSE.txt
           packaging/macos/collect-licenses.sh dist "$CJ_LT_PREFIX"
           ditto -c -k --keepParent dist CorporalJackie-macos-arm64.zip
@@ -606,6 +611,13 @@ jobs:
         env:
           CJ_SMOKE_UPSCALER: fsr
         run: xvfb-run -a -s "-screen 0 1280x720x24" ./build/src/app/CorporalJackie --smoke-test tests/data/testsrc-10s.mkv
+
+      - name: Smoke test with the light and cartoon upscalers
+        run: |
+          for u in sgsr cas anime4k; do
+            echo "== $u"
+            CJ_SMOKE_UPSCALER=$u xvfb-run -a -s "-screen 0 1280x720x24" ./build/src/app/CorporalJackie --smoke-test tests/data/testsrc-10s.mkv
+          done
 
   sanitizers:
     name: Linux (tests under ASan and UBSan)

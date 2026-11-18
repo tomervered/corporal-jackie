@@ -55,11 +55,15 @@ class Session : public QObject
     Q_PROPERTY(int gamma READ gamma NOTIFY equalizerChanged)
     Q_PROPERTY(int hue READ hue NOTIFY equalizerChanged)
     Q_PROPERTY(bool hardwareDecoding READ hardwareDecoding WRITE setHardwareDecoding NOTIFY hardwareDecodingChanged)
-    // "off", "fsr", "nvidia" or "intel"; upscalers lists the ones this target can run.
+    // "off", "sgsr", "cas", "fsr", "anime4k", "nvidia", "intel" or "metalfx"; upscalers lists the ones this target can run.
     Q_PROPERTY(QString upscaler READ upscaler WRITE setUpscaler NOTIFY upscalerChanged)
     Q_PROPERTY(QStringList upscalers READ upscalers CONSTANT)
     // The height to upscale to, in pixels; 0 = the size the video is shown at.
     Q_PROPERTY(int upscaleHeight READ upscaleHeight WRITE setUpscaleHeight NOTIFY upscalerChanged)
+    // What the upscaler is doing, as the target says ("NVIDIA VSR on · 720p → 1440p");
+    // empty when none runs. upscalerProblem: it could not run, and the line says so.
+    Q_PROPERTY(QString upscalerStatus READ upscalerStatus NOTIFY upscalerStatusChanged)
+    Q_PROPERTY(bool upscalerProblem READ upscalerProblem NOTIFY upscalerStatusChanged)
     Q_PROPERTY(bool fullScreen READ fullScreen WRITE setFullScreen NOTIFY fullScreenChanged)
     Q_PROPERTY(QVariantMap stats READ stats NOTIFY statsChanged)
     Q_PROPERTY(cj::StreamPhase streamPhase READ streamPhase NOTIFY streamStatusChanged)
@@ -114,6 +118,8 @@ public:
     QString upscaler() const { return upscalerName(m_upscaler); }
     QStringList upscalers() const;
     int upscaleHeight() const { return m_upscaleHeight; }
+    QString upscalerStatus() const { return m_upscalerStatus; }
+    bool upscalerProblem() const { return m_upscalerProblem; }
     static QString upscalerName(Upscaler u);
     StreamPhase streamPhase() const { return m_stream.phase; }
     int streamPercent() const { return m_stream.percent; }
@@ -226,6 +232,7 @@ signals:
     void hardwareDecodingChanged();
     void fullScreenChanged();
     void upscalerChanged();
+    void upscalerStatusChanged();
     // The target's key bindings asked the window for something ("stats").
     void appActionRequested(const QString& action);
     void statsChanged();
@@ -273,6 +280,8 @@ private:
     bool m_fullScreen = false;
     Upscaler m_upscaler = Upscaler::Off;
     int m_upscaleHeight = 0;
+    QString m_upscalerStatus;
+    bool m_upscalerProblem = false;
     QVariantMap m_stats;
     StreamStatus m_stream;
     bool m_sourceErrorReported = false;

@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import "Notices.js" as Notices
+import "Format.js" as Format
 import QtQuick.Dialogs
 
 // Settings (press P): hardware decoding, applied at once; where torrents are
@@ -116,7 +117,9 @@ Rectangle {
             color: Theme.text
             font.pixelSize: 14
         }
-        Row {
+        // Wraps when the choices do not fit on one line.
+        Flow {
+            width: parent.width
             spacing: 4
             Repeater {
                 model: choice.options
@@ -169,26 +172,42 @@ Rectangle {
                 checked: session.hardwareDecoding
                 onToggled: on => session.hardwareDecoding = on
             }
+            // Laptops with two graphics cards (Windows): which one the app runs on.
+            Choice {
+                visible: graphics.canChoose
+                title: "Graphics card"
+                options: [["auto", "Automatic"], ["saving", "Power saving"], ["performance", "High performance"]]
+                value: graphics.preference
+                onPicked: v => graphics.preference = v
+            }
+            Note {
+                visible: graphics.canChoose
+                text: (graphics.restartNeeded ? "Restart the app to switch. " : "")
+                      + "Power saving: " + graphics.savingName + ". High performance: " + graphics.performanceName + "."
+                      + (graphics.activeName !== "" ? " Now running on " + graphics.activeName + "." : "")
+            }
+            Note {
+                visible: graphics.vsrHint !== ""
+                text: graphics.vsrHint
+            }
             Choice {
                 visible: session.upscalers.length > 1
                 title: "Upscaling"
-                options: session.upscalers.map(name => [name, ({
-                    off: "Off", fsr: "AMD FSR", nvidia: "NVIDIA VSR", intel: "Intel VSR", metalfx: "Apple MetalFX"
-                })[name] || name])
+                options: session.upscalers.map(name => [name, Format.upscalerLabel(name)])
                 value: session.upscaler
                 onPicked: v => session.upscaler = v
             }
             Choice {
                 visible: session.upscaler !== "off"
                 title: "Upscale to"
-                options: [[0, "Screen size"], [1080, "1080p"], [1440, "1440p"], [2160, "4K"]]
+                options: Format.upscaleTargets
                 value: session.upscaleHeight
                 onPicked: v => session.upscaleHeight = v
             }
             Note {
                 visible: session.upscalers.length > 1
                 text: session.upscaler === "off"
-                      ? "Sharpens videos smaller than your screen. Off uses no extra memory or graphics power."
+                      ? "Sharpens videos smaller than your screen. Snapdragon GSR and AMD CAS are the lightest, for weak graphics chips; AMD FSR is sharper; Anime4K is for cartoons and anime. Off uses no extra memory or graphics power."
                       : "Uses extra graphics power while a video plays. Turn it off if playback stutters on this computer."
             }
             Note { text: "Press I while playing to see dropped and late frames." }

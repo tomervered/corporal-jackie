@@ -26,6 +26,7 @@ namespace cj {
 
 class Browser;
 class Caches;
+class GraphicsCards;
 class Library;
 class LocalLibrary;
 class PlaybackTarget;
@@ -101,6 +102,7 @@ private:
     std::unique_ptr<Browser> m_browser;
     std::unique_ptr<Library> m_library;
     std::unique_ptr<Caches> m_caches;
+    std::unique_ptr<GraphicsCards> m_graphics;
 };
 
 } // namespace cj
