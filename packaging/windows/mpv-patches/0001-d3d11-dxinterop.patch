@@ -39,10 +39,10 @@ index be39c50..2a5e37b 100644
  #endif
 diff --git a/video/out/opengl/hwdec_d3d11gldx.c b/video/out/opengl/hwdec_d3d11gldx.c
 new file mode 100644
-index 0000000..02a9aba
+index 0000000..0000001
 --- /dev/null
 +++ b/video/out/opengl/hwdec_d3d11gldx.c
-@@ -0,0 +1,357 @@
+@@ -0,0 +1,412 @@
 +/*
 + * This file is part of mpv.
 + *
@@ -72,6 +72,8 @@ index 0000000..02a9aba
 +// Added for Corporal Jackie (packaging/windows/mpv-patches).
 +
 +#include <d3d11.h>
++#include <dxgi.h>
++#include <string.h>
 +
 +#include <libavutil/hwcontext.h>
 +#include <libavutil/hwcontext_d3d11va.h>
@@ -89,6 +91,10 @@ index 0000000..02a9aba
 +// ID3D10Multithread's IID, here so that no extra import library is needed.
 +static const GUID cj_IID_ID3D10Multithread =
 +    {0x9b7e4e00, 0x342c, 0x4106, {0xa1, 0x9f, 0x4f, 0x27, 0x04, 0xf6, 0x89, 0xf0}};
++
++// IDXGIFactory1's IID, for the same reason.
++static const GUID cj_IID_IDXGIFactory1 =
++    {0x770aae78, 0xf26f, 0x4dba, {0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87}};
 +
 +struct priv_owner {
 +    struct mp_hwdec_ctx hwctx;
@@ -131,6 +137,51 @@ index 0000000..02a9aba
 +    SAFE_RELEASE(p->device);
 +}
 +
++// The DXGI adapter the OpenGL context runs on, found by its vendor. On a
++// laptop with two GPUs the default adapter is often the other one, and
++// WGL_NV_DX_interop2 needs the D3D11 device on the same GPU as OpenGL.
++// NULL: use the default adapter.
++static IDXGIAdapter1 *gl_adapter(struct ra_hwdec *hw)
++{
++    GL *gl = ra_gl_get(hw->ra_ctx->ra);
++    const char *vendor = (const char *)gl->GetString(GL_VENDOR);
++    const char *renderer = (const char *)gl->GetString(GL_RENDERER);
++    UINT want = 0;
++    if (vendor && strstr(vendor, "NVIDIA"))
++        want = 0x10DE;
++    else if (vendor && strstr(vendor, "Intel"))
++        want = 0x8086;
++    else if (vendor && (strstr(vendor, "AMD") || strstr(vendor, "ATI")))
++        want = 0x1002;
++    MP_VERBOSE(hw, "OpenGL runs on %s (%s)\n", renderer ? renderer : "?", vendor ? vendor : "?");
++    if (!want)
++        return NULL;
++
++    // dxgi.dll stays loaded: the D3D11 runtime uses it anyway.
++    HMODULE dxgi = LoadLibraryW(L"dxgi.dll");
++    if (!dxgi)
++        return NULL;
++    HRESULT (WINAPI *create_factory)(REFIID, void **) =
++        (void *)GetProcAddress(dxgi, "CreateDXGIFactory1");
++    IDXGIFactory1 *factory = NULL;
++    if (!create_factory || FAILED(create_factory(&cj_IID_IDXGIFactory1, (void **)&factory)))
++        return NULL;
++
++    IDXGIAdapter1 *found = NULL, *adapter = NULL;
++    for (UINT i = 0; !found && SUCCEEDED(IDXGIFactory1_EnumAdapters1(factory, i, &adapter)); i++) {
++        DXGI_ADAPTER_DESC1 desc;
++        if (SUCCEEDED(IDXGIAdapter1_GetDesc1(adapter, &desc)) && desc.VendorId == want &&
++            !(desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE))
++        {
++            found = adapter;
++        } else {
++            IDXGIAdapter1_Release(adapter);
++        }
++    }
++    IDXGIFactory1_Release(factory);
++    return found;
++}
++
 +static int init(struct ra_hwdec *hw)
 +{
 +    struct priv_owner *p = hw->priv;
@@ -158,11 +209,15 @@ index 0000000..02a9aba
 +        MP_VERBOSE(hw, "Failed to load D3D11 library\n");
 +        return -1;
 +    }
-+    hr = d3d11_D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL,
++    // On the GPU that runs OpenGL (an explicit adapter needs driver type UNKNOWN).
++    IDXGIAdapter1 *adapter = gl_adapter(hw);
++    hr = d3d11_D3D11CreateDevice((IDXGIAdapter *)adapter,
++                                 adapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE, NULL,
 +                                 D3D11_CREATE_DEVICE_VIDEO_SUPPORT |
 +                                 D3D11_CREATE_DEVICE_BGRA_SUPPORT,
 +                                 NULL, 0, D3D11_SDK_VERSION, &p->device,
 +                                 NULL, NULL);
++    SAFE_RELEASE(adapter);
 +    if (FAILED(hr)) {
 +        MP_VERBOSE(hw, "Failed to create D3D11 device: %s\n", mp_HRESULT_to_str(hr));
 +        return -1;
@@ -187,7 +242,7 @@ index 0000000..02a9aba
 +    if (FAILED(hr))
 +        return -1;
 +
-+    // Fails if the GL context runs on another GPU than the default adapter.
++    // Fails if the D3D11 device is on another GPU than the GL context.
 +    p->gl_device = p->DXOpenDeviceNV(p->device);
 +    if (!p->gl_device) {
 +        MP_VERBOSE(hw, "Failed to open the D3D11 device for OpenGL: %s\n",

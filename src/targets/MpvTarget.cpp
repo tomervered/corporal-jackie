@@ -1,11 +1,13 @@
 #include "MpvTarget.h"
 
+#include "GraphicsCards.h"
 #include "Logging.h"
 #include "ScopedHttp.h"
 
 #include "Session.h"
 
 #include <QFile>
+#include <QRegularExpression>
 #include <QDir>
 #include <QFileInfo>
 #include <QMetaObject>
@@ -18,9 +20,6 @@
 #include <utility>
 #include <vector>
 
-#ifdef Q_OS_WIN
-#include <dxgi.h>
-#endif
 
 namespace cj {
 namespace {
@@ -161,31 +160,6 @@ constexpr const char* kHwdecOn = "auto-safe";
 
 bool isVsr(Upscaler u) { return u == Upscaler::NvidiaVsr || u == Upscaler::IntelVsr; }
 
-// The graphics card mpv's Direct3D 11 device will use: the first adapter.
-Capabilities detectVsr()
-{
-#ifdef Q_OS_WIN
-    IDXGIFactory1* factory = nullptr;
-    if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(&factory))))
-        return {};
-    Capabilities caps;
-    IDXGIAdapter1* adapter = nullptr;
-    if (SUCCEEDED(factory->EnumAdapters1(0, &adapter))) {
-        DXGI_ADAPTER_DESC1 desc{};
-        if (SUCCEEDED(adapter->GetDesc1(&desc))) {
-            const QString name = QString::fromWCharArray(desc.Description);
-            caps = MpvTarget::vsrCapabilities(desc.VendorId, name);
-            qCInfo(lcTargets).noquote() << "Graphics card:" << name
-                                        << (!caps ? "" : "(Video Super Resolution available)");
-        }
-        adapter->Release();
-    }
-    factory->Release();
-    return caps;
-#else
-    return {};
-#endif
-}
 
 } // namespace
 
@@ -194,12 +168,18 @@ Capabilities MpvTarget::vsrCapabilities(unsigned vendorId, const QString& adapte
     // NVIDIA: RTX 20 series and later (a GTX has no VSR).
     if (vendorId == 0x10DE && adapterName.contains(QLatin1String("RTX"), Qt::CaseInsensitive))
         return Capability::UpscaleNvidiaVsr;
-    // Intel: Arc and Iris Xe. Older UHD graphics (a 10th gen i3, say) have none.
-    if (vendorId == 0x8086
-        && (adapterName.contains(QLatin1String("Arc"), Qt::CaseInsensitive)
-            || adapterName.contains(QLatin1String("Iris(R) Xe"), Qt::CaseInsensitive)
-            || adapterName.contains(QLatin1String("Iris Xe"), Qt::CaseInsensitive)))
-        return Capability::UpscaleIntelVsr;
+    // Intel: the Xe generation (11th gen Core and later): Arc, Iris Xe, UHD
+    // Graphics 7xx, and the plain "UHD Graphics" of 12th to 14th gen laptop
+    // chips. Older ones have none: HD and UHD Graphics 5xx/6xx (a 10th gen
+    // i3, say) and Iris Plus. A chip this lets through that cannot run it
+    // fails on first use, and the target turns VSR off and says so.
+    if (vendorId == 0x8086) {
+        static const QRegularExpression xe(
+            QStringLiteral("\\bArc\\b|Iris(\\(R\\))? Xe|UHD Graphics( 7\\d\\d)?$"),
+            QRegularExpression::CaseInsensitiveOption);
+        if (xe.match(adapterName.trimmed()).hasMatch())
+            return Capability::UpscaleIntelVsr;
+    }
     return {};
 }
 
@@ -264,7 +244,7 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
     }
     setOption(m_mpv, "hwdec", kHwdecOn);
     if (mode == Mode::Video)
-        m_vsrCaps = detectVsr();
+        m_vsrCaps = GraphicsCards::activeVsr();
     m_vsrTimer = new QTimer(this);
     m_vsrTimer->setSingleShot(true);
     m_vsrTimer->setInterval(400);  // a window being resized settles first

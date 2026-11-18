@@ -170,6 +170,24 @@ Rectangle {
                 checked: session.hardwareDecoding
                 onToggled: on => session.hardwareDecoding = on
             }
+            // Laptops with two graphics cards (Windows): which one the app runs on.
+            Choice {
+                visible: graphics.canChoose
+                title: "Graphics card"
+                options: [["auto", "Automatic"], ["saving", "Power saving"], ["performance", "High performance"]]
+                value: graphics.preference
+                onPicked: v => graphics.preference = v
+            }
+            Note {
+                visible: graphics.canChoose
+                text: (graphics.restartNeeded ? "Restart the app to switch. " : "")
+                      + "Power saving: " + graphics.savingName + ". High performance: " + graphics.performanceName + "."
+                      + (graphics.activeName !== "" ? " Now running on " + graphics.activeName + "." : "")
+            }
+            Note {
+                visible: graphics.vsrHint !== ""
+                text: graphics.vsrHint
+            }
             Choice {
                 visible: session.upscalers.length > 1
                 title: "Upscaling"

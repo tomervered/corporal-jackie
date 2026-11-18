@@ -5,6 +5,7 @@ add_library(cj_targets STATIC
     ScopedHttp.cpp   ScopedHttp.h
     MpvVideoItem.cpp MpvVideoItem.h
     SleepBlocker.cpp SleepBlocker.h
+    GraphicsCards.cpp GraphicsCards.h
 )
 # AMD FSR 1, ported to an mpv user shader (MIT; see the file's header).
 qt_add_resources(cj_targets "cj_shaders" PREFIX "/cj" FILES shaders/fsr1.glsl)
@@ -14,7 +15,7 @@ target_link_libraries(cj_targets
     PRIVATE cj::mpv)
 
 if(WIN32)
-    target_link_libraries(cj_targets PRIVATE dxgi)  # finds the graphics card for VSR
+    target_link_libraries(cj_targets PRIVATE dxgi)  # the graphics cards (GraphicsCards.cpp)
 endif()
 
 if(APPLE)

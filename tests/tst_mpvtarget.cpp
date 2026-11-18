@@ -3,6 +3,7 @@
 // needs no GPU. Everything is checked through the Session, the way the UI sees it.
 
 #include "FakeHttpServer.h"
+#include "GraphicsCards.h"
 #include "MpvTarget.h"
 #include "ScopedHttp.h"
 #include "Session.h"
@@ -198,6 +199,12 @@ private slots:
         QCOMPARE(caps(0x8086, "Intel(R) Arc(TM) A770 Graphics"), Capabilities(Capability::UpscaleIntelVsr));
         QCOMPARE(caps(0x8086, "Intel(R) Iris(R) Xe Graphics"), Capabilities(Capability::UpscaleIntelVsr));
         QCOMPARE(caps(0x8086, "Intel(R) UHD Graphics 630"), Capabilities());  // a 10th gen i3
+        QCOMPARE(caps(0x8086, "Intel(R) UHD Graphics"), Capabilities(Capability::UpscaleIntelVsr));  // 12th-14th gen laptop
+        QCOMPARE(caps(0x8086, "Intel(R) UHD Graphics 770"), Capabilities(Capability::UpscaleIntelVsr));
+        QCOMPARE(caps(0x8086, "Intel(R) Arc(TM) Graphics"), Capabilities(Capability::UpscaleIntelVsr));  // Core Ultra
+        QCOMPARE(caps(0x8086, "Intel(R) Iris(R) Plus Graphics"), Capabilities());
+        QCOMPARE(caps(0x8086, "Intel(R) HD Graphics 620"), Capabilities());
+        QCOMPARE(caps(0x10DE, "NVIDIA GeForce RTX 4060 Laptop GPU"), Capabilities(Capability::UpscaleNvidiaVsr));
         QCOMPARE(caps(0x1002, "AMD Radeon RX 7600"), Capabilities());
         QCOMPARE(caps(0x1414, "Microsoft Basic Render Driver"), Capabilities());
 
@@ -225,6 +232,22 @@ private slots:
         QCOMPARE(status(Upscaler::Fsr, 720, 0, 720, false), QStringLiteral("AMD FSR 1 on · 720p → screen size"));
         QCOMPARE(status(Upscaler::Off, 720, 1440, 720, false), QString());
         QCOMPARE(status(Upscaler::NvidiaVsr, 0, 1440, 0, true), QString());  // no video yet
+    }
+
+    // Windows' per-program graphics card entry: read and rewritten without
+    // losing the other settings Windows keeps in the same string.
+    void graphicsCardPreferenceEntry()
+    {
+        QCOMPARE(GraphicsCards::gpuPreferenceIn(QString()), 0);
+        QCOMPARE(GraphicsCards::gpuPreferenceIn(QStringLiteral("GpuPreference=2;")), 2);
+        QCOMPARE(GraphicsCards::gpuPreferenceIn(QStringLiteral("SwapEffectUpgradeEnable=1;GpuPreference=1;")), 1);
+        QCOMPARE(GraphicsCards::gpuPreferenceIn(QStringLiteral("GpuPreference=9;")), 0);
+        QCOMPARE(GraphicsCards::withGpuPreference(QString(), 2), QStringLiteral("GpuPreference=2;"));
+        QCOMPARE(GraphicsCards::withGpuPreference(QStringLiteral("GpuPreference=2;"), 0), QString());
+        QCOMPARE(GraphicsCards::withGpuPreference(QStringLiteral("SwapEffectUpgradeEnable=1;GpuPreference=2;"), 1),
+                 QStringLiteral("GpuPreference=1;SwapEffectUpgradeEnable=1;"));
+        QCOMPARE(GraphicsCards::withGpuPreference(QStringLiteral("SwapEffectUpgradeEnable=1;GpuPreference=2;"), 0),
+                 QStringLiteral("SwapEffectUpgradeEnable=1;"));
     }
 
     // Qt's keys as mpv's input.conf names them.
