@@ -37,7 +37,8 @@ const QString kPrivacyVersion = QStringLiteral("privacy/version");
 constexpr int kPrivacyScreenVersion = 2;
 const QString kColorMode = QStringLiteral("ui/colorMode");
 const QString kUpscalerBadge = QStringLiteral("ui/showUpscalerBadge");
-const QString kKeepLightPlayer = QStringLiteral("ui/keepLightPlayer");
+const QString kPlayerHalo = QStringLiteral("ui/playerHalo");
+const QStringList kHaloLevels = {QStringLiteral("full"), QStringLiteral("half"), QStringLiteral("little"), QStringLiteral("off")};
 const QString kSavedPalettes = QStringLiteral("ui/savedPalettes");   // JSON text
 constexpr int kMaxPalettes = 50;
 constexpr int kMaxPaletteName = 40;
@@ -125,7 +126,10 @@ Preferences::Preferences(Storage& storage, const QString& defaultCacheFolder, QO
     const QString mode = value(kColorMode, QStringLiteral("dark")).toString();
     m_colorMode = knownMode(mode) ? mode : QStringLiteral("dark");
     m_upscalerBadge = value(kUpscalerBadge, true).toBool();
-    m_keepLightPlayer = value(kKeepLightPlayer, false).toBool();
+    {
+        const QString halo = value(kPlayerHalo, QStringLiteral("full")).toString();
+        m_playerHalo = kHaloLevels.contains(halo) ? halo : QStringLiteral("full");
+    }
     for (const QJsonValue& v : QJsonDocument::fromJson(value(kSavedPalettes, QString()).toString().toUtf8()).array()) {
         const QVariantMap given = v.toObject().toVariantMap();
         QVariantMap colors = cleanColors(given);
@@ -322,12 +326,12 @@ void Preferences::setColorEdits(const QVariantMap& edits)
     emit appearanceChanged();
 }
 
-void Preferences::setKeepLightPlayer(bool on)
+void Preferences::setPlayerHalo(const QString& level)
 {
-    if (on == m_keepLightPlayer)
+    if (!kHaloLevels.contains(level) || level == m_playerHalo)
         return;
-    m_keepLightPlayer = on;
-    m_storage.setSetting(kKeepLightPlayer, on);
+    m_playerHalo = level;
+    m_storage.setSetting(kPlayerHalo, level);
     emit appearanceChanged();
 }
 

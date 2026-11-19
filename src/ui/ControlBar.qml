@@ -55,9 +55,9 @@ Item {
     Rectangle {
         anchors.fill: parent
         gradient: Gradient {
-            GradientStop { position: 0; color: "transparent" }
-            GradientStop { position: 0.7; color: Theme.pPanel }
-            GradientStop { position: 1; color: Theme.pPanel }
+            GradientStop { position: 0; color: Qt.rgba(Theme.pPanel.r, Theme.pPanel.g, Theme.pPanel.b, 0) }
+            GradientStop { position: 0.7; color: Qt.rgba(Theme.pPanel.r, Theme.pPanel.g, Theme.pPanel.b, Theme.haloStrength) }
+            GradientStop { position: 1; color: Qt.rgba(Theme.pPanel.r, Theme.pPanel.g, Theme.pPanel.b, Theme.haloStrength) }
         }
     }
     // Clicks on the bar stay here (they would pause the video below).

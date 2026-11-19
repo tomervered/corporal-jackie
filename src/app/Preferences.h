@@ -47,7 +47,7 @@ class Preferences : public QObject
     Q_PROPERTY(bool showUpscalerBadge READ showUpscalerBadge WRITE setShowUpscalerBadge NOTIFY appearanceChanged)
     // With white or near-white panels the player's controls turn charcoal,
     // unless this is on.
-    Q_PROPERTY(bool keepLightPlayer READ keepLightPlayer WRITE setKeepLightPlayer NOTIFY appearanceChanged)
+    Q_PROPERTY(QString playerHalo READ playerHalo WRITE setPlayerHalo NOTIFY appearanceChanged)
     // Palettes the person named and saved: [{name, accent, canvas, panel, text}].
     Q_PROPERTY(QVariantList savedPalettes READ savedPalettes NOTIFY appearanceChanged)
 
@@ -88,8 +88,9 @@ public:
     QString colorMode() const { return m_colorMode; }
     bool showUpscalerBadge() const { return m_upscalerBadge; }
     void setShowUpscalerBadge(bool on);
-    bool keepLightPlayer() const { return m_keepLightPlayer; }
-    void setKeepLightPlayer(bool on);
+    // How strong the fade behind the player's controls is: full, half, little or off.
+    QString playerHalo() const { return m_playerHalo; }
+    void setPlayerHalo(const QString& level);
     QVariantList savedPalettes() const { return m_savedPalettes; }
     // Adds a palette under `name` (one of the same name is replaced). ""
     // or what went wrong.
@@ -146,7 +147,7 @@ private:
     QString m_colorMode = QStringLiteral("dark");
     QVariantMap m_colorEdits;
     bool m_upscalerBadge = true;
-    bool m_keepLightPlayer = false;
+    QString m_playerHalo = QStringLiteral("full");
     QVariantList m_savedPalettes;
     void storePalettes();
     struct Started { bool inMemory; int memoryCapMB; int diskCacheGB; QString folder; } m_started;

@@ -26,12 +26,14 @@ QtObject {
         ["OLED black", { canvas: "#000000", panel: "#000000", text: "#e1e6dc", accent: "#96ad78" }, "oled"],
         ["Midnight",  { canvas: "#11151d", panel: "#1a2030", text: "#e4e9f2", accent: "#7aa2f7" }, "custom"],
         ["Graphite",  { canvas: "#161616", panel: "#212121", text: "#ececec", accent: "#b0b0b0" }, "custom"],
-        ["Teal",      { canvas: "#0f1a1a", panel: "#172526", text: "#e2efed", accent: "#5cc8b8" }, "custom"],
-        ["Plum",      { canvas: "#1a1420", panel: "#251c2d", text: "#efe6f3", accent: "#c59be0" }, "custom"],
-        ["Ember",     { canvas: "#1b1412", panel: "#271d19", text: "#f2e8e2", accent: "#e8915a" }, "custom"],
-        ["Rose",      { canvas: "#1c1417", panel: "#291d22", text: "#f4e7eb", accent: "#e88aa6" }, "custom"],
+        ["Teal",      { canvas: "#0e1b1b", panel: "#162627", text: "#e1f0ee", accent: "#52d2bf" }, "custom"],
+        ["Plum",      { canvas: "#1a1321", panel: "#251a2f", text: "#efe5f4", accent: "#c695e6" }, "custom"],
+        ["Ember",     { canvas: "#1c1411", panel: "#281c18", text: "#f3e8e1", accent: "#f58e4d" }, "custom"],
+        ["Rose",      { canvas: "#1d1317", panel: "#2a1c22", text: "#f5e6eb", accent: "#f082a3" }, "custom"],
         ["Paper",     { canvas: "#f6f4ef", panel: "#ffffff", text: "#2a2723", accent: "#8a5a2b" }, "custom"],
-        ["Sky",       { canvas: "#f2f6fa", panel: "#ffffff", text: "#1f2a36", accent: "#2f6db3" }, "custom"]
+        ["Sky",       { canvas: "#f2f6fa", panel: "#ffffff", text: "#1f2a36", accent: "#2f6db3" }, "custom"],
+        ["Mint",      { canvas: "#f0f7f3", panel: "#ffffff", text: "#1e2d26", accent: "#2b8c68" }, "custom"],
+        ["Blush",     { canvas: "#fbf2f4", panel: "#ffffff", text: "#2d2226", accent: "#c0436a" }, "custom"]
     ]
     // The four colours of the current look, with the person's changes.
     function base(key) {
@@ -71,11 +73,13 @@ QtObject {
     readonly property color scrim: "#a0000000"
     // The player's controls. With white or near-white panels they turn
     // charcoal with light words and icons (bright controls over a video look
-    // washed out), unless Settings keeps them light. Other panel colours are
-    // used as they are. Main.qml sets keepLightPlayer.
-    property bool keepLightPlayer: false
+    // washed out). Other panel colours are used as they are.
     readonly property real panelLuminance: 0.2126 * panel.r + 0.7152 * panel.g + 0.0722 * panel.b
-    readonly property bool playerCharcoal: panelLuminance > 0.82 && !keepLightPlayer
+    readonly property bool playerCharcoal: panelLuminance > 0.82
+    // How strong the fade behind the bar's controls is, in any colour
+    // (Settings: full, half, little, off). Main.qml sets playerHalo.
+    property string playerHalo: "full"
+    readonly property real haloStrength: ({ full: 1, half: 0.5, little: 0.25, off: 0 })[playerHalo] ?? 1
     readonly property color pPanel: playerCharcoal ? "#24262a" : panel
     readonly property color pText: playerCharcoal ? "#eceeea" : text
     readonly property color pCanvas: playerCharcoal ? "#18191c" : canvas

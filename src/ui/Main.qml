@@ -21,7 +21,7 @@ Window {
     // tooltips, scroll bars, dialogs' parts) take their colours from it.
     Binding { target: Theme; property: "mode"; value: preferences.colorMode }
     Binding { target: Theme; property: "edits"; value: preferences.colorEdits }
-    Binding { target: Theme; property: "keepLightPlayer"; value: preferences.keepLightPlayer }
+    Binding { target: Theme; property: "playerHalo"; value: preferences.playerHalo }
     palette {
         window: Theme.panel
         windowText: Theme.text

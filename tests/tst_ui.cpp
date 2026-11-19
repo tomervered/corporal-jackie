@@ -393,6 +393,30 @@ private slots:
         QCOMPARE(m_core->preferences().colorMode(), QStringLiteral("custom"));
         QTest::qWait(200);
         shot("settings-custom");
+        // Customize: a swatch opens named colors; a chosen one is shown by name, not hex.
+        {
+            auto find = [this](const char* name) {
+                QQuickItem* hit = nullptr;
+                QList<QQuickItem*> todo2{m_window->contentItem()};
+                while (!todo2.isEmpty() && !hit) {
+                    QQuickItem* i = todo2.takeLast();
+                    if (i->objectName() == QLatin1String(name))
+                        hit = i;
+                    todo2 += i->childItems();
+                }
+                return hit;
+            };
+            QQuickItem* swatch = find("swatch-accent");
+            QVERIFY(swatch);
+            QVERIFY(QMetaObject::invokeMethod(swatch, "clicked"));
+            QTest::qWait(200);
+            shot("settings-colors");
+            QQuickItem* gold = find("colorPreset-Gold");
+            QVERIFY(gold);
+            QVERIFY(QMetaObject::invokeMethod(gold, "clicked"));
+            QTest::qWait(100);
+            QCOMPARE(m_core->preferences().colorEdits().value(QStringLiteral("custom")).toMap().value(QStringLiteral("accent")).toString().toLower(), QStringLiteral("#e5b95c"));
+        }
         m_core->preferences().setColorMode(QStringLiteral("dark"));
         QQuickItem* panel = m_window->findChild<QQuickItem*>(QStringLiteral("settingsPanel"));
         QVERIFY(panel);
@@ -546,9 +570,9 @@ private slots:
             QVERIFY(gearPanel);
             QTRY_COMPARE(gearPanel->property("color").value<QColor>().name(), QStringLiteral("#24262a"));
             shot("player-settings-charcoal");
-            prefs.setKeepLightPlayer(true);
-            QTRY_COMPARE(gearPanel->property("color").value<QColor>().name(), QStringLiteral("#ffffff"));
-            prefs.setKeepLightPlayer(false);
+            prefs.setPlayerHalo(QStringLiteral("off"));
+            QTRY_COMPARE(gearPanel->property("color").value<QColor>().name(), QStringLiteral("#24262a"));   // charcoal stays; only the fade goes
+            prefs.setPlayerHalo(QStringLiteral("full"));
             prefs.setColorEdits({});
             prefs.setColorMode(QStringLiteral("dark"));
         }

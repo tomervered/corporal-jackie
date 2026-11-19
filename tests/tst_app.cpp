@@ -225,9 +225,11 @@ private slots:
         QCOMPARE(p.savePalette(QStringLiteral("Second"), colors), QString());
         p.removePalette(QStringLiteral("Second"));
         QCOMPARE(p.savedPalettes().size(), 1);
-        QVERIFY(!p.keepLightPlayer());
-        p.setKeepLightPlayer(true);
-        QVERIFY(p.keepLightPlayer());
+        QCOMPARE(p.playerHalo(), QStringLiteral("full"));
+        p.setPlayerHalo(QStringLiteral("half"));
+        QCOMPARE(p.playerHalo(), QStringLiteral("half"));
+        p.setPlayerHalo(QStringLiteral("loud"));   // not a level
+        QCOMPARE(p.playerHalo(), QStringLiteral("half"));
 
         QFile other(dir.filePath(QStringLiteral("other.json")));
         QVERIFY(other.open(QIODevice::WriteOnly));

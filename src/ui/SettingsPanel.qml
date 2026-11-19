@@ -260,8 +260,8 @@ Item {
                                     border.width: paletteButton.chosen || paletteButton.visualFocus || paletteButton.hovered ? 2 : 1
                                     border.color: paletteButton.chosen || paletteButton.visualFocus || paletteButton.hovered ? Theme.accent : Theme.line
                                     Rectangle {
-                                        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 6 }
-                                        height: 22
+                                        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 5 }
+                                        height: 20
                                         radius: 4
                                         color: paletteButton.colors.panel
                                         Rectangle {
@@ -279,10 +279,13 @@ Item {
                                     }
                                     Text {
                                         textFormat: Text.PlainText
-                                        anchors { left: parent.left; right: parent.right; leftMargin: 8; rightMargin: 6; bottom: parent.bottom; bottomMargin: 6 }
+                                        anchors { left: parent.left; right: parent.right; leftMargin: 8; rightMargin: 6; bottom: parent.bottom; bottomMargin: 4 }
                                         text: paletteButton.modelData[0]
                                         color: paletteButton.colors.text
-                                        font.pixelSize: 12
+                                        font.pixelSize: 11
+                                        lineHeight: 0.95
+                                        wrapMode: Text.WordWrap
+                                        maximumLineCount: 2
                                         elide: Text.ElideRight
                                     }
                                 }
@@ -318,6 +321,7 @@ Item {
                                 opacity: locked ? 0.45 : 1
                                 AbstractButton {
                                     id: swatch
+                                    objectName: "swatch-" + swatchRow.modelData[0]
                                     width: 34; height: 30
                                     enabled: !swatchRow.locked
                                     Accessible.name: swatchRow.modelData[1] + " color"
@@ -330,7 +334,7 @@ Item {
                                         border.color: swatch.visualFocus ? Theme.accent : Theme.line
                                         Rectangle { anchors { fill: parent; margins: 4 } radius: 3; color: Theme[swatchRow.modelData[0]] }
                                     }
-                                    onClicked: { colorDialog.key = swatchRow.modelData[0]; colorDialog.selectedColor = Theme[swatchRow.modelData[0]]; colorDialog.open() }
+                                    onClicked: { colorPopup.key = swatchRow.modelData[0]; colorPopup.parent = swatch; colorPopup.open() }
                                 }
                                 Text {
                                     textFormat: Text.PlainText
@@ -343,9 +347,10 @@ Item {
                                 Text {
                                     textFormat: Text.PlainText
                                     anchors.verticalCenter: parent.verticalCenter
-                                    text: Theme[swatchRow.modelData[0]].toString().toUpperCase()
+                                    readonly property string presetName: Format.colorName(Theme[swatchRow.modelData[0]])
+                                    text: presetName !== "" ? presetName : Theme[swatchRow.modelData[0]].toString().toUpperCase()
                                     color: Theme.muted
-                                    font.family: "monospace"
+                                    font.family: presetName !== "" ? Qt.application.font.family : "monospace"
                                     font.pixelSize: Theme.smallSize
                                 }
                             }
@@ -404,12 +409,13 @@ Item {
                         onClicked: colorsImportDialog.open()
                     }
                 }
-                Toggle {
-                    objectName: "keepLightPlayer"
-                    title: "Keep light player controls"
-                    detail: "With white or near-white panels, the player's controls turn charcoal so they stand out over the video. Turn this on to keep them light."
-                    checked: preferences.keepLightPlayer
-                    onToggled: on => preferences.keepLightPlayer = on
+                Choice {
+                    objectName: "playerHalo"
+                    title: "Player control halo"
+                    detail: "The soft fade behind the player's controls, in any color. With white or near-white panels the controls are charcoal."
+                    options: [["full", "Full"], ["half", "Half"], ["little", "Just a little"], ["off", "Off"]]
+                    value: preferences.playerHalo
+                    onPicked: v => preferences.playerHalo = v
                 }
             }
 
@@ -755,6 +761,46 @@ Item {
         }
     }
 
+    // Named colors to pick from; "Other color…" opens the full picker.
+    Popup {
+        id: colorPopup
+        objectName: "colorPopup"
+        property string key
+        y: parent ? parent.height + 6 : 0
+        padding: 12
+        background: Rectangle { radius: 10; color: Theme.overlay; border.color: Theme.line }
+        Column {
+            spacing: 10
+            Grid {
+                columns: 6
+                spacing: 6
+                Repeater {
+                    model: Format.colorPresets
+                    AbstractButton {
+                        id: presetButton
+                        required property var modelData
+                        objectName: "colorPreset-" + modelData[1]
+                        width: 34; height: 30
+                        hoverEnabled: true
+                        Accessible.name: modelData[1]
+                        ToolTip.visible: hovered
+                        ToolTip.text: modelData[1]
+                        onClicked: { panel.setColor(colorPopup.key, modelData[0]); colorPopup.close() }
+                        background: Rectangle {
+                            radius: 5
+                            color: presetButton.modelData[0]
+                            border.width: presetButton.hovered || presetButton.visualFocus ? 2 : 1
+                            border.color: presetButton.hovered || presetButton.visualFocus ? Theme.accent : Theme.line
+                        }
+                    }
+                }
+            }
+            AppButton {
+                text: "Other color…"
+                onClicked: { colorDialog.key = colorPopup.key; colorDialog.selectedColor = Theme[colorPopup.key]; colorPopup.close(); colorDialog.open() }
+            }
+        }
+    }
     ColorDialog {
         id: colorDialog
         property string key
