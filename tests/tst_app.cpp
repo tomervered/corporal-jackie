@@ -187,12 +187,15 @@ private slots:
                                                                      {QStringLiteral("text"), QStringLiteral("red")}}},
                              {QStringLiteral("neon"), QVariantMap{{QStringLiteral("accent"), QStringLiteral("#000000")}}}});
             QCOMPARE(changed.count(), 2);
+            QVERIFY(p.showUpscalerBadge());
+            p.setShowUpscalerBadge(false);
         }
         Run run(m_root->path());
         const Preferences& p = run.core.preferences();
         QCOMPARE(p.colorMode(), QStringLiteral("bright"));
         const QVariantMap expected{{QStringLiteral("bright"), QVariantMap{{QStringLiteral("accent"), QStringLiteral("#aa3300")}}}};
         QCOMPARE(p.colorEdits(), expected);
+        QVERIFY(!p.showUpscalerBadge());
     }
 
     // A torrent while torrents are off never reaches the player.

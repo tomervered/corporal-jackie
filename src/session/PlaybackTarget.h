@@ -31,6 +31,7 @@ public:
     virtual void setAudioTrack(int id) = 0;
     virtual void setSubtitleTrack(int id) = 0;   // -1 = none
     virtual void addExternalSubtitle(const QUrl& url) = 0;  // added and shown
+    virtual void addExternalAudio(const QUrl& url) = 0;     // a local file; added and played
     // Added as a track the user can pick. May be called while the item is
     // still loading; the target keeps it until it can add it. Added during
     // loading, the target's usual rules may show it (as players show a

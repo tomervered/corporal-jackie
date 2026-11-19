@@ -314,6 +314,14 @@ Item {
                     value: session.upscaleHeight
                     onPicked: v => session.upscaleHeight = v
                 }
+                Toggle {
+                    visible: session.upscalers.length > 1
+                    objectName: "upscalerBadgeToggle"
+                    title: "Show upscaling indicator during playback"
+                    detail: "The note at the top left of the video that says what the upscaler is doing."
+                    checked: preferences.showUpscalerBadge
+                    onToggled: on => preferences.showUpscalerBadge = on
+                }
                 Note { text: "Press I while playing to see dropped and late frames." }
             }
 
@@ -321,16 +329,25 @@ Item {
             Group {
                 id: subtitlesGroup
                 title: "Subtitles"
-                // A sample line, drawn the way the player will draw it.
+                // A sample line, drawn the way the player will draw it, over a
+                // frame of A Trip to the Moon (Georges Méliès, 1902, public
+                // domain; images/README.md).
                 Item { width: 1; height: 12 }
                 Rectangle {
-                    width: Math.min(parent.width, 430)
-                    height: 96
+                    objectName: "subtitleSample"
+                    width: Math.min(parent.width, 560)
+                    height: 190
                     radius: 6
                     clip: true
-                    gradient: Gradient {
-                        GradientStop { position: 0; color: "#3d4a36" }
-                        GradientStop { position: 1; color: "#141a13" }
+                    color: "black"
+                    Image {
+                        anchors { top: parent.top; bottom: parent.bottom; horizontalCenter: parent.horizontalCenter }
+                        width: height * 480 / 365
+                        source: "images/subtitle-sample.jpg"
+                        sourceSize: Qt.size(480, 365)
+                        fillMode: Image.PreserveAspectFit
+                        smooth: true
+                        asynchronous: true
                     }
                     Rectangle {
                         anchors.centerIn: sample

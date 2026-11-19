@@ -17,9 +17,25 @@ ToolButton {
     implicitHeight: 40
     padding: 0
     Accessible.name: tip
-    ToolTip.visible: hovered && tip !== ""
-    ToolTip.delay: 500
-    ToolTip.text: tip
+    // Its own tooltip, in the app's colours (the attached one takes the
+    // system's, which can come out brown on Windows).
+    ToolTip {
+        id: tipBox
+        visible: control.hovered && control.tip !== ""
+        delay: 500
+        text: control.tip
+        contentItem: Text {
+            textFormat: Text.PlainText
+            text: tipBox.text
+            color: Theme.text
+            font.pixelSize: 12
+        }
+        background: Rectangle {
+            radius: 5
+            color: Theme.panel
+            border.color: Theme.line
+        }
+    }
     contentItem: Item {
         Icon {
             anchors.centerIn: parent

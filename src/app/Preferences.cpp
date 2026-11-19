@@ -31,6 +31,7 @@ const QString kUploads = QStringLiteral("privacy/uploads");
 const QString kPrivacyVersion = QStringLiteral("privacy/version");
 constexpr int kPrivacyScreenVersion = 2;
 const QString kColorMode = QStringLiteral("ui/colorMode");
+const QString kUpscalerBadge = QStringLiteral("ui/showUpscalerBadge");
 const QString kColorEdits = QStringLiteral("ui/colorEdits");   // JSON text
 
 bool knownMode(const QString& mode)
@@ -96,6 +97,7 @@ Preferences::Preferences(Storage& storage, const QString& defaultCacheFolder, QO
     m_uploads = m_privacyChosen && value(kUploads, false).toBool();
     const QString mode = value(kColorMode, QStringLiteral("dark")).toString();
     m_colorMode = knownMode(mode) ? mode : QStringLiteral("dark");
+    m_upscalerBadge = value(kUpscalerBadge, true).toBool();
     m_colorEdits = cleanEdits(QJsonDocument::fromJson(value(kColorEdits, QString()).toString().toUtf8()).object().toVariantMap());
     m_started = {m_inMemory, m_memoryCapMB, m_diskCacheGB, effectiveFolder()};
 }
@@ -261,6 +263,15 @@ void Preferences::setColorMode(const QString& mode)
         return;
     m_colorMode = mode;
     m_storage.setSetting(kColorMode, mode);
+    emit appearanceChanged();
+}
+
+void Preferences::setShowUpscalerBadge(bool on)
+{
+    if (on == m_upscalerBadge)
+        return;
+    m_upscalerBadge = on;
+    m_storage.setSetting(kUpscalerBadge, on);
     emit appearanceChanged();
 }
 

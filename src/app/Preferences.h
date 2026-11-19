@@ -43,6 +43,8 @@ class Preferences : public QObject
     // person changed in each, as {mode: {accent, canvas, panel, text}}.
     Q_PROPERTY(QString colorMode READ colorMode WRITE setColorMode NOTIFY appearanceChanged)
     Q_PROPERTY(QVariantMap colorEdits READ colorEdits WRITE setColorEdits NOTIFY appearanceChanged)
+    // The upscaler badge over the video (top left).
+    Q_PROPERTY(bool showUpscalerBadge READ showUpscalerBadge WRITE setShowUpscalerBadge NOTIFY appearanceChanged)
 
 public:
     // defaultCacheFolder: the torrent cache under the app's cache folder.
@@ -79,6 +81,8 @@ public:
                                    bool torrents = false, bool uploads = false);
 
     QString colorMode() const { return m_colorMode; }
+    bool showUpscalerBadge() const { return m_upscalerBadge; }
+    void setShowUpscalerBadge(bool on);
     void setColorMode(const QString& mode);
     QVariantMap colorEdits() const { return m_colorEdits; }
     void setColorEdits(const QVariantMap& edits);
@@ -124,6 +128,7 @@ private:
     QVariantMap m_earlier;
     QString m_colorMode = QStringLiteral("dark");
     QVariantMap m_colorEdits;
+    bool m_upscalerBadge = true;
     struct Started { bool inMemory; int memoryCapMB; int diskCacheGB; QString folder; } m_started;
 };
 

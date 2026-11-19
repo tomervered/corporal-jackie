@@ -23,6 +23,7 @@ var paths = {
     gear: ["M9.8 2h4.4l.6 2.5 1.5.9 2.5-.8 2.2 3.8-1.9 1.8v1.9l1.9 1.8-2.2 3.8-2.5-.8-1.5.9-.6 2.5H9.8l-.6-2.5-1.5-.9-2.5.8L3 13.9l1.9-1.8v-1.9L3 8.4l2.2-3.8 2.5.8 1.5-.9zM12 7.4a3.9 3.9 0 1 0 0 7.8 3.9 3.9 0 0 0 0-7.8z", true],
     fullscreen: ["M3 9V4h5m8 0h5v5m0 6v5h-5m-8 0H3v-5", false],
     windowed: ["M8 3v5H3m13-5v5h5m0 8h-5v5M3 16h5v5", false],
+    arrowLeft: ["M20 12H5m6-6-6 6 6 6", false],
     close: ["M6 6l12 12M18 6 6 18", false],
     episodes: ["M3 5h18v11H3zM8 20h8M12 16v4", false],
     browse: ["M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z", false],

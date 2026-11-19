@@ -267,6 +267,10 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
     m_vsrTimer->setInterval(400);  // a window being resized settles first
     connect(m_vsrTimer, &QTimer::timeout, this, &MpvTarget::applyVsrFilter);
     setOption(m_mpv, "volume-max", "130");      // PlaybackTarget::kMaxVolume
+    // mpv's own seek and volume bars and messages stay off: the app's bar
+    // shows both. (O still cycles mpv's OSD on for the position.)
+    setOption(m_mpv, "osd-bar", "no");
+    setOption(m_mpv, "osd-level", "0");
     setOption(m_mpv, "keep-open", "yes");      // stay on the last frame at the end
     setOption(m_mpv, "idle", "yes");
     setOption(m_mpv, "terminal", "no");
@@ -689,6 +693,18 @@ void MpvTarget::setSubtitleTrack(int id) { setProperty("sid", id < 0 ? "no" : QB
 void MpvTarget::addExternalSubtitle(const QUrl& url)
 {
     addSubtitleNow(SubtitleSource{url, {}, {}}, "select");
+}
+
+// An audio file the user picked on this computer (a dub, a commentary).
+// Only local files: a web link would bypass ScopedHttp.
+void MpvTarget::addExternalAudio(const QUrl& url)
+{
+    if (!url.isLocalFile()) {
+        qCWarning(lcTargets).noquote() << "Skipping an audio track that is not a local file:" << logging::redactUrl(url);
+        return;
+    }
+    const QByteArray path = QFile::encodeName(url.toLocalFile());
+    command({"audio-add", path.constData(), "select"});
 }
 
 void MpvTarget::addSubtitleTrack(const SubtitleSource& subtitle)

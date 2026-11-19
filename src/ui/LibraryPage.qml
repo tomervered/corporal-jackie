@@ -31,25 +31,40 @@ Item {
             text: "Nothing saved yet. Open a film or show and press Add to library."
         }
     }
-    GridView {
+    // One row, like the other shelves: the wheel and the arrow keys move it
+    // sideways.
+    ListView {
         id: libraryGrid
-        anchors { left: parent.left; right: parent.right; top: libraryTop.bottom; bottom: parent.bottom; topMargin: 12 }
-        cellWidth: cell
-        cellHeight: (cell - Theme.posterGap) * 1.5 + 58 + 20
+        objectName: "savedRow"
+        anchors { left: parent.left; right: parent.right; top: libraryTop.bottom; topMargin: 12 }
+        height: (cell - Theme.posterGap) * 1.5 + 70
+        orientation: ListView.Horizontal
+        spacing: Theme.posterGap
         clip: true
         activeFocusOnTab: true
         keyNavigationEnabled: true
         boundsBehavior: Flickable.StopAtBounds
         topMargin: 3
         leftMargin: 3
+        rightMargin: 3
         model: library.items
-        ScrollBar.vertical: ScrollBar {}
+        ScrollBar.horizontal: ScrollBar { policy: libraryGrid.contentWidth > libraryGrid.width ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
+        // A plain wheel (up and down) scrolls the row sideways.
+        WheelHandler {
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+            onWheel: event => {
+                const delta = event.angleDelta.x !== 0 ? event.angleDelta.x : event.angleDelta.y
+                const most = Math.max(0, libraryGrid.contentWidth - libraryGrid.width + libraryGrid.leftMargin + libraryGrid.rightMargin)
+                libraryGrid.contentX = Math.max(-libraryGrid.leftMargin, Math.min(most - libraryGrid.leftMargin, libraryGrid.contentX - delta))
+                event.accepted = true
+            }
+        }
         delegate: PosterTile {
             required property var modelData
             required property int index
             item: modelData
             posterWidth: cell - Theme.posterGap
-            current: GridView.isCurrentItem && libraryGrid.activeFocus
+            current: ListView.isCurrentItem && libraryGrid.activeFocus
             onActivated: { libraryGrid.currentIndex = index; library.open(modelData.key) }
         }
         function openCurrent() {

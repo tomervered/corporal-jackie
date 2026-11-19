@@ -3,7 +3,7 @@
 set(CJ_QML_FILES
     Main.qml Pages.qml SettingsPanel.qml PrivacyScreen.qml ContinueWatching.qml
     # player
-    ControlBar.qml BarButton.qml PlainMenuItem.qml EpisodesPanel.qml LinkPopup.qml Toast.qml StatsOverlay.qml ShortcutsOverlay.qml Format.js Notices.js
+    ControlBar.qml PlayerPanel.qml PanelRow.qml BarButton.qml EpisodesPanel.qml LinkPopup.qml Toast.qml StatsOverlay.qml ShortcutsOverlay.qml Format.js Notices.js
     # pages
     HomePage.qml SearchPage.qml DiscoverPage.qml DetailPage.qml StreamsPage.qml StreamList.qml
     LibraryPage.qml AddonsPage.qml FoldersPage.qml
@@ -11,7 +11,7 @@ set(CJ_QML_FILES
     Theme.qml Muted.qml Heading.qml PageTitle.qml SectionLabel.qml RowItem.qml
     PosterTile.qml PosterRow.qml NavButton.qml Chip.qml
     Icon.qml Icons.js IconButton.qml AppButton.qml AppField.qml AppCombo.qml AppSwitch.qml)
-set(CJ_UI_RESOURCES images/logo.png)
+set(CJ_UI_RESOURCES images/logo.png images/subtitle-sample.jpg)
 
 # Adds the files to `target` as the CorporalJackie module, each served under
 # its own name (not ../ui/).

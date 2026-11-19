@@ -5,6 +5,8 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
+#include <QHash>
+#include <QLocale>
 #include <QMetaEnum>
 #include <QRegularExpression>
 #include <QStandardPaths>
@@ -14,10 +16,14 @@
 namespace cj {
 namespace {
 
+// The shapes offered for Aspect ratio and Crop (empty: automatic / none),
+// widest last.
 const QStringList kAspectRatios = {QString(), QStringLiteral("16:9"), QStringLiteral("4:3"),
-                                   QStringLiteral("2.35:1"), QStringLiteral("1:1")};
-const QStringList kCrops = {QString(), QStringLiteral("16:9"), QStringLiteral("2.39:1"),
-                            QStringLiteral("4:3")};
+                                   QStringLiteral("1:1"), QStringLiteral("1.85:1"), QStringLiteral("2:1"),
+                                   QStringLiteral("21:9"), QStringLiteral("2.35:1"), QStringLiteral("2.39:1")};
+const QStringList kCrops = {QString(), QStringLiteral("16:9"), QStringLiteral("4:3"),
+                            QStringLiteral("1:1"), QStringLiteral("1.85:1"), QStringLiteral("2:1"),
+                            QStringLiteral("21:9"), QStringLiteral("2.35:1"), QStringLiteral("2.39:1")};
 
 QString next(const QStringList& list, const QString& current)
 {
@@ -42,6 +48,19 @@ QString aspectName(double ratio)
         if (!name.isEmpty() && qAbs(ratioOf(name) - ratio) < 0.01)
             return name;
     return QString::number(ratio, 'f', 2);
+}
+
+// A codec as people know it ("subrip" is SRT).
+QString codecName(const QString& codec)
+{
+    static const QHash<QString, QString> names{
+        {QStringLiteral("subrip"), QStringLiteral("SRT")}, {QStringLiteral("ass"), QStringLiteral("ASS")},
+        {QStringLiteral("ssa"), QStringLiteral("SSA")}, {QStringLiteral("webvtt"), QStringLiteral("WebVTT")},
+        {QStringLiteral("hdmv_pgs_subtitle"), QStringLiteral("PGS")}, {QStringLiteral("dvd_subtitle"), QStringLiteral("VobSub")},
+        {QStringLiteral("mov_text"), QStringLiteral("Text")}, {QStringLiteral("eac3"), QStringLiteral("E-AC-3")},
+        {QStringLiteral("ac3"), QStringLiteral("AC-3")}, {QStringLiteral("truehd"), QStringLiteral("TrueHD")},
+        {QStringLiteral("opus"), QStringLiteral("Opus")}, {QStringLiteral("vorbis"), QStringLiteral("Vorbis")}};
+    return names.value(codec.toLower(), codec.toUpper());
 }
 
 } // namespace
@@ -363,8 +382,28 @@ QVariantList Session::tracksOf(Track::Type type) const
             label = tr("Track %1").arg(t.id);
         if (t.external)
             label += tr(" (file)");
+        // For the track lists: the language as words ("English"), with the
+        // track's own title when it says more ("English · SDH"), and where
+        // the track comes from underneath.
+        const QLocale locale(t.language);
+        const bool known = !t.language.isEmpty() && locale.language() != QLocale::C
+                           && t.language != QLatin1String("und");
+        const QString languageName = known ? QLocale::languageToString(locale.language()) : QString();
+        QString name = languageName;
+        if (!t.title.isEmpty() && t.title.compare(languageName, Qt::CaseInsensitive) != 0
+            && t.title.compare(t.language, Qt::CaseInsensitive) != 0)
+            name = name.isEmpty() ? t.title : name + QStringLiteral(" · ") + t.title;
+        if (name.isEmpty())
+            name = tr("Track %1").arg(t.id);
+        QStringList detail{t.external ? tr("From a file") : tr("Embedded")};
+        if (!t.codec.isEmpty())
+            detail << codecName(t.codec);
+        if (t.isDefault)
+            detail << tr("Default");
         list.append(QVariantMap{{QStringLiteral("id"), t.id},
                                 {QStringLiteral("label"), label},
+                                {QStringLiteral("name"), name},
+                                {QStringLiteral("detail"), detail.join(QStringLiteral(" · "))},
                                 {QStringLiteral("language"), t.language},
                                 {QStringLiteral("codec"), t.codec},
                                 {QStringLiteral("selected"), t.selected}});
@@ -387,6 +426,12 @@ void Session::addExternalSubtitle(const QUrl& url)
 {
     if (hasMedia() && url.isValid())
         m_target->addExternalSubtitle(url);
+}
+
+void Session::addExternalAudio(const QUrl& url)
+{
+    if (hasMedia() && url.isLocalFile())
+        m_target->addExternalAudio(url);
 }
 
 // --- Output ------------------------------------------------------------------
@@ -564,6 +609,27 @@ void Session::cycleAspectRatio()
     m_target->setAspectRatio(m_aspect);
     emit aspectRatioChanged();
 }
+
+void Session::setAspectRatio(const QString& ratio)
+{
+    if (!hasMedia() || !kAspectRatios.contains(ratio) || !require(Capability::AspectRatio, "Aspect ratio"))
+        return;
+    m_aspect = ratio;
+    m_target->setAspectRatio(m_aspect);
+    emit aspectRatioChanged();
+}
+
+void Session::setCrop(const QString& ratio)
+{
+    if (!hasMedia() || !kCrops.contains(ratio) || !require(Capability::Crop, "Crop"))
+        return;
+    m_crop = ratio;
+    m_target->setCrop(m_crop);
+    emit cropChanged();
+}
+
+QStringList Session::aspectRatios() const { return kAspectRatios; }
+QStringList Session::crops() const { return kCrops; }
 
 void Session::cycleCrop()
 {

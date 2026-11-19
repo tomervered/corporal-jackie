@@ -359,6 +359,17 @@ private slots:
         QTest::keyClick(m_window, Qt::Key_P);
         QVERIFY(m_window->property("settingsVisible").toBool());
         shot("settings");
+        QQuickItem* panel = m_window->findChild<QQuickItem*>(QStringLiteral("settingsPanel"));
+        QVERIFY(panel);
+        for (const char* group : {"Picture", "Subtitles"}) {
+            QVERIFY(QMetaObject::invokeMethod(panel, "openGroup", Q_ARG(QVariant, QString::fromLatin1(group))));
+            QTest::qWait(300);
+            shot(QStringLiteral("settings-") + QString::fromLatin1(group).toLower());
+        }
+        QQuickItem* badge = m_window->findChild<QQuickItem*>(QStringLiteral("upscalerBadgeToggle"));
+        QVERIFY(badge && badge->isVisible());
+        QQuickItem* sample = m_window->findChild<QQuickItem*>(QStringLiteral("subtitleSample"));
+        QVERIFY(sample && sample->isVisible());
         QTest::keyClick(m_window, Qt::Key_Escape);
         QVERIFY(!m_window->property("settingsVisible").toBool());
     }
@@ -440,36 +451,88 @@ private slots:
         QTest::mouseClick(m_window, Qt::LeftButton, {}, next->mapToScene(QPointF(next->width() / 2, next->height() / 2)).toPoint());
         QTRY_COMPARE(m_target.last(), QStringLiteral("chapter 1"));
         shot("player");
-        QObject* captions = m_window->findChild<QObject*>(QStringLiteral("captionsMenu"));
-        QVERIFY(captions);
-        QVERIFY(QMetaObject::invokeMethod(captions, "open"));
-        shot("player-captions");
-        QVERIFY(QMetaObject::invokeMethod(captions, "close"));
+        auto click = [this](const char* name) {
+            QQuickItem* item = m_window->findChild<QQuickItem*>(QString::fromLatin1(name));
+            QVERIFY2(item && item->isVisible(), name);
+            QTest::mouseClick(m_window, Qt::LeftButton, {}, item->mapToScene(QPointF(item->width() / 2, item->height() / 2)).toPoint());
+        };
+        auto visible = [this](const char* name) {
+            QQuickItem* item = m_window->findChild<QQuickItem*>(QString::fromLatin1(name));
+            return item && item->isVisible();
+        };
 
-        // The speaker opens the volume slider (a click keeps it open; a
-        // second click closes it). Above 100% the speaker takes the accent.
+        m_window->setProperty("controlsVisible", true);
+        QTest::qWait(250);  // the bar fades in
+        // Each button opens its panel above the bar; the same button closes
+        // it, another switches. Esc and a click on the picture close it too,
+        // without reaching the player.
+        click("trackList");
+        QTRY_VERIFY(visible("chaptersPanel"));
+        shot("player-chapters");
+        click("trackList");
+        QTRY_VERIFY(!visible("chaptersPanel"));
+
+        Track english{Track::Type::Subtitle, 3, QStringLiteral("SDH"), QStringLiteral("en"), QStringLiteral("subrip")};
+        Track audio{Track::Type::Audio, 1, QString(), QStringLiteral("en"), QStringLiteral("eac3")};
+        audio.selected = true;
+        emit m_target.tracksChanged({english, audio});
+        click("captionsButton");
+        QTRY_VERIFY(visible("tracksPanel"));
+        QTRY_VERIFY(visible("subtitleDelayValue"));
+        shot("player-tracks");
+        click("audioTab");
+        QTRY_VERIFY(visible("loadAudio"));
+        QVERIFY(!visible("subtitleDelayValue"));
+        shot("player-tracks-audio");
+
+        click("optionsButton");
+        QTRY_VERIFY(visible("settingsPopup"));
+        QVERIFY(!visible("tracksPanel"));
+        click("choice-crop");
+        QTest::qWait(50);
+        shot("player-settings");
+        session.setCrop(QStringLiteral("21:9"));
+        QCOMPARE(m_target.last(), QStringLiteral("crop 21:9"));
+        session.setCrop(QStringLiteral("5:4"));   // not offered
+        QCOMPARE(session.crop(), QStringLiteral("21:9"));
+        m_target.commands.clear();
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTRY_VERIFY(!visible("settingsPopup"));
+        QVERIFY(!m_target.sent(QStringLiteral("keydown %1").arg(int(Qt::Key_Escape))));
+        click("optionsButton");
+        QTRY_VERIFY(visible("settingsPopup"));
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, QPoint(300, 200));
+        QTRY_VERIFY(!visible("settingsPopup"));
+        QVERIFY(!m_target.sent(QStringLiteral("pause")));
+
+        // The speaker opens the volume slider on a click only (not under the
+        // pointer); a second click closes it. Above 100% it takes the accent.
         QQuickItem* speaker = m_window->findChild<QQuickItem*>(QStringLiteral("volumeButton"));
-        QQuickItem* volumePanel = m_window->findChild<QQuickItem*>(QStringLiteral("volumePanel"));
-        QVERIFY(speaker && volumePanel);
-        QVERIFY(!volumePanel->isVisible());
+        QVERIFY(speaker);
         m_window->setProperty("controlsVisible", true);
         QTest::qWait(250);  // the bar fades in
         const QPoint onSpeaker = speaker->mapToScene(QPointF(speaker->width() / 2, speaker->height() / 2)).toPoint();
+        QTest::mouseMove(m_window, onSpeaker);
+        QTest::qWait(100);
+        QVERIFY(!visible("volumePanel"));
         QTest::mouseClick(m_window, Qt::LeftButton, {}, onSpeaker);
-        QTRY_VERIFY(volumePanel->isVisible());
+        QTRY_VERIFY(visible("volumePanel"));
         session.setVolume(120);
         QCOMPARE(session.volume(), 120.0);
         QCOMPARE(speaker->property("iconName").toString(), QStringLiteral("volume3"));
         QCOMPARE(speaker->property("iconColor").value<QColor>().name(), QStringLiteral("#a0b583"));   // dark look's accent
         shot("player-volume");
         QTest::mouseClick(m_window, Qt::LeftButton, {}, onSpeaker);
-        QTRY_VERIFY(!volumePanel->isVisible());
+        QTRY_VERIFY(!visible("volumePanel"));
         session.setVolume(20);
         QCOMPARE(speaker->property("iconName").toString(), QStringLiteral("volume1"));
         QCOMPARE(speaker->property("iconColor").value<QColor>().name(), QStringLiteral("#eaeee5"));
         session.setVolume(100);
 
-        // Options › Keyboard shortcuts shows the keys in the middle; the ×,
+        // Back and Close sit at the top right.
+        QVERIFY(visible("backToPages") && visible("closeVideo"));
+
+        // Playback settings › Keyboard shortcuts shows the keys in the middle; the ×,
         // the same item again, or Esc closes them.
         QObject* bar = m_window->findChild<QObject*>(QStringLiteral("controlBar"));
         QQuickItem* sheet = m_window->findChild<QQuickItem*>(QStringLiteral("shortcutsSheet"));
@@ -567,7 +630,7 @@ private:
     // markup from a file or an add-on, and load its <img> links (src/ui/README).
     // Qt Quick Controls' own labels (button and switch labels, placeholder
     // text: QQuickMnemonicLabel, QQuickCheckLabel...) show only the app's
-    // fixed words, and are left out; Chip and PlainMenuItem replace theirs.
+    // fixed words, and are left out; Chip replaces its own.
     void allTextIsPlain()
     {
         QStringList rich;
