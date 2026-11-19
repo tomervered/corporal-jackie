@@ -456,7 +456,12 @@ jobs:
           HOMEBREW_NO_AUTO_UPDATE: "1"
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
           HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
-        run: brew install qt mpv boost openssl@3 ninja pkgconf ccache
+        run: |
+          brew install qt mpv boost openssl@3 ninja pkgconf ccache
+          # mpv's .pc file asks for keg-only libraries (libarchive) that
+          # pkg-config does not look in; without them mpv/client.h is not found.
+          extra=$(ls -d "$(brew --prefix)"/opt/*/lib/pkgconfig 2>/dev/null | tr '\n' ':')
+          echo "PKG_CONFIG_PATH=${extra}${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
 
       - uses: ./.github/actions/ccache
         with:
