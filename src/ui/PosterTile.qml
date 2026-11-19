@@ -11,14 +11,15 @@ Item {
     id: tile
     property var item: ({})
     property int attempt: 0
-    onItemChanged: { attempt = 0; retry.stop() }
+    onItemChanged: { attempt = 0; retry.stop(); art.cache = true }
     property bool current: false
     property real posterWidth: Theme.posterWidth
+    readonly property real topInset: Theme.posterGlowGutter
     property string detail: tile.item.releaseInfo || ""
     property real progress: -1          // 0-1 draws how far in, under the poster
     signal activated()
     width: posterWidth
-    height: posterWidth * 1.5 + 58
+    height: topInset + posterWidth * 1.5 + 58
     Accessible.role: Accessible.Button
     Accessible.name: tile.item.name || ""
 
@@ -26,7 +27,7 @@ Item {
     readonly property bool lit: tile.current || tileHover.hovered
     Loader {
         id: glow
-        readonly property real spread: 14
+        readonly property real spread: Theme.posterGlowSpread
         anchors { fill: art; margins: -spread }
         opacity: tile.lit ? 1 : 0
         active: !art.software && (tile.lit || opacity > 0)
@@ -41,6 +42,7 @@ Item {
     }
     RoundedArtwork {
         id: art
+        y: tile.topInset
         width: parent.width
         height: parent.width * 1.5
         color: Theme.raised

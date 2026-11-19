@@ -44,7 +44,6 @@ enum PropertyId : uint64_t {
     PropVideoCodec,
     PropWidth,
     PropHeight,
-    PropOsdHeight,
     PropOutHeight,
     PropFps,
     PropDropped,
@@ -67,12 +66,6 @@ enum PropertyId : uint64_t {
     PropHwdec,
     PropFullscreen,
 };
-
-void wakeup(void* ctx)
-{
-    // Called by mpv on one of its own threads: hop to the owner's thread.
-    QMetaObject::invokeMethod(static_cast<MpvTarget*>(ctx), "processEvents", Qt::QueuedConnection);
-}
 
 QString stringOf(const mpv_event_property* p)
 {
@@ -140,6 +133,7 @@ constexpr const char* kLavfProtocolWhitelist = "protocol_whitelist=[http,https,t
 
 // The id of the on_load hook (see MpvTarget::onLoadHook).
 constexpr uint64_t kOnLoadHook = 1;
+constexpr uint64_t kOnPreloadedHook = 2;
 
 // "16:9" or "2.39:1" or "1.85" -> width/height, or 0 if not a ratio.
 double parseRatio(const QString& text)
@@ -327,6 +321,8 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
     // Every file mpv is about to open, playlist entries included, passes
     // through onLoadHook() first.
     mpv_hook_add(m_mpv, kOnLoadHook, "on_load", 0);
+    if (mode == Mode::Video)
+        mpv_hook_add(m_mpv, kOnPreloadedHook, "on_preloaded", 0);
 
     // The exact builds in use: the macOS package takes whatever Homebrew
     // had, so the log is where a report shows which FFmpeg played a file.
@@ -357,7 +353,6 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
         {PropVideoCodec,     "video-codec",            MPV_FORMAT_STRING},
         {PropWidth,          "width",                  MPV_FORMAT_INT64},
         {PropHeight,         "height",                 MPV_FORMAT_INT64},
-        {PropOsdHeight,      "osd-height",             MPV_FORMAT_INT64},
         {PropOutHeight,      "video-out-params/h",     MPV_FORMAT_INT64},
         {PropFps,            "estimated-vf-fps",       MPV_FORMAT_DOUBLE},
         {PropDropped,        "frame-drop-count",       MPV_FORMAT_INT64},
@@ -383,7 +378,9 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
         mpv_observe_property(m_mpv, o.id, o.name, o.format);
     bindAppKeys();
 
-    mpv_set_wakeup_callback(m_mpv, wakeup, this);
+    mpv_set_wakeup_callback(m_mpv, [](void* context) {
+        static_cast<MpvTarget*>(context)->queueEventDrain();
+    }, this);
 }
 
 MpvTarget::~MpvTarget()
@@ -659,13 +656,52 @@ void MpvTarget::onLoadHook(uint64_t hookId)
     mpv_hook_continue(m_mpv, hookId);
 }
 
-void MpvTarget::markRenderReady()
+void MpvTarget::updateViewportHeight(int height)
 {
+    if (m_shownHeight != height) {
+        m_shownHeight = height;
+        if (m_fileLoaded && isVsr(m_upscaler) && m_upscaleHeight == 0)
+            m_vsrTimer->start();
+        else
+            updateUpscalerStatus();
+    }
     if (m_renderReady)
         return;
     m_renderReady = true;
     if (!m_pendingTarget.isEmpty())
         startLoad(std::exchange(m_pendingTarget, {}), m_pendingShown, m_pendingStart);
+}
+
+void MpvTarget::prepareVsrFilter()
+{
+    m_vsrTimer->stop();
+    if (!isVsr(m_upscaler))
+        return;
+    // This hook runs before mpv builds the video chain. With ambiguous or
+    // unavailable demuxer dimensions, the decoded height still sets the filter.
+    int height = 0;
+    mpv_node tracks{};
+    if (mpv_get_property(m_mpv, "track-list", MPV_FORMAT_NODE, &tracks) >= 0) {
+        if (tracks.format == MPV_FORMAT_NODE_ARRAY) {
+            int videoTracks = 0;
+            for (int i = 0; i < tracks.u.list->num; ++i) {
+                const auto& track = tracks.u.list->values[i];
+                if (nodeString(track, "type") == QLatin1String("video") && !nodeFlag(track, "image")) {
+                    ++videoTracks;
+                    height = int(nodeInt(track, "demux-h"));
+                }
+            }
+            if (videoTracks != 1)
+                height = 0;
+        }
+        mpv_free_node_contents(&tracks);
+    }
+    const QString filter = vsrFilter(m_upscaler, height, m_upscaleHeight, m_shownHeight);
+    if (filter != m_vsrFilter && mpv_set_property_string(m_mpv, "vf", filter.toUtf8().constData()) >= 0) {
+        m_vsrFilter = filter;
+        if (!filter.isEmpty())
+            qCInfo(lcTargets).noquote() << "Prepared video filter:" << filter;
+    }
 }
 
 void MpvTarget::play()  { setProperty("pause", "no"); }
@@ -966,9 +1002,18 @@ void MpvTarget::updateUpscalerStatus()
 
 // --- Events -----------------------------------------------------------------------
 
+void MpvTarget::queueEventDrain()
+{
+    if (!m_eventDrainQueued.exchange(true))
+        QMetaObject::invokeMethod(this, &MpvTarget::processEvents, Qt::QueuedConnection);
+}
+
 void MpvTarget::processEvents()
 {
-    while (m_mpv) {
+    // Clear before draining so a wake during the drain can post a follow-up.
+    m_eventDrainQueued.store(false);
+    // Leave turns for input and scene updates even if mpv keeps posting.
+    for (int handled = 0; m_mpv && handled < 32; ++handled) {
         mpv_event* event = mpv_wait_event(m_mpv, 0);
         switch (event->event_id) {
         case MPV_EVENT_NONE:
@@ -1055,8 +1100,11 @@ void MpvTarget::processEvents()
             const auto* hook = static_cast<mpv_event_hook*>(event->data);
             if (event->reply_userdata == kOnLoadHook)
                 onLoadHook(hook->id);
-            else
+            else {
+                if (event->reply_userdata == kOnPreloadedHook)
+                    prepareVsrFilter();
                 mpv_hook_continue(m_mpv, hook->id);
+            }
             break;
         }
         case MPV_EVENT_CLIENT_MESSAGE: {
@@ -1073,6 +1121,8 @@ void MpvTarget::processEvents()
             break;
         }
     }
+    if (m_mpv)
+        queueEventDrain();
 }
 
 void MpvTarget::handleProperty(uint64_t id, const mpv_event_property* p)
@@ -1156,13 +1206,6 @@ void MpvTarget::handleProperty(uint64_t id, const mpv_event_property* p)
     case PropOutHeight:
         m_outHeight = int(intOf(p));
         updateUpscalerStatus();
-        break;
-    case PropOsdHeight:
-        m_shownHeight = int(intOf(p));
-        if (isVsr(m_upscaler) && m_upscaleHeight == 0)
-            m_vsrTimer->start();
-        else
-            updateUpscalerStatus();
         break;
     case PropFps:
         m_fps = doubleOf(p);

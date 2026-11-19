@@ -88,6 +88,14 @@ public:
     {
         if (!m_ctx || !m_hasVideoOutput)
             return;
+        QOpenGLFramebufferObject* target = framebufferObject();
+        if (target->height() != m_reportedHeight && m_target) {
+            m_reportedHeight = target->height();
+            auto* player = m_target.data();
+            QMetaObject::invokeMethod(player, [player, height = m_reportedHeight] {
+                player->updateViewportHeight(height);
+            }, Qt::QueuedConnection);
+        }
         if (m_covered) {
             // Keep mpv's playback clock running while an opaque menu covers
             // the picture. Qt can draw the menu without waiting for a
@@ -110,7 +118,6 @@ public:
                 && !(frame.flags & (MPV_RENDER_FRAME_INFO_REDRAW | MPV_RENDER_FRAME_INFO_REPEAT)))
                 m_videoFramePending = true;
         }
-        QOpenGLFramebufferObject* target = framebufferObject();
 #ifdef Q_OS_MACOS
         if (m_metalFx && renderWithMetalFx(target))
             return;
@@ -214,10 +221,10 @@ private:
                                       Qt::QueuedConnection);
         }, item);
         qCInfo(lcTargets) << "mpv render context ready";
-        QMetaObject::invokeMethod(player, "markRenderReady", Qt::QueuedConnection);
     }
 
     mpv_render_context* m_ctx = nullptr;
+    int m_reportedHeight = 0;
     // Copied from the target in synchronize().
     QPointer<MpvTarget> m_target;
     QMetaObject::Connection m_swapConnection;

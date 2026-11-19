@@ -57,7 +57,7 @@ Column {
         id: rowList
         visible: posterRow.items.length > 0
         width: parent.width
-        height: posterRow.tileWidth * 1.5 + 70
+        height: posterRow.tileWidth * 1.5 + 68 + Theme.posterGlowGutter
         orientation: ListView.Horizontal
         spacing: Theme.posterGap
         clip: true
@@ -67,10 +67,9 @@ Column {
         model: posterRow.near ? rowModel : null
         highlightFollowsCurrentItem: true
         highlightMoveDuration: 120
-        // Room for the focus outline.
-        topMargin: 12
-        leftMargin: 12
-        rightMargin: 12
+        reuseItems: true
+        leftMargin: Theme.posterGlowGutter
+        rightMargin: Theme.posterGlowGutter
         ScrollBar.horizontal: ScrollBar { policy: rowList.contentWidth > rowList.width ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
         delegate: PosterTile {
             required property var entry

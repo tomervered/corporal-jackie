@@ -57,6 +57,8 @@ Flickable {
                 items: entry.items
                 loading: entry.loading
                 error: entry.error
+                near: y + height >= searchPage.contentY - searchPage.height / 2
+                      && y <= searchPage.contentY + searchPage.height * 1.5
                 onOpened: i => nav.openItem(() => browser.openRowItem(true, index, i))
                 onFocusedIn: nav.reveal(searchPage, searchRow)
             }

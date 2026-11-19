@@ -28,7 +28,6 @@ var paths = {
     arrowLeft: ["M20 12H5m6-6-6 6 6 6", false],
     close: ["M6 6l12 12M18 6 6 18", false],
     episodes: ["M6.5 4h12a2.5 2.5 0 0 1 2.5 2.5v9M4.9 7.5h10.7a2.4 2.4 0 0 1 2.4 2.4v7.2a2.4 2.4 0 0 1-2.4 2.4H4.9a2.4 2.4 0 0 1-2.4-2.4V9.9a2.4 2.4 0 0 1 2.4-2.4z", false, "m8.7 10.5 4.6 3-4.6 3z"],
-    browse: ["M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z", false],
     link: ["M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1", false],
     file: ["M6 3h8l5 5v13H6zM14 3v5h5", false],
     back: ["M15 5l-7 7 7 7", false],

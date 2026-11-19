@@ -103,6 +103,8 @@ QtObject {
     // Shapes and spacing (a 4 px grid)
     readonly property int radius: 6
     readonly property int posterRadius: 10
+    readonly property int posterGlowSpread: 14
+    readonly property int posterGlowGutter: posterGlowSpread + 2
     readonly property int controlHeight: 38
     readonly property int sideBarWidth: 184
     readonly property int posterWidth: 150

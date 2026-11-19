@@ -16,9 +16,11 @@ Rectangle {
         font.family: "monospace"
         font.pixelSize: 13
         text: {
+            if (!visible) return ""
             let lines = ["Playing on: " + session.targetName]
-            for (const key in session.stats)
-                lines.push(key + ": " + session.stats[key])
+            const metrics = session.stats
+            for (const key in metrics)
+                lines.push(key + ": " + metrics[key])
             lines.push("Speed: " + Math.round(session.speed * 100) / 100 + "×")
             if (parent.streaming) lines.push("Torrent: " + session.streamPeers + " peers, " + Format.rate(session.streamRate)
                                              + ", " + session.streamBufferedSeconds.toFixed(1) + " s buffered ahead")

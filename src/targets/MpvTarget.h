@@ -4,6 +4,7 @@
 #include <QByteArray>
 #include <QHash>
 #include <QUrl>
+#include <atomic>
 #include <cstdint>
 #include <memory>
 
@@ -39,9 +40,8 @@ public:
     // The raw handle, only for the render bridge in this layer.
     mpv_handle* handle() const { return m_mpv; }
 
-    // Called by the video surface once its render context exists. In Video
-    // mode mpv cannot open a file before that, so earlier loads wait for it.
-    Q_INVOKABLE void markRenderReady();
+    // The first framebuffer also signals that pending loads can start.
+    void updateViewportHeight(int height);
     // For the video surface, which runs MetalFX itself: what to draw.
     Upscaler upscaler() const { return m_upscaler; }
     int upscaleHeight() const { return m_upscaleHeight; }
@@ -102,13 +102,15 @@ public:
     static QString upscalerStatus(Upscaler upscaler, int videoHeight, int target, int outHeight, bool filterSet);
 
 private:
-    Q_INVOKABLE void processEvents();
+    void queueEventDrain();
+    void processEvents();
     void handleProperty(uint64_t id, const ::mpv_event_property* prop);
     void command(std::initializer_list<const char*> args, uint64_t replyId = 0);
     void setProperty(const char* name, const QByteArray& value);
     void startLoad(const QByteArray& target, const QString& shown, double startSeconds);
     void applyReferencePolicy(const QByteArray& target);
     void onLoadHook(uint64_t hookId);
+    void prepareVsrFilter();
     void addSubtitleNow(const SubtitleSource& subtitle, const char* flag);
     void addSubtitleFile(const QByteArray& path, const char* flag, const SubtitleSource& subtitle);
     void setState(PlaybackState s);
@@ -125,6 +127,7 @@ private:
     static QList<Chapter> parseChapters(const ::mpv_node* node);
 
     mpv_handle* m_mpv = nullptr;
+    std::atomic_bool m_eventDrainQueued = false;
     Mode m_mode;
     bool m_renderReady = false;
     QByteArray m_pendingTarget;
@@ -148,7 +151,7 @@ private:
     int m_upscaleHeight = 0;
     Capabilities m_vsrCaps;       // VSR (Windows) or MetalFX (macOS), found once at start
     QString m_vsrFilter;          // the vf now set, empty for none
-    int m_shownHeight = 0;        // mpv's output height (osd-height)
+    int m_shownHeight = 0;        // physical height of the video framebuffer
     int m_outHeight = 0;          // height after the video filters (video-out-params/h)
     QString m_upscalerStatus;     // the line last sent by upscalerStatusChanged
     QTimer* m_vsrTimer = nullptr; // re-sizes the filter once a resize settles
