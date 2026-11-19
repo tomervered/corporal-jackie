@@ -22,6 +22,10 @@ on:
         description: "Run on main with a tag such as v0.1.0 to publish a GitHub release from this run's Windows and macOS builds"
         required: false
         default: ""
+      bench_engines:
+        description: "With benchmarks: the streaming clients to compare, space-separated (default: jackie webtorrent webtorrent1; also torrent-stream qbittorrent stremio jackie-c6557a3)"
+        required: false
+        default: ""
       unpublish_tag:
         description: "With release_tag: turn this older release (such as v0.1.0) back into a draft once the new one is out. The draft keeps its files."
         required: false
@@ -806,7 +810,7 @@ jobs:
           # The release under test uses the patched libtorrent; the previous
           # release was measured with the distribution's.
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$CJ_LT_PREFIX" -DCJ_REQUIRE_PATCHED_LIBTORRENT=ON
-          cmake --build build --target tst_bench bench_player
+          cmake --build build --target tst_bench bench_player tst_benchdownload
           git worktree add --detach "$RUNNER_TEMP/baseline" "$BASELINE"
           git -C "$RUNNER_TEMP/baseline" apply "$GITHUB_WORKSPACE/tests/bench/baseline-counters.patch"
           cmake -S "$RUNNER_TEMP/baseline" -B "$RUNNER_TEMP/baseline/build" -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -822,6 +826,7 @@ jobs:
           CJ_BENCH_OUT: ${{ runner.temp }}/bench.jsonl
           CJ_COMPETITOR_MODULES: ${{ runner.temp }}/contenders/node_modules
           CJ_STREMIO_IMAGE: ${{ env.STREMIO_IMAGE }}
+          CJ_BENCH_ENGINES: ${{ inputs.bench_engines }}
         run: |
           disk_rows=()
           for i in 1 2 3 4 5; do disk_rows+=("run:disk $i" "run:swarm disk $i"); done
@@ -829,7 +834,7 @@ jobs:
             # Only the clients the work is measured against. The others (torrent-stream,
             # qbittorrent, stremio) and the previous release (jackie-c6557a3) are still
             # handled below: add one to this list to run it.
-            for engine in $(printf '%s\n' jackie webtorrent webtorrent1 | shuf); do
+            for engine in $(printf '%s\n' ${CJ_BENCH_ENGINES:-jackie webtorrent webtorrent1} | shuf); do
               echo "::group::$CJ_BENCH_LINK: $engine"
               case $engine in
                 jackie)
@@ -850,6 +855,28 @@ jobs:
           CJ_BENCH_LINK="40ms RTT, 0.5% loss" run_all
           sudo tc qdisc del dev lo root
           python3 tests/bench/summarize.py "$CJ_BENCH_OUT" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Whole-file downloads (tests/tst_benchdownload.cpp): both download
+      # modes against aria2, qBittorrent and WebTorrent, on
+      # loopback and on the same lossy link.
+      - name: Download benchmark
+        timeout-minutes: 90
+        env:
+          QTEST_FUNCTION_TIMEOUT: "5400000"
+          QT_QPA_PLATFORM: offscreen
+          CJ_COMPETITOR_MODULES: ${{ runner.temp }}/contenders/node_modules
+          CJ_BENCH_RUNS: "3"
+        run: |
+          set -o pipefail
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::https::Timeout=15 install -y aria2 qbittorrent-nox
+          echo "### Whole-file downloads, loopback" >> "$GITHUB_STEP_SUMMARY"
+          ./build/tests/tst_benchdownload 2>&1 | tee /tmp/dl-loopback.txt
+          sed -n '/BENCH summary/,$p' /tmp/dl-loopback.txt | grep '^BENCH' | sed 's/^BENCH /    /' >> "$GITHUB_STEP_SUMMARY"
+          sudo tc qdisc add dev lo root netem delay 20ms loss 0.5%
+          echo "### Whole-file downloads, 40ms RTT, 0.5% loss" >> "$GITHUB_STEP_SUMMARY"
+          ./build/tests/tst_benchdownload 2>&1 | tee /tmp/dl-lossy.txt
+          sudo tc qdisc del dev lo root
+          sed -n '/BENCH summary/,$p' /tmp/dl-lossy.txt | grep '^BENCH' | sed 's/^BENCH /    /' >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v7
         if: always()

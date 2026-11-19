@@ -53,6 +53,7 @@ void Engine::reload(const std::shared_ptr<Torrent>& tp)
     } catch (const std::exception&) {
     }
     atp.save_path = QFile::encodeName(t.dir).toStdString();
+    atp.userdata = &t.id;  // UploadGuard: this torrent's own sharing choice
     atp.flags &= ~(lt::torrent_flags::auto_managed | lt::torrent_flags::paused);
     // In order: see Engine::schedule.
     atp.flags |= lt::torrent_flags::sequential_download;

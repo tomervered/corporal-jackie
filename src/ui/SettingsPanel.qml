@@ -17,7 +17,7 @@ Item {
     function takeFocus() { appearanceGroup.focusHeader() }
     // Opens one group (by its title) and scrolls to it.
     function openGroup(title) {
-        for (const g of [appearanceGroup, pictureGroup, subtitlesGroup, torrentsGroup, privacyGroup, storageGroup, imagesGroup, historyGroup])
+        for (const g of [appearanceGroup, pictureGroup, subtitlesGroup, torrentsGroup, privacyGroup, storageGroup, downloadsGroup, imagesGroup, historyGroup])
             if (g.title === title) { g.expanded = true; Qt.callLater(() => flick.contentY = Math.min(g.y, Math.max(0, flick.contentHeight - flick.height))) }
     }
 
@@ -689,6 +689,31 @@ Item {
                 }
             }
 
+            // --- Downloads ---------------------------------------------------------
+            Group {
+                id: downloadsGroup
+                objectName: "downloadsGroup"
+                title: "Downloads"
+                ActionRow {
+                    title: "Download folder"
+                    detail: downloads.folder + "\nVideos you download are saved here, apart from the torrent cache."
+                    AppButton { text: "Change…"; onClicked: downloadFolderDialog.open() }
+                    AppButton {
+                        text: "Default"
+                        visible: downloads.customFolder
+                        onClicked: downloads.resetFolder()
+                    }
+                }
+                SectionLabel { section: "Advanced" }
+                Toggle {
+                    objectName: "normalTorrentsToggle"
+                    title: "Download torrents like a normal torrent program"
+                    detail: "Pieces come rarest first and go straight into the folder, which can be faster on a big swarm, and a finished download can keep sharing. Off: the start of the video comes first, so you can play it while it downloads."
+                    checked: downloads.normalTorrents
+                    onToggled: on => downloads.normalTorrents = on
+                }
+            }
+
             // --- Images ------------------------------------------------------------
             Group {
                 id: imagesGroup
@@ -851,6 +876,11 @@ Item {
             const error = preferences.importColors(selectedFile)
             importRow.result = error !== "" ? error : "Imported and added to Color Palettes."
         }
+    }
+    FolderDialog {
+        id: downloadFolderDialog
+        title: "Choose where downloads are saved"
+        onAccepted: downloads.setFolder(selectedFolder)
     }
     FolderDialog {
         id: folderDialog

@@ -3,6 +3,7 @@
 #include "AppInfo.h"
 #include "Browser.h"
 #include "Caches.h"
+#include "Downloads.h"
 #include "GraphicsCards.h"
 #include "Library.h"
 #include "LocalLibrary.h"
@@ -24,6 +25,7 @@
 #include <QJsonObject>
 #include <QQmlContext>
 #include <QSettings>
+#include <QStandardPaths>
 
 namespace cj {
 
@@ -144,6 +146,24 @@ void AppCore::start(PlaybackTarget* target, TorrentTransport& torrents, bool reg
     connect(m_preferences.get(), &Preferences::catalogAddonChoiceChanged, this, [this](bool on) { syncDefaultAddon(on); });
 
     m_caches = std::make_unique<Caches>(*m_storage, torrents, QDir(m_cacheDir).filePath(QStringLiteral("images")));
+
+    // Saved videos go to a folder of their own in Downloads unless the
+    // person picks another.
+    QString downloadsHome = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    if (downloadsHome.isEmpty())
+        downloadsHome = QDir::homePath();
+    m_downloads = std::make_unique<Downloads>(*m_storage, *m_preferences, &torrents,
+                                              QDir(downloadsHome).filePath(QStringLiteral("Corporal Jackie")));
+    m_downloads->setBrowser(m_browser.get());
+    m_downloads->setSession(session);
+    // The same network choices as the stream engine (tests: loopback only).
+    const auto network = [this, &torrents] {
+        BrokerSettings n = brokerSettings();
+        n.loopbackOnly = torrents.loopbackOnly();
+        return n;
+    };
+    m_downloads->setNetwork(network());
+    connect(m_preferences.get(), &Preferences::privacyChanged, this, [this, network] { m_downloads->setNetwork(network()); });
 }
 
 void AppCore::exposeTo(QQmlContext* context) const
@@ -154,6 +174,7 @@ void AppCore::exposeTo(QQmlContext* context) const
     context->setContextProperty(QStringLiteral("preferences"), m_preferences.get());
     context->setContextProperty(QStringLiteral("library"), m_library.get());
     context->setContextProperty(QStringLiteral("caches"), m_caches.get());
+    context->setContextProperty(QStringLiteral("downloads"), m_downloads.get());
     context->setContextProperty(QStringLiteral("graphics"), m_graphics.get());
 }
 
@@ -163,6 +184,9 @@ void AppCore::shutDown()
         m_library->saveNow();
     if (m_caches)
         m_caches->stop();
+    // Before the torrent transport's abort: the downloads' readers let go.
+    if (m_downloads)
+        m_downloads->stop();
     // mpv waits for its streams when it shuts down; a torrent still looking
     // for peers must not hold that up.
     if (m_torrents)

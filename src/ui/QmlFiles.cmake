@@ -7,7 +7,7 @@ set(CJ_QML_FILES
     CornerMask.qml PanelChoices.qml BarButton.qml EpisodesPanel.qml LinkPopup.qml Toast.qml StatsOverlay.qml ShortcutsOverlay.qml Format.js Notices.js
     # pages
     HomePage.qml SearchPage.qml DiscoverPage.qml DetailPage.qml StreamsPage.qml StreamList.qml
-    LibraryPage.qml AddonsPage.qml FoldersPage.qml
+    LibraryPage.qml AddonsPage.qml FoldersPage.qml DownloadsPage.qml
     # pieces
     Theme.qml Muted.qml Heading.qml PageTitle.qml SectionLabel.qml RowItem.qml
     PosterTile.qml PosterRow.qml NavButton.qml Chip.qml

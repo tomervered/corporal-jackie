@@ -26,6 +26,7 @@ namespace cj {
 
 class Browser;
 class Caches;
+class Downloads;
 class GraphicsCards;
 class Library;
 class LocalLibrary;
@@ -61,7 +62,7 @@ public:
     void start(PlaybackTarget* target, TorrentTransport& torrents, bool registerTorrents);
 
     // Gives QML its context properties: session, browser, preferences,
-    // library, caches and appVersion.
+    // library, caches, downloads and appVersion.
     void exposeTo(QQmlContext* context) const;
 
     // Records where playback is and stops the torrent waits; call when the
@@ -76,6 +77,7 @@ public:
     Browser& browser() const { return *m_browser; }
     Library& library() const { return *m_library; }
     Caches& caches() const { return *m_caches; }
+    Downloads& downloads() const { return *m_downloads; }
 
     // The database key that records the one-time copy of older settings.
     static constexpr auto kImportedOldSettings = "app/importedOldSettings";
@@ -103,6 +105,8 @@ private:
     std::unique_ptr<Library> m_library;
     std::unique_ptr<Caches> m_caches;
     std::unique_ptr<GraphicsCards> m_graphics;
+    // First to go: its torrent readers must let go before anything else.
+    std::unique_ptr<Downloads> m_downloads;
 };
 
 } // namespace cj

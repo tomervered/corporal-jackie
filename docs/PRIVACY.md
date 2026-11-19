@@ -44,6 +44,14 @@ Uploading is off unless the user turns it on. While it is off, the app chokes ev
 
 With uploading on, the app shares pieces with other peers while a video plays, with no upload limit (`uploadLimit = 0`). About a second after the last reader of a torrent closes, the torrent is paused: it stops uploading and drops its peers. The app does not seed after that.
 
+### Downloads
+
+A download shares pieces with other peers only if its "Share with peers" switch is on. The switch starts as the upload choice above says, so with uploading off nothing is sent unless the user turns sharing on for that one download (`UploadGuard::setSharing`; `tst_downloads normalTorrentIsSavedAndCanShare`). A streamable download shares only while it runs. A download made the normal way (Settings > Downloads > Advanced) keeps sharing after it finishes while its switch is on, until the switch goes off or the app closes; it uses a second torrent session with the same network choices.
+
+A web download sends the stream's headers only to the server its link names: a redirect to another server is refused (`tst_downloads headersNeverFollowARedirectElsewhere`).
+
+The app stores the download folder and the normal-torrent choice. The list of downloads is kept in memory for the current run only. The log says that download number N started or ended, without its name or link; a streamable torrent download goes through the stream broker, which logs the torrent's info hash as it does for playback.
+
 ## What stays on this computer
 
 The data folder is `QStandardPaths::AppDataLocation` and the cache folder `QStandardPaths::CacheLocation` (on Windows, both under `%LOCALAPPDATA%`). Settings can move the torrent cache.
@@ -57,6 +65,7 @@ The data folder is `QStandardPaths::AppDataLocation` and the cache folder `QStan
 | Torrent pieces (disk mode, default) | `torrents/` in the cache folder, or the folder chosen in Settings | The cache cap (10 GB default), oldest torrent first; Clear in Settings |
 | Torrent pieces (RAM mode) | Memory only; each torrent's file list is written to the torrent cache | Closing the torrent |
 | Exports | A file the user picks | The user deletes it |
+| Downloaded videos | The download folder (default: "Corporal Jackie" in the user's Downloads), chosen in Settings | The user deletes them. An unfinished download is deleted when it is cancelled or the app closes |
 
 ### Turning history off
 
