@@ -98,6 +98,18 @@ set_tests_properties(tst_bench PROPERTIES TIMEOUT 600 LABELS bench)
 add_test(NAME bench_mpv COMMAND tst_torrentstream magnetPlaysToTheEnd)
 set_tests_properties(bench_mpv PROPERTIES TIMEOUT 300 LABELS bench)
 
+# Download benchmark: a whole file with each download mode and with other
+# clients (aria2, Transmission, qBittorrent, WebTorrent) through
+# bench/download_competitor.cjs. Its own label, so the weekly "bench" runs
+# skip it: ctest -L download-bench -V.
+cj_add_test(tst_benchdownload TorrentHarness.h)
+target_link_libraries(tst_benchdownload PRIVATE cj_app cj_broker cj::libtorrent Qt6::Network)
+target_compile_definitions(tst_benchdownload PRIVATE CJ_BENCH_DIR="${CMAKE_CURRENT_SOURCE_DIR}/bench")
+if(WIN32)
+    target_compile_definitions(tst_benchdownload PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+endif()
+set_tests_properties(tst_benchdownload PROPERTIES TIMEOUT 3600 LABELS download-bench)
+
 # A diagnostic, not a test: Boost.Asio's Windows timers (see ci.yml).
 if(WIN32)
     add_executable(asio_timer_probe diag/asio_timer_probe.cpp)

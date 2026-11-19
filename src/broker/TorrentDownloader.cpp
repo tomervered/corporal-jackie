@@ -324,7 +324,11 @@ private:
                 s.phase = st.num_peers > 0 ? DownloadStatus::Phase::FetchingMetadata : DownloadStatus::Phase::FindingPeers;
             } else {
                 const std::shared_ptr<const lt::torrent_info> ti = h.torrent_file();
+#if LIBTORRENT_VERSION_NUM >= 20100
+                const lt::file_storage& files = ti->layout();
+#else
                 const lt::file_storage& files = ti->files();
+#endif
                 if (!chosen) {
                     if (fileIndex < 0) {
                         std::int64_t best = -1;
