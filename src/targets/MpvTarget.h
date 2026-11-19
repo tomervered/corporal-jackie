@@ -40,8 +40,9 @@ public:
     // The raw handle, only for the render bridge in this layer.
     mpv_handle* handle() const { return m_mpv; }
 
-    // The first framebuffer also signals that pending loads can start.
-    void updateViewportHeight(int height);
+    // A load can start once the renderer confirms it has a framebuffer for it.
+    uint64_t pendingRenderLoad() const { return m_pendingTarget.isEmpty() ? 0 : m_renderLoadId; }
+    void updateViewportHeight(int height, uint64_t loadId);
     // For the video surface, which runs MetalFX itself: what to draw.
     Upscaler upscaler() const { return m_upscaler; }
     int upscaleHeight() const { return m_upscaleHeight; }
@@ -101,6 +102,9 @@ public:
     // videoHeight); filterSet: a VSR filter is in place. Public for tests.
     static QString upscalerStatus(Upscaler upscaler, int videoHeight, int target, int outHeight, bool filterSet);
 
+signals:
+    void renderLoadRequested();
+
 private:
     void queueEventDrain();
     void processEvents();
@@ -129,7 +133,7 @@ private:
     mpv_handle* m_mpv = nullptr;
     std::atomic_bool m_eventDrainQueued = false;
     Mode m_mode;
-    bool m_renderReady = false;
+    uint64_t m_renderLoadId = 0;
     QByteArray m_pendingTarget;
     int m_loadsInFlight = 0;      // loadfile sent, START_FILE not yet seen
     double m_pendingStart = 0;

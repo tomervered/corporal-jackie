@@ -41,6 +41,8 @@ signals:
 
 private:
     QPointer<Session> m_session;
+    QMetaObject::Connection m_loadRequested;
+    QMetaObject::Connection m_stateChanged;
     bool m_covered = false;
 };
 

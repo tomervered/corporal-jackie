@@ -576,11 +576,12 @@ void MpvTarget::load(const PlayableSource& source, double startSeconds)
     m_pendingSubtitles = source.subtitles;
     setState(PlaybackState::Loading);
     const QString shown = logging::redactUrl(url);
-    if (m_mode == Mode::Video && !m_renderReady) {
-        qCInfo(lcTargets).noquote() << "Will open" << shown << "once video output is ready";
+    if (m_mode == Mode::Video) {
         m_pendingTarget = target;
         m_pendingShown = shown;
         m_pendingStart = startSeconds;
+        ++m_renderLoadId;
+        emit renderLoadRequested();
         return;
     }
     startLoad(target, shown, startSeconds);
@@ -656,7 +657,7 @@ void MpvTarget::onLoadHook(uint64_t hookId)
     mpv_hook_continue(m_mpv, hookId);
 }
 
-void MpvTarget::updateViewportHeight(int height)
+void MpvTarget::updateViewportHeight(int height, uint64_t loadId)
 {
     if (m_shownHeight != height) {
         m_shownHeight = height;
@@ -665,10 +666,7 @@ void MpvTarget::updateViewportHeight(int height)
         else
             updateUpscalerStatus();
     }
-    if (m_renderReady)
-        return;
-    m_renderReady = true;
-    if (!m_pendingTarget.isEmpty())
+    if (loadId != 0 && loadId == pendingRenderLoad())
         startLoad(std::exchange(m_pendingTarget, {}), m_pendingShown, m_pendingStart);
 }
 
@@ -1046,7 +1044,7 @@ void MpvTarget::processEvents()
             const auto* end = static_cast<mpv_event_end_file*>(event->data);
             if (end->reason == MPV_END_FILE_REASON_ERROR) {
                 m_fileLoaded = false;
-                if (m_loadsInFlight == 0)
+                if (m_loadsInFlight == 0 && m_pendingTarget.isEmpty())
                     setState(PlaybackState::Idle);
                 const QString message = QString::fromUtf8(mpv_error_string(end->error));
                 const PlaybackError kind = end->error == MPV_ERROR_UNKNOWN_FORMAT  ? PlaybackError::UnsupportedFile
@@ -1058,7 +1056,7 @@ void MpvTarget::processEvents()
                 // STOP also fires when a new file replaces this one; stay
                 // in Loading then instead of flashing Idle.
                 m_fileLoaded = false;
-                if (m_loadsInFlight == 0)
+                if (m_loadsInFlight == 0 && m_pendingTarget.isEmpty())
                     setState(PlaybackState::Idle);
             }
             break;

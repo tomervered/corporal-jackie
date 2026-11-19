@@ -36,12 +36,11 @@ public:
     ~MpvRenderer() override
     {
         QObject::disconnect(m_swapConnection);
-        if (m_ctx)
-            mpv_render_context_free(m_ctx);
+        releaseContext();
     }
 
     // Runs on the render thread while the GUI thread is blocked, so reading the
-    // item is safe here. The render context is created once a player is set.
+    // item is safe here. Only keep the render context while media is active.
     void synchronize(QQuickFramebufferObject* item) override
     {
         auto* video = static_cast<MpvVideoItem*>(item);
@@ -51,6 +50,7 @@ public:
         if (!m_ctx && hasVideoOutput)
             createContext(video, t);
         m_hasVideoOutput = hasVideoOutput;
+        m_pendingLoadId = t ? t->pendingRenderLoad() : 0;
         m_covered = video->covered();
         m_target = t;
         m_metalFx = t && t->upscaler() == Upscaler::MetalFx;
@@ -86,14 +86,24 @@ public:
 
     void render() override
     {
-        if (!m_ctx || !m_hasVideoOutput)
+        if (!m_hasVideoOutput) {
+            if (m_ctx) {
+                releaseContext();
+                QQuickOpenGLUtils::resetOpenGLState();
+                qCInfo(lcTargets) << "mpv render context released";
+            }
+            return;
+        }
+        if (!m_ctx)
             return;
         QOpenGLFramebufferObject* target = framebufferObject();
-        if (target->height() != m_reportedHeight && m_target) {
+        if (m_target && (target->height() != m_reportedHeight
+                         || (m_pendingLoadId != 0 && m_pendingLoadId != m_reportedLoadId))) {
             m_reportedHeight = target->height();
+            m_reportedLoadId = m_pendingLoadId;
             auto* player = m_target.data();
-            QMetaObject::invokeMethod(player, [player, height = m_reportedHeight] {
-                player->updateViewportHeight(height);
+            QMetaObject::invokeMethod(player, [player, height = m_reportedHeight, loadId = m_reportedLoadId] {
+                player->updateViewportHeight(height, loadId);
             }, Qt::QueuedConnection);
         }
         if (m_covered) {
@@ -138,6 +148,17 @@ public:
     }
 
 private:
+    void releaseContext()
+    {
+#ifdef Q_OS_MACOS
+        m_upscaler.reset();
+#endif
+        if (m_ctx)
+            mpv_render_context_free(std::exchange(m_ctx, nullptr));
+        m_reportedHeight = 0;
+        m_reportedLoadId = 0;
+    }
+
     void onFrameSwapped()
     {
         if (!std::exchange(m_videoFramePending, false))
@@ -225,6 +246,8 @@ private:
 
     mpv_render_context* m_ctx = nullptr;
     int m_reportedHeight = 0;
+    uint64_t m_pendingLoadId = 0;
+    uint64_t m_reportedLoadId = 0;
     // Copied from the target in synchronize().
     QPointer<MpvTarget> m_target;
     QMetaObject::Connection m_swapConnection;
@@ -253,7 +276,13 @@ void MpvVideoItem::setSession(Session* session)
 {
     if (session == m_session)
         return;
+    QObject::disconnect(m_loadRequested);
+    QObject::disconnect(m_stateChanged);
     m_session = session;
+    if (auto* player = target())
+        m_loadRequested = connect(player, &MpvTarget::renderLoadRequested, this, &MpvVideoItem::update);
+    if (session)
+        m_stateChanged = connect(session, &Session::stateChanged, this, &MpvVideoItem::update);
     emit sessionChanged();
     update();
 }
