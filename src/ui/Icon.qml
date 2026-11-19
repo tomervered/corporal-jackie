@@ -13,9 +13,9 @@ Item {
     property real size: 20
     implicitWidth: size
     implicitHeight: size
-    // Smooth edges on the GPU (the software renderer smooths on its own),
-    // drawn at the screen's pixel density.
-    layer.enabled: true
+    // Recent Qt draws the curves with antialiasing directly, without a
+    // multisampled framebuffer per icon. Keep the Qt 6.4 fallback.
+    layer.enabled: !shape.usesCurveRenderer && GraphicsInfo.api !== GraphicsInfo.Software
     layer.samples: 4
     layer.smooth: true
     layer.textureSize: Qt.size(Math.ceil(size * Screen.devicePixelRatio), Math.ceil(size * Screen.devicePixelRatio))
@@ -23,6 +23,9 @@ Item {
     readonly property var path: Icons.paths[name] || ["", false]
 
     Shape {
+        id: shape
+        readonly property bool usesCurveRenderer: "preferredRendererType" in shape
+        Component.onCompleted: if (usesCurveRenderer) shape.preferredRendererType = Shape.CurveRenderer
         width: 24
         height: 24
         scale: icon.size / 24

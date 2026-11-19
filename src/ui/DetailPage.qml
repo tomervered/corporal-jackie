@@ -56,15 +56,8 @@ Item {
         RoundedArtwork {
             id: detailPoster
             width: 170; height: 255
-            visible: posterImage.status === Image.Ready
-            Image {
-                id: posterImage
-                anchors.fill: parent
-                source: browser.detail.poster || ""
-                fillMode: Image.PreserveAspectCrop
-                sourceSize.width: Math.ceil(width * Screen.devicePixelRatio)
-                asynchronous: true
-            }
+            visible: status === Image.Ready
+            source: browser.detail.poster || ""
         }
         Column {
             width: parent.width - (detailPoster.visible ? detailPoster.width + 24 : 0)

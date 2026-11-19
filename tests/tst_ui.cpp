@@ -41,16 +41,18 @@ using test::FakeHttpServer;
 
 namespace {
 
-// Stands in for the mpv video item: the window only sets its session.
+// Stands in for the mpv video item.
 class FakeVideoSurface : public QQuickItem
 {
     Q_OBJECT
     Q_PROPERTY(cj::Session* playbackSession MEMBER m_session NOTIFY sessionChanged)
+    Q_PROPERTY(bool covered MEMBER m_covered)
 signals:
     void sessionChanged();
 
 private:
     Session* m_session = nullptr;
+    bool m_covered = false;
 };
 
 QByteArray manifest()
@@ -382,8 +384,9 @@ private slots:
         QVERIFY(nav && nav->isVisible());
         QVERIFY(QMetaObject::invokeMethod(nav, "clicked"));
         QCOMPARE(page(), QStringLiteral("downloads"));
-        QQuickItem* list = m_window->findChild<QQuickItem*>(QStringLiteral("downloadList"));
-        QVERIFY(list && list->isVisible());
+        const auto downloadList = [this] { return m_window->findChild<QQuickItem*>(QStringLiteral("downloadList")); };
+        QTRY_VERIFY(downloadList() && downloadList()->isVisible());
+        QQuickItem* list = downloadList();
         QCOMPARE(list->property("count").toInt(), 0);
         shot("downloads-empty");
 
@@ -404,8 +407,8 @@ private slots:
         shot("downloads-done");
         downloads.clearFinished();
         call("openSettingsAt", "Downloads");
+        QTRY_VERIFY(m_window->findChild<QQuickItem*>(QStringLiteral("downloadsGroup")));
         QQuickItem* group = m_window->findChild<QQuickItem*>(QStringLiteral("downloadsGroup"));
-        QVERIFY(group);
         QTRY_VERIFY(group->property("expanded").toBool());
         QVERIFY(m_window->findChild<QQuickItem*>(QStringLiteral("normalTorrentsToggle")));
         shot("settings-downloads");
@@ -518,6 +521,8 @@ private slots:
     void playerKeys()
     {
         Session& session = m_core->session();
+        QQuickItem* video = m_window->findChild<QQuickItem*>(QStringLiteral("videoSurface"));
+        QVERIFY(video);
         session.openPath(QStringLiteral("http://127.0.0.1:1/clip.mkv"));
         m_target.startPlaying(600);
         QTRY_VERIFY(session.hasMedia());
@@ -713,9 +718,14 @@ private slots:
         // The pages still open over the video (from the Browse button).
         m_window->setProperty("browseVisible", true);
         QVERIFY(m_pages->isVisible());
+        QVERIFY(video->property("covered").toBool());
         shot("pages-over-video");
         m_window->setProperty("browseVisible", false);
         QVERIFY(!m_pages->isVisible());
+        QVERIFY(!video->property("covered").toBool());
+        session.stop();
+        m_target.setState(PlaybackState::Idle);
+        QTRY_COMPARE(video->size(), QSizeF(1, 1));
     }
 
     // While an episode plays, the Episodes button lists the show's episodes

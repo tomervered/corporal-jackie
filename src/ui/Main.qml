@@ -170,7 +170,12 @@ Window {
     // --- Video --------------------------------------------------------------
 
     VideoSurface {
-        anchors.fill: parent
+        objectName: "videoSurface"
+        // Keep the render bridge alive after playback, but release the
+        // window-sized framebuffer while browsing with no video loaded.
+        width: session.loading || session.hasMedia ? root.width : 1
+        height: session.loading || session.hasMedia ? root.height : 1
+        covered: root.pagesVisible
         playbackSession: session  // not "session:", which would bind to itself
     }
 

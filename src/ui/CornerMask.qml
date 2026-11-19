@@ -9,9 +9,11 @@ Shape {
     id: mask
     property real radius: 10
     property color color: Theme.canvas
-    // Smooth edges, drawn at the screen's real pixel density (at 1× they
-    // came out jagged on a scaled display).
-    layer.enabled: true
+    readonly property bool usesCurveRenderer: "preferredRendererType" in mask
+    Component.onCompleted: if (usesCurveRenderer) mask.preferredRendererType = Shape.CurveRenderer
+    // Qt 6.4 uses multisampling on the GPU. Recent Qt can draw the corners
+    // directly, avoiding a full-card texture even on the large home header.
+    layer.enabled: !usesCurveRenderer && GraphicsInfo.api !== GraphicsInfo.Software
     layer.samples: 4
     layer.smooth: true
     layer.textureSize: Qt.size(Math.ceil(width * Screen.devicePixelRatio), Math.ceil(height * Screen.devicePixelRatio))

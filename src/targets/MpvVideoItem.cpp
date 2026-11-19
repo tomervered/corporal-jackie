@@ -45,9 +45,13 @@ public:
     void synchronize(QQuickFramebufferObject* item) override
     {
         auto* video = static_cast<MpvVideoItem*>(item);
-        if (!m_ctx && video->target())
-            createContext(video, video->target());
         MpvTarget* t = video->target();
+        const auto* session = video->session();
+        const bool hasVideoOutput = t && session && (session->hasMedia() || session->loading());
+        if (!m_ctx && hasVideoOutput)
+            createContext(video, t);
+        m_hasVideoOutput = hasVideoOutput;
+        m_covered = video->covered();
         m_target = t;
         m_metalFx = t && t->upscaler() == Upscaler::MetalFx;
         m_upscaleHeight = t ? t->upscaleHeight() : 0;
@@ -58,8 +62,7 @@ public:
             m_swapConnection = QObject::connect(window, &QQuickWindow::frameSwapped, window,
                                                 [this] { onFrameSwapped(); }, Qt::DirectConnection);
         }
-        const auto* session = video->session();
-        const bool playing = t && window && window->isExposed() && session
+        const bool playing = t && window && window->isExposed() && !m_covered && session
             && session->state() == PlaybackState::Playing && !session->buffering();
         const double fps = playing ? t->videoFps() * session->speed() : 0;
         // Leave room for the ordinary cadence of video and display refresh
@@ -83,8 +86,22 @@ public:
 
     void render() override
     {
-        if (!m_ctx)
+        if (!m_ctx || !m_hasVideoOutput)
             return;
+        if (m_covered) {
+            // Keep mpv's playback clock running while an opaque menu covers
+            // the picture. Qt can draw the menu without waiting for a
+            // presentation time we won't use.
+            int skip = 1;
+            int waitForTarget = 0;
+            mpv_render_param params[] = {
+                {MPV_RENDER_PARAM_SKIP_RENDERING, &skip},
+                {MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME, &waitForTarget},
+                {MPV_RENDER_PARAM_INVALID, nullptr},
+            };
+            mpv_render_context_render(m_ctx, params);
+            return;
+        }
         if (m_gapThreshold > 0) {
             mpv_render_frame_info frame{};
             mpv_render_context_get_info(m_ctx, {MPV_RENDER_PARAM_NEXT_FRAME_INFO, &frame});
@@ -208,6 +225,8 @@ private:
     uint64_t m_presentationEpoch = 0;
     double m_gapThreshold = 0;
     bool m_videoFramePending = false;
+    bool m_hasVideoOutput = false;
+    bool m_covered = false;
     bool m_metalFx = false;
     int m_upscaleHeight = 0;
     QSize m_videoSize;
@@ -229,6 +248,15 @@ void MpvVideoItem::setSession(Session* session)
         return;
     m_session = session;
     emit sessionChanged();
+    update();
+}
+
+void MpvVideoItem::setCovered(bool covered)
+{
+    if (m_covered == covered)
+        return;
+    m_covered = covered;
+    emit coveredChanged();
     update();
 }
 

@@ -22,34 +22,21 @@ Item {
     Accessible.role: Accessible.Button
     Accessible.name: tile.item.name || ""
 
-    // The chosen tile (keyboard or pointer) glows: soft accent light around
-    // the poster (a blurred shadow drawn once by a Canvas, which works on
-    // every Qt version) and a thin outline on its edge.
+    // The chosen tile (keyboard or pointer) gets a soft glow and an outline.
     readonly property bool lit: tile.current || tileHover.hovered
-    Canvas {
+    Loader {
         id: glow
         readonly property real spread: 14
         anchors { fill: art; margins: -spread }
         opacity: tile.lit ? 1 : 0
-        visible: opacity > 0
+        active: !art.software && (tile.lit || opacity > 0)
         Behavior on opacity { NumberAnimation { duration: 140 } }
-        onVisibleChanged: if (visible) requestPaint()
-        onWidthChanged: if (visible) requestPaint()
-        onHeightChanged: if (visible) requestPaint()
-        Connections { target: Theme; enabled: glow.visible; function onAccentChanged() { glow.requestPaint() } }
-        onPaint: {
-            const ctx = getContext("2d")
-            ctx.reset()
-            const r = art.radius, x = spread, y = spread, w = width - 2 * spread, h = height - 2 * spread
-            const shape = () => { ctx.beginPath(); ctx.roundedRect(x, y, w, h, r, r); ctx.closePath() }
-            ctx.shadowColor = Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.55)
-            ctx.shadowBlur = 10
-            ctx.fillStyle = Theme.accent
-            shape(); ctx.fill()
-            // Only the light outside the poster stays.
-            ctx.shadowColor = "transparent"
-            ctx.globalCompositeOperation = "destination-out"
-            shape(); ctx.fill()
+        sourceComponent: ShaderEffect {
+            property size artSize: Qt.size(art.width, art.height)
+            property real cornerRadius: art.radius
+            property real spread: glow.spread
+            property color accent: Theme.accent
+            fragmentShader: "shaders/poster-glow.frag.qsb"
         }
     }
     RoundedArtwork {
@@ -58,10 +45,15 @@ Item {
         height: parent.width * 1.5
         color: Theme.raised
         backdrop: Theme.canvas
+        source: tile.item.poster || ""
+        progress: tile.progress
+        highlight: tileHover.hovered ? 0.08 : 0
+        Behavior on highlight { NumberAnimation { duration: 120 } }
+        onStatusChanged: if (status === Image.Error && tile.attempt < 4) retry.start()
         Text {
             textFormat: Text.PlainText
             anchors { fill: parent; margins: 12 }
-            visible: poster.status !== Image.Ready
+            visible: art.status !== Image.Ready
             text: tile.item.name || ""
             color: Theme.text
             font.pixelSize: Theme.bodySize
@@ -70,32 +62,6 @@ Item {
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
-        }
-        Image {
-            id: poster
-            anchors.fill: parent
-            source: tile.item.poster || ""
-            fillMode: Image.PreserveAspectCrop
-            // Decoded at the size it is drawn: Qt keeps every shown poster in
-            // memory at this size (twice the tile was 4 times the bytes at 100 %).
-            sourceSize.width: Math.ceil(tile.posterWidth * Screen.devicePixelRatio)
-            asynchronous: true
-            onStatusChanged: if (status === Image.Error && tile.attempt < 4) retry.start()
-        }
-        Rectangle {
-            anchors.fill: parent
-            radius: art.radius
-            color: "white"
-            opacity: tileHover.hovered ? 0.08 : 0
-            Behavior on opacity { NumberAnimation { duration: 120 } }
-        }
-        // How far in
-        Rectangle {
-            visible: tile.progress > 0
-            anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-            height: 4
-            color: "#a0000000"
-            Rectangle { width: parent.width * Math.min(1, tile.progress); height: parent.height; color: Theme.accent }
         }
         // The outline shows focus or hover on the same rounded edge.
         Rectangle {
@@ -114,9 +80,9 @@ Item {
             onTriggered: {
                 tile.attempt++
                 // Not from Qt's image cache, which may keep the failure.
-                poster.cache = false
-                poster.source = ""
-                poster.source = Qt.binding(() => tile.item.poster || "")
+                art.cache = false
+                art.source = ""
+                art.source = Qt.binding(() => tile.item.poster || "")
             }
         }
         HoverHandler { id: tileHover; cursorShape: Qt.PointingHandCursor }
