@@ -49,8 +49,12 @@ function request(url, options = {}) {
         req.end();
     });
 }
-const form = fields => ({ method: 'POST', body: new URLSearchParams(fields).toString(),
-                          headers: { 'content-type': 'application/x-www-form-urlencoded' } });
+// With a length: qBittorrent's server does not read chunked bodies.
+const form = fields => {
+    const body = new URLSearchParams(fields).toString();
+    return { method: 'POST', body, headers: { 'content-type': 'application/x-www-form-urlencoded',
+                                              'content-length': Buffer.byteLength(body) } };
+};
 
 async function aria2() {
     const started = performance.now();
@@ -77,8 +81,9 @@ async function transmission() {
     const script = path.join(folder, '..', 'transmission-done.sh');
     fs.writeFileSync(script, `#!/bin/sh\ntouch '${done}'\n`, { mode: 0o755 });
     const started = performance.now();
+    const out = fs.openSync(path.join(folder, '..', 'transmission.log'), 'w');
     const p = spawn('transmission-cli', ['-g', config, '-w', folder, '-f', script, '-M', '-et', '-D', magnet],
-                    { stdio: ['ignore', 'ignore', 'ignore'] });
+                    { stdio: ['ignore', out, out] });
     cleanups.push(() => p.kill('SIGKILL'));
     while (!fs.existsSync(done)) {
         if (p.exitCode !== null) throw new Error(`transmission-cli exited with ${p.exitCode}`);
@@ -101,7 +106,7 @@ async function qbittorrent() {
         'Session\\DHTEnabled=false', 'Session\\LSDEnabled=false', 'Session\\PeXEnabled=false',
         'Session\\BTProtocol=TCP', 'Session\\QueueingSystemEnabled=false', 'Session\\AddTrackersEnabled=false',
         `Session\\DefaultSavePath=${folder}`, 'Session\\TempPathEnabled=false', `Session\\Port=${listenPort}`,
-        'Session\\RefreshInterval=50',
+        'Session\\RefreshInterval=50', 'Session\\MultiConnectionsPerIp=true',
         '', '[Network]', 'PortForwardingEnabled=false', '',
         '[Preferences]', `WebUI\\Port=${webPort}`, 'WebUI\\LocalHostAuth=false', 'WebUI\\HostHeaderValidation=false',
         'WebUI\\CSRFProtection=false', 'Connection\\UPnP=false', 'General\\Locale=en', '',
@@ -117,7 +122,8 @@ async function qbittorrent() {
     }
     const started = performance.now();
     const added = await request(`${api}/torrents/add`, form({ urls: magnet, savepath: folder }));
-    if (added.status !== 200) throw new Error(`qBittorrent refused the torrent: ${added.status}`);
+    if (added.status !== 200 || added.body.toString().trim() !== 'Ok.')
+        throw new Error(`qBittorrent refused the torrent: ${added.status} ${added.body}`);
     for (;;) {
         const r = await request(`${api}/torrents/info?hashes=${infoHash}`).catch(() => null);
         const list = r && r.status === 200 ? JSON.parse(r.body.toString()) : [];

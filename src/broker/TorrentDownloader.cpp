@@ -223,6 +223,11 @@ private:
         // Unchoke slots are always there; the guard lets only the downloads
         // the person shares send anything.
         UploadGuard::apply(pack, true);
+        // Until the file list comes and the chosen file is turned on, every
+        // file is off, so libtorrent calls the torrent finished and by
+        // default drops its connections to seeders. The next announce, a
+        // minute later, found them again: a 7 s download took 68 s.
+        pack.set_bool(lt::settings_pack::close_redundant_connections, false);
         pack.set_bool(lt::settings_pack::allow_multiple_connections_per_ip, true);
         pack.set_bool(lt::settings_pack::announce_to_all_tiers, true);
         pack.set_bool(lt::settings_pack::announce_to_all_trackers, true);
@@ -280,6 +285,11 @@ private:
             for (auto& [id, item] : m_items)
                 if (item->inSession)
                     items.push_back(item);
+            // Nothing reads the alerts (errors only); drop them so the queue
+            // does not grow.
+            std::vector<lt::alert*> alerts;
+            if (m_session)
+                m_session->pop_alerts(&alerts);
             lock.unlock();
             for (auto& item : items)
                 poll(item);

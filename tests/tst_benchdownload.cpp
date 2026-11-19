@@ -60,12 +60,23 @@ public:
         connect(&m_server, &QTcpServer::newConnection, this, [this] {
             while (QTcpSocket* s = m_server.nextPendingConnection()) {
                 connect(s, &QTcpSocket::readyRead, s, [this, s] {
-                    if (!s->peek(4096).contains("\r\n\r\n"))
+                    const QByteArray head = s->peek(4096);
+                    if (!head.contains("\r\n\r\n"))
                         return;
-                    QByteArray peers;
-                    for (int port : ports)
-                        peers += "d2:ip9:127.0.0.14:porti" + QByteArray::number(port) + "ee";
-                    const QByteArray body = "d8:intervali30e12:min intervali5e5:peersl" + peers + "ee";
+                    ++announces;
+                    // Compact (6 bytes a peer) when asked; some clients take only that.
+                    QByteArray body;
+                    if (head.contains("compact=1")) {
+                        QByteArray peers;
+                        for (int port : ports)
+                            peers += QByteArray("\x7f\x00\x00\x01", 4) + char((port >> 8) & 0xff) + char(port & 0xff);
+                        body = "d8:intervali30e12:min intervali5e5:peers" + QByteArray::number(peers.size()) + ":" + peers + "e";
+                    } else {
+                        QByteArray peers;
+                        for (int port : ports)
+                            peers += "d2:ip9:127.0.0.14:porti" + QByteArray::number(port) + "ee";
+                        body = "d8:intervali30e12:min intervali5e5:peersl" + peers + "ee";
+                    }
                     s->write("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " + QByteArray::number(body.size())
                              + "\r\nConnection: close\r\n\r\n" + body);
                     s->disconnectFromHost();
@@ -76,6 +87,7 @@ public:
     }
     QString url() const { return QStringLiteral("http://127.0.0.1:%1/announce").arg(m_server.serverPort()); }
     std::vector<int> ports;
+    int announces = 0;
 
 private:
     QTcpServer m_server;
@@ -153,6 +165,11 @@ class TestBenchDownload : public QObject
         QProcess p;
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
         env.insert(QStringLiteral("CJ_COMPETITOR"), client);
+        // The tracker is on this computer: no proxy (libcurl in Transmission
+        // would send the announce to one).
+        for (const char* name : {"http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "all_proxy", "ALL_PROXY"})
+            env.remove(QString::fromLatin1(name));
+        env.insert(QStringLiteral("NO_PROXY"), QStringLiteral("127.0.0.1,localhost"));
         p.setProcessEnvironment(env);
         p.start(QStringLiteral("node"), {QStringLiteral(CJ_BENCH_DIR "/download_competitor.cjs"), magnet,
                                          QDir(root).filePath(QStringLiteral("out"))});
@@ -175,7 +192,10 @@ class TestBenchDownload : public QObject
 private slots:
     void downloads()
     {
-        QStringList clients{"jackie-stream", "jackie-normal", "aria2", "transmission", "qbittorrent", "webtorrent"};
+        // Transmission (4.0.5) is left out unless asked for: it gets the
+        // seeders from the tracker but never dials them on this computer, so
+        // it times out every run.
+        QStringList clients{"jackie-stream", "jackie-normal", "aria2", "qbittorrent", "webtorrent"};
         if (qEnvironmentVariableIsSet("CJ_BENCH_CLIENTS"))
             clients = qEnvironmentVariable("CJ_BENCH_CLIENTS").split(QLatin1Char(','), Qt::SkipEmptyParts);
         const std::map<QString, QString> programs{{"aria2", "aria2c"}, {"transmission", "transmission-cli"},
