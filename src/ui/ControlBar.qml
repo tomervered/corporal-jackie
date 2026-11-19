@@ -568,27 +568,6 @@ Item {
             onPicked: v => session.speed = v
         }
         Choices {
-            key: "upscaler"
-            open: controlBar.openChoice === "upscaler"
-            onToggled: controlBar.openChoice = open ? "" : key
-            label: "Upscaling"
-            visible: session.upscalers.length > 1
-            options: session.upscalers.map(name => [name, Format.upscalerLabel(name)])
-            current: session.upscaler
-            onPicked: v => session.upscaler = v
-        }
-        Choices {
-            key: "upscaleTo"
-            open: controlBar.openChoice === "upscaleTo"
-            onToggled: controlBar.openChoice = open ? "" : key
-            label: "Upscale to"
-            visible: session.upscalers.length > 1
-            enabled: session.upscaler !== "off"
-            options: Format.upscaleTargets
-            current: session.upscaleHeight
-            onPicked: v => session.upscaleHeight = v
-        }
-        Choices {
             key: "aspect"
             open: controlBar.openChoice === "aspect"
             onToggled: controlBar.openChoice = open ? "" : key
@@ -609,20 +588,28 @@ Item {
             current: session.crop
             onPicked: v => session.setCrop(v)
         }
+        Choices {
+            key: "upscaler"
+            open: controlBar.openChoice === "upscaler"
+            onToggled: controlBar.openChoice = open ? "" : key
+            label: "Upscaling"
+            visible: session.upscalers.length > 1
+            options: session.upscalers.map(name => [name, Format.upscalerLabel(name)])
+            current: session.upscaler
+            onPicked: v => session.upscaler = v
+        }
+        Choices {
+            key: "upscaleTo"
+            open: controlBar.openChoice === "upscaleTo"
+            onToggled: controlBar.openChoice = open ? "" : key
+            label: "Upscale to"
+            visible: session.upscalers.length > 1
+            enabled: session.upscaler !== "off"
+            options: Format.upscaleTargets
+            current: session.upscaleHeight
+            onPicked: v => session.upscaleHeight = v
+        }
         Rectangle { width: parent.width; height: 1; color: Theme.divider }
-        PanelRow {
-            objectName: "shortcutsItem"
-            label: "Keyboard shortcuts"
-            selected: controlBar.shortcutsShown
-            onClicked: controlBar.shortcutsRequested()
-        }
-        PanelRow {
-            objectName: "diagnosticsItem"
-            label: "Playback diagnostics"
-            value: "I"
-            selected: controlBar.statsShown
-            onClicked: controlBar.statsRequested()
-        }
         PanelRow {
             label: "Reset picture"
             enabled: session.supports("AspectRatio") || session.supports("VideoEqualizer")
@@ -633,10 +620,23 @@ Item {
             }
         }
         PanelRow {
+            objectName: "diagnosticsItem"
+            label: "Playback diagnostics"
+            value: "I"
+            selected: controlBar.statsShown
+            onClicked: controlBar.statsRequested()
+        }
+        PanelRow {
             label: "Take screenshot"
             value: "S"
             enabled: session.supports("Screenshot")
             onClicked: session.screenshot()
+        }
+        PanelRow {
+            objectName: "shortcutsItem"
+            label: "Keyboard shortcuts"
+            selected: controlBar.shortcutsShown
+            onClicked: controlBar.shortcutsRequested()
         }
         PanelRow {
             label: "All settings"

@@ -86,6 +86,10 @@ public:
     void setColorMode(const QString& mode);
     QVariantMap colorEdits() const { return m_colorEdits; }
     void setColorEdits(const QVariantMap& edits);
+    // The four colours (accent, canvas, panel, text) to a small JSON file,
+    // and back: an import becomes the Custom mode. "" or what went wrong.
+    Q_INVOKABLE QString exportColors(const QUrl& file, const QVariantMap& colors) const;
+    Q_INVOKABLE QString importColors(const QUrl& file);
 
     void setTorrentsInMemory(bool on);
     void setMemoryCapMB(int mb);

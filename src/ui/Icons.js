@@ -25,7 +25,8 @@ var paths = {
     windowed: ["M8 3v5H3m13-5v5h5m0 8h-5v5M3 16h5v5", false],
     arrowLeft: ["M20 12H5m6-6-6 6 6 6", false],
     close: ["M6 6l12 12M18 6 6 18", false],
-    episodes: ["M3 5h18v11H3zM8 20h8M12 16v4", false],
+    // Three cards, stacked: the episodes of a season.
+    episodes: ["M4 12h10a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2zM6 8h10a2 2 0 0 1 2 2v7M9 4h10a2 2 0 0 1 2 2v7", false],
     browse: ["M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z", false],
     link: ["M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1", false],
     file: ["M6 3h8l5 5v13H6zM14 3v5h5", false],

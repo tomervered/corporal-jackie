@@ -29,6 +29,7 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QTemporaryDir>
+#include <QPainter>
 #include <QTest>
 
 #include <memory>
@@ -313,11 +314,29 @@ private slots:
         e.duration = 6000;
         e.updatedAt = QDateTime::currentMSecsSinceEpoch();
         e.source = PlayableSource::fromUrl(QUrl(QStringLiteral("http://127.0.0.1:1/first.mkv")), QStringLiteral("First Film"));
+        // A poster with no wide art: Home blurs it behind the whole poster.
+        QImage art(200, 300, QImage::Format_RGB32);
+        {
+            QPainter paint(&art);
+            QLinearGradient g(0, 0, 200, 300);
+            g.setColorAt(0, QColor(QStringLiteral("#d9822b")));
+            g.setColorAt(1, QColor(QStringLiteral("#2b4f8a")));
+            paint.fillRect(art.rect(), g);
+            paint.setBrush(QColor(QStringLiteral("#f2e6c9")));
+            paint.drawEllipse(QPoint(100, 120), 50, 50);
+        }
+        const QString posterFile = m_root.filePath(QStringLiteral("poster.png"));
+        QVERIFY(art.save(posterFile));
+        e.poster = QUrl::fromLocalFile(posterFile).toString();
         m_core->storage().record(e);
         QTRY_COMPARE(m_core->library().continueWatching().size(), 1);
         call("goTop", "library");
         shot("library");
         call("goTop", "home");
+        QQuickItem* heroPoster = m_window->findChild<QQuickItem*>(QStringLiteral("heroPoster"));
+        QVERIFY(heroPoster);
+        QTRY_COMPARE(heroPoster->property("status").toInt(), 1);   // Image.Ready
+        QVERIFY(m_window->findChild<QQuickItem*>(QStringLiteral("heroBlur"))->isVisible());
         shot("home-continue");
     }
 
@@ -359,6 +378,22 @@ private slots:
         QTest::keyClick(m_window, Qt::Key_P);
         QVERIFY(m_window->property("settingsVisible").toBool());
         shot("settings");
+        // A ready-made palette switches to Custom.
+        // (Repeater delegates are not QObject children: walk the items.)
+        QQuickItem* plum = nullptr;
+        QList<QQuickItem*> todo{m_window->contentItem()};
+        while (!todo.isEmpty() && !plum) {
+            QQuickItem* i = todo.takeLast();
+            if (i->objectName() == QLatin1String("palette-Plum"))
+                plum = i;
+            todo += i->childItems();
+        }
+        QVERIFY(plum);
+        QVERIFY(QMetaObject::invokeMethod(plum, "clicked"));
+        QCOMPARE(m_core->preferences().colorMode(), QStringLiteral("custom"));
+        QTest::qWait(200);
+        shot("settings-custom");
+        m_core->preferences().setColorMode(QStringLiteral("dark"));
         QQuickItem* panel = m_window->findChild<QQuickItem*>(QStringLiteral("settingsPanel"));
         QVERIFY(panel);
         for (const char* group : {"Picture", "Subtitles"}) {
@@ -600,6 +635,17 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(m_window, "toggleEpisodes"));
         QTRY_VERIFY(panel->isVisible());
         shot("episodes");
+        // One panel at a time: a bar panel closes the episodes list, and the
+        // list sits under Back and Close.
+        QQuickItem* bar = m_window->findChild<QQuickItem*>(QStringLiteral("controlBar"));
+        QQuickItem* corner = m_window->findChild<QQuickItem*>(QStringLiteral("playerCorner"));
+        QVERIFY(bar && corner);
+        QVERIFY(panel->mapToScene(QPointF(0, 0)).y() >= corner->mapToScene(QPointF(0, corner->height())).y());
+        QVERIFY(QMetaObject::invokeMethod(bar, "togglePanel", Q_ARG(QVariant, QStringLiteral("settings"))));
+        QTRY_VERIFY(!panel->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(m_window, "toggleEpisodes"));
+        QTRY_VERIFY(panel->isVisible());
+        QCOMPARE(bar->property("openPanel").toString(), QString());
 
         QVERIFY(QMetaObject::invokeMethod(panel, "pick", Q_ARG(QVariant, 1)));
         QTRY_COMPARE(browser.streamsTitle(), QStringLiteral("A Show 1x02"));

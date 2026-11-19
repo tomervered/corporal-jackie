@@ -105,7 +105,7 @@ Window {
 
     function toggleEpisodes() {
         root.episodesVisible = !root.episodesVisible && browser.playingEpisodes.length > 0
-        if (root.episodesVisible) root.browseVisible = false
+        if (root.episodesVisible) { root.browseVisible = false; controlBar.closePanel() }
         else inputLayer.forceActiveFocus()
     }
 
@@ -302,6 +302,8 @@ Window {
         objectName: "episodesPanel"
         visible: root.episodesVisible && !root.pagesVisible && session.hasMedia
         anchors { top: parent.top; bottom: parent.bottom; right: parent.right; margins: 16 }
+        // Under Back and Close, so they never cover its own ×.
+        anchors.topMargin: corner.y + corner.height + 10
         // Above the control bar, which stays usable while it is open.
         anchors.bottomMargin: 72
         width: Math.min(440, parent.width - 32)
@@ -468,6 +470,8 @@ Window {
         onShortcutsRequested: root.helpVisible = !root.helpVisible
         onFullScreenRequested: root.toggleFullscreen()
         onEpisodesRequested: root.toggleEpisodes()
+        // One panel at a time: a bar panel closes the episodes list.
+        onOpenPanelChanged: if (openPanel !== "") root.episodesVisible = false
     }
 
     // --- First run: what may be contacted -----------------------------------

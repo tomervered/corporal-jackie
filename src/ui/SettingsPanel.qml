@@ -51,6 +51,12 @@ Item {
         edits[Theme.mode] = own
         preferences.colorEdits = edits
     }
+    function usePalette(colors) {
+        const edits = JSON.parse(JSON.stringify(preferences.colorEdits || {}))
+        edits.custom = { accent: colors.accent, canvas: colors.canvas, panel: colors.panel, text: colors.text }
+        preferences.colorEdits = edits
+        preferences.colorMode = "custom"
+    }
     function resetColors() {
         const edits = JSON.parse(JSON.stringify(preferences.colorEdits || {}))
         delete edits[Theme.mode]
@@ -77,20 +83,26 @@ Item {
         property string detail
         property bool enabledHere: true
         default property alias control: controlSlot.data
+        // A wide control (the palette) on a narrow page goes under the words,
+        // so they are not squeezed into a column of single words.
+        readonly property bool stacked: controlSlot.width > width * 0.5
         width: parent ? parent.width : 400
-        height: Math.max(controlSlot.childrenRect.height, texts.implicitHeight) + 20
+        height: stacked ? texts.implicitHeight + 10 + controlSlot.height + 20
+                        : Math.max(controlSlot.childrenRect.height, texts.implicitHeight) + 20
         opacity: enabledHere ? 1 : 0.5
         Rectangle { width: parent.width; height: 1; color: Theme.divider }
         Column {
             id: texts
-            anchors { left: parent.left; right: controlSlot.left; rightMargin: 22; verticalCenter: parent.verticalCenter }
+            anchors { left: parent.left; right: row.stacked ? parent.right : controlSlot.left; rightMargin: row.stacked ? 0 : 22 }
+            y: row.stacked ? 10 : (row.height - implicitHeight) / 2
             spacing: 3
             Text { textFormat: Text.PlainText; width: parent.width; text: row.title; color: Theme.text; font.pixelSize: Theme.bodySize - 1; wrapMode: Text.WordWrap }
             Text { textFormat: Text.PlainText; width: parent.width; text: row.detail; color: Theme.muted; font.pixelSize: Theme.smallSize; wrapMode: Text.WordWrap; lineHeight: 1.1; visible: text !== "" }
         }
         Item {
             id: controlSlot
-            anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+            x: row.stacked ? 0 : row.width - width
+            y: row.stacked ? texts.y + texts.implicitHeight + 10 : (row.height - height) / 2
             width: childrenRect.width
             height: childrenRect.height
         }
@@ -205,8 +217,8 @@ Item {
                 Choice {
                     objectName: "colorMode"
                     title: "Color mode"
-                    detail: "Olive dark is the default. OLED black turns the background and panels pure black. Bright is a light look for a sunny room."
-                    options: [["dark", "Olive dark"], ["oled", "OLED black"], ["bright", "Bright"]]
+                    detail: "Olive dark is the default. OLED black turns the background and panels pure black. Bright is a light look for a sunny room. Custom is your own palette, which you can save to a file and load again."
+                    options: [["dark", "Olive dark"], ["oled", "OLED black"], ["bright", "Bright"], ["custom", "Custom"]]
                     value: preferences.colorMode
                     onPicked: v => preferences.colorMode = v
                 }
@@ -259,6 +271,65 @@ Item {
                                 }
                             }
                         }
+                    }
+                }
+                SettingRow {
+                    title: "Ready-made palettes"
+                    detail: "Picking one switches to Custom and starts it from these colors."
+                    Flow {
+                        width: 400
+                        spacing: 8
+                        Repeater {
+                            model: Theme.palettes
+                            AbstractButton {
+                                id: paletteButton
+                                required property var modelData
+                                objectName: "palette-" + modelData[0]
+                                width: 92; height: 58
+                                Accessible.name: modelData[0] + " palette"
+                                onClicked: panel.usePalette(modelData[1])
+                                background: Rectangle {
+                                    radius: 7
+                                    color: paletteButton.modelData[1].canvas
+                                    border.width: paletteButton.visualFocus || paletteButton.hovered ? 2 : 1
+                                    border.color: paletteButton.visualFocus || paletteButton.hovered ? Theme.accent : Theme.line
+                                    Rectangle {
+                                        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 6 }
+                                        height: 22
+                                        radius: 4
+                                        color: paletteButton.modelData[1].panel
+                                        Rectangle {
+                                            anchors { left: parent.left; leftMargin: 6; verticalCenter: parent.verticalCenter }
+                                            width: 26; height: 8; radius: 4
+                                            color: paletteButton.modelData[1].accent
+                                        }
+                                    }
+                                    Text {
+                                        textFormat: Text.PlainText
+                                        anchors { left: parent.left; leftMargin: 8; bottom: parent.bottom; bottomMargin: 6 }
+                                        text: paletteButton.modelData[0]
+                                        color: paletteButton.modelData[1].text
+                                        font.pixelSize: 12
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                ActionRow {
+                    title: "Colors file"
+                    detail: colorsResult !== "" ? colorsResult : "Save the four colors of this mode to a file, or load a file someone shared (it becomes Custom)."
+                    property string colorsResult: ""
+                    id: colorsFileRow
+                    AppButton {
+                        objectName: "exportColors"
+                        text: "Export…"
+                        onClicked: colorsExportDialog.open()
+                    }
+                    AppButton {
+                        objectName: "importColors"
+                        text: "Import…"
+                        onClicked: colorsImportDialog.open()
                     }
                 }
                 ActionRow {
@@ -330,25 +401,24 @@ Item {
                 id: subtitlesGroup
                 title: "Subtitles"
                 // A sample line, drawn the way the player will draw it, over a
-                // frame of A Trip to the Moon (Georges Méliès, 1902, public
+                // drawing from Gertie the Dinosaur (Winsor McCay, 1914, public
                 // domain; images/README.md).
                 Item { width: 1; height: 12 }
                 Rectangle {
                     objectName: "subtitleSample"
                     width: Math.min(parent.width, 560)
-                    height: 190
+                    height: Math.round(width / 2)
                     radius: 6
-                    clip: true
-                    color: "black"
+                    color: Theme.canvas
                     Image {
-                        anchors { top: parent.top; bottom: parent.bottom; horizontalCenter: parent.horizontalCenter }
-                        width: height * 480 / 365
+                        anchors.fill: parent
                         source: "images/subtitle-sample.jpg"
-                        sourceSize: Qt.size(480, 365)
-                        fillMode: Image.PreserveAspectFit
+                        sourceSize: Qt.size(540, 365)
+                        fillMode: Image.PreserveAspectCrop
                         smooth: true
                         asynchronous: true
                     }
+                    CornerMask { anchors.fill: parent; radius: parent.radius; color: Theme.panel }
                     Rectangle {
                         anchors.centerIn: sample
                         width: sample.contentWidth + 16
@@ -624,6 +694,28 @@ Item {
             panel.importAsks = library.importAsks(selectedFile)
             if (panel.importAsks.length === 0)
                 panel.finishImport(false)
+        }
+    }
+    FileDialog {
+        id: colorsExportDialog
+        title: "Export colors"
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "json"
+        nameFilters: ["Corporal Jackie colors (*.json)"]
+        onAccepted: {
+            const error = preferences.exportColors(selectedFile, { accent: Theme.accent.toString(), canvas: Theme.canvas.toString(),
+                                                                   panel: Theme.panel.toString(), text: Theme.text.toString() })
+            colorsFileRow.colorsResult = error !== "" ? error : "Saved."
+        }
+    }
+    FileDialog {
+        id: colorsImportDialog
+        title: "Import colors"
+        fileMode: FileDialog.OpenFile
+        nameFilters: ["Corporal Jackie colors (*.json)", "All files (*)"]
+        onAccepted: {
+            const error = preferences.importColors(selectedFile)
+            colorsFileRow.colorsResult = error !== "" ? error : "Loaded into Custom."
         }
     }
     FolderDialog {

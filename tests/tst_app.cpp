@@ -198,6 +198,32 @@ private slots:
         QVERIFY(!p.showUpscalerBadge());
     }
 
+    // The Custom colors go to a file and come back; a file that is not one
+    // (or lacks a color) changes nothing.
+    void colorsFileRoundTrip()
+    {
+        Run run(m_root->path());
+        Preferences& p = run.core.preferences();
+        QTemporaryDir dir;
+        const QUrl file = QUrl::fromLocalFile(dir.filePath(QStringLiteral("mine.json")));
+        const QVariantMap colors{{QStringLiteral("accent"), QStringLiteral("#7aa2f7")}, {QStringLiteral("canvas"), QStringLiteral("#11151d")},
+                                 {QStringLiteral("panel"), QStringLiteral("#1a2030")}, {QStringLiteral("text"), QStringLiteral("#E4E9F2")}};
+        QCOMPARE(p.exportColors(file, colors), QString());
+        QVERIFY(!p.exportColors(file, {{QStringLiteral("accent"), QStringLiteral("#ffffff")}}).isEmpty());
+        QVERIFY(!p.exportColors(QUrl(QStringLiteral("https://example.com/x.json")), colors).isEmpty());
+        p.setColorMode(QStringLiteral("dark"));
+        QCOMPARE(p.importColors(file), QString());
+        QCOMPARE(p.colorMode(), QStringLiteral("custom"));
+        QCOMPARE(p.colorEdits().value(QStringLiteral("custom")).toMap().value(QStringLiteral("text")).toString(), QStringLiteral("#e4e9f2"));
+
+        QFile other(dir.filePath(QStringLiteral("other.json")));
+        QVERIFY(other.open(QIODevice::WriteOnly));
+        other.write("{\"accent\": \"#000000\", \"canvas\": \"#000000\", \"panel\": \"#000000\", \"text\": \"#000000\"}");
+        other.close();
+        QVERIFY(!p.importColors(QUrl::fromLocalFile(other.fileName())).isEmpty());
+        QCOMPARE(p.colorEdits().value(QStringLiteral("custom")).toMap().value(QStringLiteral("accent")).toString(), QStringLiteral("#7aa2f7"));
+    }
+
     // A torrent while torrents are off never reaches the player.
     void torrentsOffAreRefusedBeforeThePlayer()
     {

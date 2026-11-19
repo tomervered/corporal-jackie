@@ -44,9 +44,9 @@ Item {
         activeFocusOnTab: true
         keyNavigationEnabled: true
         boundsBehavior: Flickable.StopAtBounds
-        topMargin: 3
-        leftMargin: 3
-        rightMargin: 3
+        topMargin: 8
+        leftMargin: 8
+        rightMargin: 8
         model: library.items
         ScrollBar.horizontal: ScrollBar { policy: libraryGrid.contentWidth > libraryGrid.width ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
         // A plain wheel (up and down) scrolls the row sideways.

@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import "Format.js" as Format
 
 // The app's pages: Home, Discover, search results, an item's details, the
 // ways to play it, Library, Add-ons, Local (your folders) and Settings, with
@@ -230,9 +231,37 @@ Rectangle {
                         maximumLineCount: 2
                         wrapMode: Text.Wrap
                     }
+                    // How far in, and how much is left.
+                    Column {
+                        width: parent.width
+                        spacing: 4
+                        visible: session.duration > 0
+                        Rectangle {
+                            objectName: "nowPlayingProgress"
+                            width: parent.width
+                            height: 4
+                            radius: 2
+                            color: Theme.line
+                            Rectangle {
+                                width: parent.width * Math.min(1, session.position / Math.max(1, session.duration))
+                                height: parent.height
+                                radius: 2
+                                color: Theme.accent
+                            }
+                        }
+                        Text {
+                            textFormat: Text.PlainText
+                            width: parent.width
+                            text: Format.time(session.position) + " / " + Format.time(session.duration)
+                            color: Theme.muted
+                            font.pixelSize: 11
+                            elide: Text.ElideRight
+                        }
+                    }
                     AppButton {
                         objectName: "backToVideo"
                         width: parent.width
+                        font.pixelSize: Theme.smallSize + 1
                         primary: true
                         iconName: "play"
                         text: "Back to video"
