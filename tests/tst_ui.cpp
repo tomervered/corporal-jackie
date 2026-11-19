@@ -515,6 +515,16 @@ private slots:
         QTRY_VERIFY(visible("tracksPanel"));
         QTRY_VERIFY(visible("subtitleDelayValue"));
         shot("player-tracks");
+        // Style: how subtitles look, changed from the player.
+        click("styleTab");
+        QTRY_VERIFY(visible("choice-subOutline"));
+        QVERIFY(!visible("loadSubtitle") && !visible("subtitleDelayValue"));
+        QTest::qWait(100);   // the panel grows and moves up first
+        click("choice-subOutline");
+        QCOMPARE(m_window->findChild<QQuickItem*>(QStringLiteral("controlBar"))->property("openChoice").toString(), QStringLiteral("subOutline"));
+        QTest::qWait(150);
+        shot("player-tracks-style");
+        click("choice-subOutline");
         click("audioTab");
         QTRY_VERIFY(visible("loadAudio"));
         QVERIFY(!visible("subtitleDelayValue"));
@@ -526,6 +536,22 @@ private slots:
         click("choice-crop");
         QTest::qWait(50);
         shot("player-settings");
+        // White panels: the player's controls turn charcoal (the pages keep white).
+        {
+            Preferences& prefs = m_core->preferences();
+            prefs.setColorEdits({{QStringLiteral("custom"), QVariantMap{{QStringLiteral("accent"), QStringLiteral("#8a5a2b")}, {QStringLiteral("canvas"), QStringLiteral("#f6f4ef")},
+                                                                         {QStringLiteral("panel"), QStringLiteral("#ffffff")}, {QStringLiteral("text"), QStringLiteral("#2a2723")}}}});
+            prefs.setColorMode(QStringLiteral("custom"));
+            QQuickItem* gearPanel = m_window->findChild<QQuickItem*>(QStringLiteral("settingsPopup"));
+            QVERIFY(gearPanel);
+            QTRY_COMPARE(gearPanel->property("color").value<QColor>().name(), QStringLiteral("#24262a"));
+            shot("player-settings-charcoal");
+            prefs.setKeepLightPlayer(true);
+            QTRY_COMPARE(gearPanel->property("color").value<QColor>().name(), QStringLiteral("#ffffff"));
+            prefs.setKeepLightPlayer(false);
+            prefs.setColorEdits({});
+            prefs.setColorMode(QStringLiteral("dark"));
+        }
         session.setCrop(QStringLiteral("21:9"));
         QCOMPARE(m_target.last(), QStringLiteral("crop 21:9"));
         session.setCrop(QStringLiteral("5:4"));   // not offered

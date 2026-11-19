@@ -93,19 +93,31 @@ Column {
             radius: 8
             color: Theme.panel
             border.color: Theme.divider
+            // A switched-off add-on stays here, dimmed.
+            opacity: modelData.enabled ? 1 : 0.6
             Column {
                 id: addonText
                 anchors { left: parent.left; right: addonButtons.left; verticalCenter: parent.verticalCenter; margins: 14 }
                 spacing: 3
                 Text { textFormat: Text.PlainText; text: modelData.name + "  " + modelData.version; color: Theme.text; font.pixelSize: Theme.bodySize; font.weight: Font.DemiBold }
                 Muted { width: parent.width; text: modelData.description; visible: text !== ""; maximumLineCount: 2; elide: Text.ElideRight }
-                Muted { width: parent.width; text: "Offers: " + modelData.offers }
+                Muted { width: parent.width; text: modelData.enabled ? "Offers: " + modelData.offers : "Switched off: gives no lists, details or streams" }
                 Muted { width: parent.width; visible: modelData.error !== ""; color: Theme.error; text: "Last request failed: " + modelData.error }
             }
             Row {
                 id: addonButtons
                 anchors { right: parent.right; verticalCenter: parent.verticalCenter; margins: 12 }
                 spacing: 4
+                AppSwitch {
+                    objectName: "addonSwitch-" + modelData.id
+                    anchors.verticalCenter: parent.verticalCenter
+                    checked: modelData.enabled
+                    Accessible.name: (modelData.enabled ? "Switch off " : "Switch on ") + modelData.name
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    ToolTip.text: modelData.enabled ? "On: switch off without removing" : "Off: switch on"
+                    onToggled: browser.setAddonEnabled(modelData.id, checked)
+                }
                 IconButton { iconName: "up"; takesFocus: true; enabled: index > 0; tip: "Move up (asked earlier)"; onClicked: browser.moveAddon(modelData.id, -1) }
                 IconButton { iconName: "down"; takesFocus: true; enabled: index < browser.addons.length - 1; tip: "Move down"; onClicked: browser.moveAddon(modelData.id, 1) }
                 AppButton { text: "Remove"; onClicked: browser.removeAddon(modelData.id) }

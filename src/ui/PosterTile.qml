@@ -23,20 +23,34 @@ Item {
     Accessible.role: Accessible.Button
     Accessible.name: tile.item.name || ""
 
-    // The chosen tile (keyboard or pointer) glows: an accent outline just
-    // outside the poster, with two fainter rings beyond it.
+    // The chosen tile (keyboard or pointer) glows: soft accent light around
+    // the poster (a blurred shadow drawn once by a Canvas, which works on
+    // every Qt version) and a thin outline on its edge.
     readonly property bool lit: tile.current || tileHover.hovered
-    Repeater {
-        model: [[-7, 0.10], [-5, 0.22], [-3, 1]]
-        Rectangle {
-            required property var modelData
-            anchors { fill: art; margins: modelData[0] }
-            radius: art.radius - modelData[0]
-            color: "transparent"
-            border.width: 2
-            border.color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, modelData[1])
-            opacity: tile.lit ? 1 : 0
-            Behavior on opacity { NumberAnimation { duration: 120 } }
+    Canvas {
+        id: glow
+        readonly property real spread: 14
+        anchors { fill: art; margins: -spread }
+        opacity: tile.lit ? 1 : 0
+        visible: opacity > 0
+        Behavior on opacity { NumberAnimation { duration: 140 } }
+        onVisibleChanged: if (visible) requestPaint()
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
+        Connections { target: Theme; function onAccentChanged() { glow.requestPaint() } }
+        onPaint: {
+            const ctx = getContext("2d")
+            ctx.reset()
+            const r = art.radius, x = spread, y = spread, w = width - 2 * spread, h = height - 2 * spread
+            const shape = () => { ctx.beginPath(); ctx.roundedRect(x, y, w, h, r, r); ctx.closePath() }
+            ctx.shadowColor = Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.55)
+            ctx.shadowBlur = 10
+            ctx.fillStyle = Theme.accent
+            shape(); ctx.fill()
+            // Only the light outside the poster stays.
+            ctx.shadowColor = "transparent"
+            ctx.globalCompositeOperation = "destination-out"
+            shape(); ctx.fill()
         }
     }
     Rectangle {
@@ -86,6 +100,16 @@ Item {
             Rectangle { width: parent.width * Math.min(1, tile.progress); height: parent.height; color: Theme.accent }
         }
         CornerMask { anchors.fill: parent; radius: art.radius; color: tile.cornerColor }
+        // The outline sits on the poster's edge (it also hides the mask's seam).
+        Rectangle {
+            anchors.fill: parent
+            radius: art.radius
+            color: "transparent"
+            border.width: 2
+            border.color: Theme.accent
+            opacity: tile.lit ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 140 } }
+        }
         Timer {
             id: retry
             interval: 2000 * Math.pow(2, tile.attempt) + Math.random() * 1000

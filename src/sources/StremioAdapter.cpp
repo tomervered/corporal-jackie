@@ -73,8 +73,12 @@ void StremioAdapter::installDefaults()
 QJsonArray StremioAdapter::storedList() const
 {
     QJsonArray list;
-    for (const InstalledAddon& a : m_addons)
-        list.append(QJsonObject{{"transportUrl", a.manifestUrl.toString()}, {"manifest", a.rawManifest}});
+    for (const InstalledAddon& a : m_addons) {
+        QJsonObject entry{{"transportUrl", a.manifestUrl.toString()}, {"manifest", a.rawManifest}};
+        if (a.disabled)
+            entry.insert("disabled", true);
+        list.append(entry);
+    }
     return list;
 }
 
@@ -86,9 +90,11 @@ void StremioAdapter::restore(const QJsonArray& list)
         const QUrl url(o.value("transportUrl").toString());
         const QJsonObject raw = o.value("manifest").toObject();
         QString error;
-        if (auto m = stremio::parseManifest(raw, &error); m && url.isValid() && m_addons.size() < kMaxAddons)
+        if (auto m = stremio::parseManifest(raw, &error); m && url.isValid() && m_addons.size() < kMaxAddons) {
             setManifest(url, *m, raw);
-        else
+            if (o.value("disabled").toBool())
+                m_addons.last().disabled = true;
+        } else
             qCWarning(lcSources).noquote() << "Skipping a stored add-on:" << logging::redactUrl(url) << error;
     }
     qCInfo(lcSources) << "Add-ons installed:" << m_addons.size();
@@ -134,7 +140,7 @@ QList<const InstalledAddon*> StremioAdapter::serving(const QString& resource, co
 {
     QList<const InstalledAddon*> out;
     for (const InstalledAddon& a : m_addons)
-        if (a.manifest.serves(resource, type, id))
+        if (!a.disabled && a.manifest.serves(resource, type, id))
             out << &a;
     return out;
 }
@@ -153,6 +159,8 @@ QList<CatalogRef> StremioAdapter::catalogs() const
 {
     QList<CatalogRef> out;
     for (const InstalledAddon& a : m_addons) {
+        if (a.disabled)
+            continue;
         for (const stremio::Catalog& c : a.manifest.catalogs) {
             CatalogRef ref;
             ref.adapter = id();
@@ -176,8 +184,9 @@ QList<CatalogRef> StremioAdapter::catalogs() const
 void StremioAdapter::fetchCatalog(const CatalogRef& catalog, const QString& search, int skip, CatalogDone done)
 {
     const InstalledAddon* addon = find(catalog.provider);
-    if (!addon) {
-        QTimer::singleShot(0, this, [done] { done({}, QStringLiteral("the add-on was removed")); });
+    if (!addon || addon->disabled) {
+        const QString why = addon ? QStringLiteral("the add-on is switched off") : QStringLiteral("the add-on was removed");
+        QTimer::singleShot(0, this, [done, why] { done({}, why); });
         return;
     }
     QList<QPair<QString, QString>> extras;
@@ -214,7 +223,7 @@ void StremioAdapter::fetchMeta(const MetaPreview& item, MetaDone done)
     // The add-on the item came from first, then any other that has details
     // for this id (e.g. WikiMaze for "tt…" ids from a list add-on).
     QStringList order;
-    if (const InstalledAddon* own = find(item.provider); own && own->manifest.serves("meta", item.type, item.id))
+    if (const InstalledAddon* own = find(item.provider); own && !own->disabled && own->manifest.serves("meta", item.type, item.id))
         order << own->manifest.id;
     for (const InstalledAddon* a : serving(QStringLiteral("meta"), item.type, item.id))
         if (!order.contains(a->manifest.id))
@@ -384,9 +393,26 @@ bool StremioAdapter::move(const QString& addonId, int delta)
     return true;
 }
 
+bool StremioAdapter::setEnabled(const QString& addonId, bool enabled)
+{
+    for (InstalledAddon& a : m_addons) {
+        if (a.manifest.id != addonId || a.disabled == !enabled)
+            continue;
+        a.disabled = !enabled;
+        qCInfo(lcSources).noquote() << "Add-on" << addonId << (enabled ? "switched on" : "switched off");
+        save();
+        emit addonsChanged();
+        emit catalogsChanged();
+        return true;
+    }
+    return false;
+}
+
 void StremioAdapter::refreshManifests()
 {
     for (const InstalledAddon& a : std::as_const(m_addons)) {
+        if (a.disabled)
+            continue;   // switched off: not contacted
         const QUrl url = a.manifestUrl;
         const QString addonId = a.manifest.id;
         m_fetcher.get(url, [this, url, addonId](const QJsonObject& json, const QString& error) {

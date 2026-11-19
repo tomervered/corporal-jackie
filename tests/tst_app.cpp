@@ -208,13 +208,26 @@ private slots:
         const QUrl file = QUrl::fromLocalFile(dir.filePath(QStringLiteral("mine.json")));
         const QVariantMap colors{{QStringLiteral("accent"), QStringLiteral("#7aa2f7")}, {QStringLiteral("canvas"), QStringLiteral("#11151d")},
                                  {QStringLiteral("panel"), QStringLiteral("#1a2030")}, {QStringLiteral("text"), QStringLiteral("#E4E9F2")}};
-        QCOMPARE(p.exportColors(file, colors), QString());
-        QVERIFY(!p.exportColors(file, {{QStringLiteral("accent"), QStringLiteral("#ffffff")}}).isEmpty());
-        QVERIFY(!p.exportColors(QUrl(QStringLiteral("https://example.com/x.json")), colors).isEmpty());
+        QCOMPARE(p.exportColors(file, QStringLiteral("Night owl"), colors), QString());
+        QVERIFY(!p.exportColors(file, QString(), {{QStringLiteral("accent"), QStringLiteral("#ffffff")}}).isEmpty());
+        QVERIFY(!p.exportColors(QUrl(QStringLiteral("https://example.com/x.json")), QString(), colors).isEmpty());
         p.setColorMode(QStringLiteral("dark"));
         QCOMPARE(p.importColors(file), QString());
         QCOMPARE(p.colorMode(), QStringLiteral("custom"));
         QCOMPARE(p.colorEdits().value(QStringLiteral("custom")).toMap().value(QStringLiteral("text")).toString(), QStringLiteral("#e4e9f2"));
+        // The import is saved under the name in the file.
+        QCOMPARE(p.savedPalettes().size(), 1);
+        QCOMPARE(p.savedPalettes().value(0).toMap().value(QStringLiteral("name")).toString(), QStringLiteral("Night owl"));
+        // Saving by the same name replaces it; a blank name is refused.
+        QCOMPARE(p.savePalette(QStringLiteral(" night  OWL "), colors), QString());
+        QCOMPARE(p.savedPalettes().size(), 1);
+        QVERIFY(!p.savePalette(QStringLiteral("   "), colors).isEmpty());
+        QCOMPARE(p.savePalette(QStringLiteral("Second"), colors), QString());
+        p.removePalette(QStringLiteral("Second"));
+        QCOMPARE(p.savedPalettes().size(), 1);
+        QVERIFY(!p.keepLightPlayer());
+        p.setKeepLightPlayer(true);
+        QVERIFY(p.keepLightPlayer());
 
         QFile other(dir.filePath(QStringLiteral("other.json")));
         QVERIFY(other.open(QIODevice::WriteOnly));

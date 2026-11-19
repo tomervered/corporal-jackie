@@ -24,3 +24,10 @@ function upscalerLabel(name) {
         anime4k: "Anime4K (cartoons)", nvidia: "NVIDIA VSR", intel: "Intel VSR", metalfx: "Apple MetalFX" })[name] || name
 }
 var upscaleTargets = [[0, "Screen size"], [1080, "1080p"], [1440, "1440p"], [2160, "4K"]]
+
+// Subtitle looks, the same in Settings and in the player's Style tab:
+// [value, label] pairs.
+var subtitleSizes = [[0.75, "Small"], [1.0, "Normal"], [1.25, "Large"], [1.5, "Larger"], [2.0, "Huge"]]
+var subtitleColors = [["#FFFFFF", "White"], ["#FFE14D", "Yellow"], ["#C8C8C8", "Grey"]]
+var subtitleOutlines = [[0, "None"], [1.5, "Thin"], [3, "Normal"], [5, "Thick"]]
+var subtitleBackgrounds = [[0, "None"], [40, "Light"], [70, "Dark"], [100, "Solid"]]

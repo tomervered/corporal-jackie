@@ -31,13 +31,13 @@ ListView {
     }
 
     orientation: ListView.Horizontal
-    implicitHeight: tileWidth * 1.5 + 70
+    implicitHeight: tileWidth * 1.5 + 74
     implicitWidth: count * (tileWidth + spacing) - spacing
     spacing: Theme.posterGap
     clip: true
-    topMargin: 8
-    leftMargin: 8
-    rightMargin: 8
+    topMargin: 12
+    leftMargin: 12
+    rightMargin: 12
     boundsBehavior: Flickable.StopAtBounds
     model: entries
     ScrollBar.horizontal: ScrollBar { policy: row.contentWidth > row.width ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }

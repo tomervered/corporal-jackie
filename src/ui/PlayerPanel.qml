@@ -15,8 +15,8 @@ Rectangle {
     width: 365
     height: Math.min(maxHeight, header.height + body.implicitHeight + 6 + footerItem.height + (footerItem.height > 0 ? 12 : 6))
     radius: 15
-    color: Theme.panel
-    border.color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.17)
+    color: Theme.pPanel
+    border.color: Qt.rgba(Theme.pText.r, Theme.pText.g, Theme.pText.b, 0.17)
     Accessible.role: Accessible.Pane
     Accessible.name: title
 
@@ -29,7 +29,7 @@ Rectangle {
         topPadding: 16
         bottomPadding: 10
         text: panel.title
-        color: Theme.text
+        color: Theme.pText
         font.pixelSize: 16
         font.weight: Font.DemiBold
     }

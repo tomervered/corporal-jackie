@@ -6,7 +6,7 @@ import QtQuick.Controls.Basic
 ToolButton {
     id: barButton
     focusPolicy: Qt.NoFocus
-    palette.buttonText: Theme.text
+    palette.buttonText: Theme.pText
     font.pixelSize: 13
     implicitWidth: Math.max(36, implicitContentWidth + 16)
     implicitHeight: 36

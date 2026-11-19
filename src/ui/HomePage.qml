@@ -192,7 +192,7 @@ Flickable {
             width: parent.width
             visible: homeContinue.count > 0
             spacing: 12
-            Heading { text: "Also in progress" }
+            Heading { text: "In progress" }
             ContinueWatching {
                 id: homeContinue
                 skip: 1

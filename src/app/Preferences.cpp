@@ -5,9 +5,11 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QSaveFile>
 #include <QUrl>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QRegularExpression>
 
@@ -35,6 +37,10 @@ const QString kPrivacyVersion = QStringLiteral("privacy/version");
 constexpr int kPrivacyScreenVersion = 2;
 const QString kColorMode = QStringLiteral("ui/colorMode");
 const QString kUpscalerBadge = QStringLiteral("ui/showUpscalerBadge");
+const QString kKeepLightPlayer = QStringLiteral("ui/keepLightPlayer");
+const QString kSavedPalettes = QStringLiteral("ui/savedPalettes");   // JSON text
+constexpr int kMaxPalettes = 50;
+constexpr int kMaxPaletteName = 40;
 const QString kColorEdits = QStringLiteral("ui/colorEdits");   // JSON text
 
 bool knownMode(const QString& mode)
@@ -67,6 +73,19 @@ QVariantMap cleanEdits(const QVariantMap& edits)
     }
     return out;
 }
+// Four valid colours, or an empty map.
+QVariantMap cleanColors(const QVariantMap& colors)
+{
+    const QVariantMap clean = cleanEdits({{QStringLiteral("custom"), colors}}).value(QStringLiteral("custom")).toMap();
+    return clean.size() == 4 ? clean : QVariantMap();
+}
+QString cleanName(const QString& name)
+{
+    QString out = name.simplified();
+    out.remove(QRegularExpression(QStringLiteral("[\\x00-\\x1f]")));
+    return out.left(kMaxPaletteName);
+}
+
 } // namespace
 
 Preferences::Preferences(Storage& storage, const QString& defaultCacheFolder, QObject* parent)
@@ -106,6 +125,16 @@ Preferences::Preferences(Storage& storage, const QString& defaultCacheFolder, QO
     const QString mode = value(kColorMode, QStringLiteral("dark")).toString();
     m_colorMode = knownMode(mode) ? mode : QStringLiteral("dark");
     m_upscalerBadge = value(kUpscalerBadge, true).toBool();
+    m_keepLightPlayer = value(kKeepLightPlayer, false).toBool();
+    for (const QJsonValue& v : QJsonDocument::fromJson(value(kSavedPalettes, QString()).toString().toUtf8()).array()) {
+        const QVariantMap given = v.toObject().toVariantMap();
+        QVariantMap colors = cleanColors(given);
+        const QString name = cleanName(given.value(QStringLiteral("name")).toString());
+        if (colors.isEmpty() || name.isEmpty() || m_savedPalettes.size() >= kMaxPalettes)
+            continue;
+        colors.insert(QStringLiteral("name"), name);
+        m_savedPalettes.append(colors);
+    }
     m_colorEdits = cleanEdits(QJsonDocument::fromJson(value(kColorEdits, QString()).toString().toUtf8()).object().toVariantMap());
     m_started = {m_inMemory, m_memoryCapMB, m_diskCacheGB, effectiveFolder()};
 }
@@ -293,15 +322,67 @@ void Preferences::setColorEdits(const QVariantMap& edits)
     emit appearanceChanged();
 }
 
-QString Preferences::exportColors(const QUrl& file, const QVariantMap& colors) const
+void Preferences::setKeepLightPlayer(bool on)
 {
-    const QVariantMap clean = cleanEdits({{QStringLiteral("custom"), colors}}).value(QStringLiteral("custom")).toMap();
-    if (clean.size() != 4)
+    if (on == m_keepLightPlayer)
+        return;
+    m_keepLightPlayer = on;
+    m_storage.setSetting(kKeepLightPlayer, on);
+    emit appearanceChanged();
+}
+
+void Preferences::storePalettes()
+{
+    m_storage.setSetting(kSavedPalettes, QString::fromUtf8(QJsonDocument(QJsonArray::fromVariantList(m_savedPalettes)).toJson(QJsonDocument::Compact)));
+    emit appearanceChanged();
+}
+
+QString Preferences::savePalette(const QString& name, const QVariantMap& colors)
+{
+    const QString clean = cleanName(name);
+    if (clean.isEmpty())
+        return QStringLiteral("Give the palette a name.");
+    QVariantMap palette = cleanColors(colors);
+    if (palette.isEmpty())
+        return QStringLiteral("These colors could not be saved.");
+    palette.insert(QStringLiteral("name"), clean);
+    for (int i = 0; i < m_savedPalettes.size(); ++i) {
+        if (m_savedPalettes[i].toMap().value(QStringLiteral("name")).toString().compare(clean, Qt::CaseInsensitive) == 0) {
+            m_savedPalettes[i] = palette;
+            storePalettes();
+            return {};
+        }
+    }
+    if (m_savedPalettes.size() >= kMaxPalettes)
+        return QStringLiteral("There are already %1 saved palettes. Remove one first.").arg(kMaxPalettes);
+    m_savedPalettes.append(palette);
+    storePalettes();
+    return {};
+}
+
+void Preferences::removePalette(const QString& name)
+{
+    for (int i = 0; i < m_savedPalettes.size(); ++i) {
+        if (m_savedPalettes[i].toMap().value(QStringLiteral("name")).toString() == name) {
+            m_savedPalettes.removeAt(i);
+            storePalettes();
+            return;
+        }
+    }
+}
+
+QString Preferences::exportColors(const QUrl& file, const QString& name, const QVariantMap& colors) const
+{
+    const QVariantMap clean = cleanColors(colors);
+    if (clean.isEmpty())
         return QStringLiteral("These colors could not be saved.");
     if (!file.isLocalFile())
         return QStringLiteral("Pick a file on this computer.");
     QJsonObject out = QJsonObject::fromVariantMap(clean);
     out.insert(kColorFileMark, 1);
+    const QString cleanedName = cleanName(name);
+    if (!cleanedName.isEmpty())
+        out.insert(QStringLiteral("name"), cleanedName);
     QSaveFile f(file.toLocalFile());
     if (!f.open(QIODevice::WriteOnly) || f.write(QJsonDocument(out).toJson()) < 0 || !f.commit())
         return QStringLiteral("Could not write ") + file.fileName() + QStringLiteral(".");
@@ -320,9 +401,14 @@ QString Preferences::importColors(const QUrl& file)
     const QJsonObject in = QJsonDocument::fromJson(f.read(kColorFileMaxBytes)).object();
     if (!in.contains(kColorFileMark))
         return QStringLiteral("That is not a colors file.");
-    const QVariantMap clean = cleanEdits({{QStringLiteral("custom"), in.toVariantMap()}}).value(QStringLiteral("custom")).toMap();
-    if (clean.size() != 4)
+    const QVariantMap clean = cleanColors(in.toVariantMap());
+    if (clean.isEmpty())
         return QStringLiteral("That colors file is missing some colors.");
+    QString name = cleanName(in.value(QStringLiteral("name")).toString());
+    if (name.isEmpty())
+        name = cleanName(QFileInfo(file.toLocalFile()).completeBaseName());
+    if (!name.isEmpty())
+        savePalette(name, clean);   // a full list just skips this
     QVariantMap edits = m_colorEdits;
     edits.insert(QStringLiteral("custom"), clean);
     setColorEdits(edits);

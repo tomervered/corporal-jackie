@@ -33,7 +33,7 @@ AbstractButton {
                 textFormat: Text.PlainText
                 width: parent.width
                 text: row.label
-                color: Theme.text
+                color: Theme.pText
                 font.pixelSize: row.fontSize
                 elide: Text.ElideRight
                 opacity: row.enabled ? 1 : 0.45
@@ -43,7 +43,7 @@ AbstractButton {
                 visible: row.detail !== ""
                 width: parent.width
                 text: row.detail
-                color: Theme.muted
+                color: Theme.pMuted
                 font.pixelSize: 11
                 elide: Text.ElideRight
             }
@@ -57,7 +57,7 @@ AbstractButton {
                 anchors.verticalCenter: parent.verticalCenter
                 visible: text !== ""
                 text: row.value
-                color: Theme.muted
+                color: Theme.pMuted
                 font.pixelSize: 12
                 opacity: row.enabled ? 1 : 0.45
             }
@@ -66,7 +66,7 @@ AbstractButton {
                 visible: row.expandable
                 name: "chevronDown"
                 size: 13
-                color: Theme.muted
+                color: Theme.pMuted
                 rotation: row.expanded ? 180 : 0
             }
             Icon {
@@ -81,6 +81,6 @@ AbstractButton {
     }
     background: Rectangle {
         radius: 7
-        color: row.selected ? Theme.pressed : row.down ? Theme.pressed : row.hovered && row.enabled ? Theme.hover : "transparent"
+        color: row.selected ? Theme.pPressed : row.down ? Theme.pPressed : row.hovered && row.enabled ? Theme.pHover : "transparent"
     }
 }
