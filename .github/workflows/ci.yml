@@ -863,9 +863,11 @@ jobs:
         timeout-minutes: 90
         env:
           QTEST_FUNCTION_TIMEOUT: "5400000"
+          QT_QPA_PLATFORM: offscreen
           CJ_COMPETITOR_MODULES: ${{ runner.temp }}/contenders/node_modules
           CJ_BENCH_RUNS: "3"
         run: |
+          set -o pipefail
           sudo apt-get -o Acquire::Retries=3 -o Acquire::https::Timeout=15 install -y aria2 qbittorrent-nox
           echo "### Whole-file downloads, loopback" >> "$GITHUB_STEP_SUMMARY"
           ./build/tests/tst_benchdownload 2>&1 | tee /tmp/dl-loopback.txt
