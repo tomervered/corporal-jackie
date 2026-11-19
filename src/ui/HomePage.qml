@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import QtQuick.Controls.Basic
 import CorporalJackie.Player   // KeyedList
 
@@ -44,32 +45,79 @@ Flickable {
             objectName: "homeHero"
             visible: homePage.latest !== null
             width: parent.width
-            height: 225
-            radius: 10
+            height: 250
+            radius: 12
             color: Theme.panel
             clip: true
-            // The poster, cropped, on the right, faded into the panel.
+            // Layers, so it always looks full and nothing is cut off: the
+            // episode's still or the title's wide art on the right (the first
+            // that loads), or else the poster blurred over the whole card;
+            // then a fade into the panel behind the words; then the whole
+            // poster as a card on the left.
+            readonly property var arts: homePage.latest ? [homePage.latest.still, homePage.latest.backdrop].filter(u => !!u) : []
+            property int artIndex: 0
+            onArtsChanged: artIndex = 0
             Image {
-                anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
-                width: parent.width * 0.62
+                id: heroBlur
+                objectName: "heroBlur"
+                anchors.fill: parent
+                visible: heroArt.status !== Image.Ready
                 source: homePage.latest ? homePage.latest.poster : ""
+                // Decoded tiny and drawn large: the smooth scaling blurs it.
+                sourceSize.width: 24
                 fillMode: Image.PreserveAspectCrop
-                verticalAlignment: Image.AlignTop
-                sourceSize.width: 640
+                smooth: true
                 asynchronous: true
-                opacity: 0.85
+                opacity: 0.8
+            }
+            Image {
+                id: heroArt
+                objectName: "heroArt"
+                anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
+                width: parent.width * 0.68
+                source: hero.artIndex < hero.arts.length ? hero.arts[hero.artIndex] : ""
+                fillMode: Image.PreserveAspectCrop
+                sourceSize.width: 960
+                asynchronous: true
+                onStatusChanged: if (status === Image.Error) hero.artIndex++
             }
             Rectangle {
                 anchors.fill: parent
                 gradient: Gradient {
                     orientation: Gradient.Horizontal
-                    GradientStop { position: 0.03; color: Theme.panel }
-                    GradientStop { position: 0.38; color: Qt.rgba(Theme.panel.r, Theme.panel.g, Theme.panel.b, 0.9) }
-                    GradientStop { position: 0.8; color: Qt.rgba(Theme.panel.r, Theme.panel.g, Theme.panel.b, 0.15) }
+                    GradientStop { position: 0.0; color: Qt.rgba(Theme.panel.r, Theme.panel.g, Theme.panel.b, 0.96) }
+                    GradientStop { position: 0.42; color: Qt.rgba(Theme.panel.r, Theme.panel.g, Theme.panel.b, 0.88) }
+                    GradientStop { position: 0.75; color: Qt.rgba(Theme.panel.r, Theme.panel.g, Theme.panel.b, 0.25) }
+                    GradientStop { position: 1.0; color: Qt.rgba(Theme.panel.r, Theme.panel.g, Theme.panel.b, 0.05) }
+                }
+            }
+            // The whole poster, never cropped, with how far in under it.
+            Item {
+                id: heroPoster
+                x: 24
+                y: 22
+                height: parent.height - 44
+                width: Math.round(height / 1.5)
+                visible: heroPosterImage.status === Image.Ready
+                Rectangle { anchors { fill: parent; margins: -1 } radius: 7; color: "transparent"; border.color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.18) }
+                Image {
+                    id: heroPosterImage
+                    objectName: "heroPoster"
+                    anchors.fill: parent
+                    source: homePage.latest ? homePage.latest.poster : ""
+                    fillMode: Image.PreserveAspectFit
+                    sourceSize.width: Math.ceil(width * Screen.devicePixelRatio)
+                    asynchronous: true
+                }
+                Rectangle {
+                    anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+                    height: 4
+                    color: "#a0000000"
+                    Rectangle { width: parent.width * (homePage.latest ? Math.min(1, homePage.latest.progress) : 0); height: parent.height; color: Theme.accent }
                 }
             }
             Column {
-                anchors { left: parent.left; leftMargin: 30; verticalCenter: parent.verticalCenter }
+                anchors { left: heroPoster.visible ? heroPoster.right : parent.left; leftMargin: heroPoster.visible ? 28 : 30; verticalCenter: parent.verticalCenter }
                 width: parent.width * 0.55
                 spacing: 4
                 Text { textFormat: Text.PlainText; text: "Continue watching"; color: Theme.muted; font.pixelSize: Theme.smallSize }
@@ -111,6 +159,8 @@ Flickable {
                     }
                 }
             }
+            // Rounded corners over the pictures.
+            CornerMask { anchors.fill: parent; radius: hero.radius }
         }
 
         // --- Nothing to go on with: how to open something ---------------------

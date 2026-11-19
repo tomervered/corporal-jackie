@@ -4,6 +4,9 @@
 #include "Storage.h"
 
 #include <QDir>
+#include <QFile>
+#include <QSaveFile>
+#include <QUrl>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
@@ -31,12 +34,18 @@ const QString kUploads = QStringLiteral("privacy/uploads");
 const QString kPrivacyVersion = QStringLiteral("privacy/version");
 constexpr int kPrivacyScreenVersion = 2;
 const QString kColorMode = QStringLiteral("ui/colorMode");
+const QString kUpscalerBadge = QStringLiteral("ui/showUpscalerBadge");
 const QString kColorEdits = QStringLiteral("ui/colorEdits");   // JSON text
 
 bool knownMode(const QString& mode)
 {
-    return mode == QLatin1String("dark") || mode == QLatin1String("oled") || mode == QLatin1String("bright");
+    return mode == QLatin1String("dark") || mode == QLatin1String("oled") || mode == QLatin1String("bright")
+        || mode == QLatin1String("custom");
 }
+
+// A colour file: {"corporalJackieColors": 1, "accent": "#rrggbb", ...}.
+const QLatin1String kColorFileMark("corporalJackieColors");
+constexpr qint64 kColorFileMaxBytes = 16 * 1024;
 
 // Only #rrggbb values for the four colours of a known mode are kept.
 QVariantMap cleanEdits(const QVariantMap& edits)
@@ -96,6 +105,7 @@ Preferences::Preferences(Storage& storage, const QString& defaultCacheFolder, QO
     m_uploads = m_privacyChosen && value(kUploads, false).toBool();
     const QString mode = value(kColorMode, QStringLiteral("dark")).toString();
     m_colorMode = knownMode(mode) ? mode : QStringLiteral("dark");
+    m_upscalerBadge = value(kUpscalerBadge, true).toBool();
     m_colorEdits = cleanEdits(QJsonDocument::fromJson(value(kColorEdits, QString()).toString().toUtf8()).object().toVariantMap());
     m_started = {m_inMemory, m_memoryCapMB, m_diskCacheGB, effectiveFolder()};
 }
@@ -264,6 +274,15 @@ void Preferences::setColorMode(const QString& mode)
     emit appearanceChanged();
 }
 
+void Preferences::setShowUpscalerBadge(bool on)
+{
+    if (on == m_upscalerBadge)
+        return;
+    m_upscalerBadge = on;
+    m_storage.setSetting(kUpscalerBadge, on);
+    emit appearanceChanged();
+}
+
 void Preferences::setColorEdits(const QVariantMap& edits)
 {
     const QVariantMap clean = cleanEdits(edits);
@@ -272,6 +291,43 @@ void Preferences::setColorEdits(const QVariantMap& edits)
     m_colorEdits = clean;
     m_storage.setSetting(kColorEdits, QString::fromUtf8(QJsonDocument(QJsonObject::fromVariantMap(clean)).toJson(QJsonDocument::Compact)));
     emit appearanceChanged();
+}
+
+QString Preferences::exportColors(const QUrl& file, const QVariantMap& colors) const
+{
+    const QVariantMap clean = cleanEdits({{QStringLiteral("custom"), colors}}).value(QStringLiteral("custom")).toMap();
+    if (clean.size() != 4)
+        return QStringLiteral("These colors could not be saved.");
+    if (!file.isLocalFile())
+        return QStringLiteral("Pick a file on this computer.");
+    QJsonObject out = QJsonObject::fromVariantMap(clean);
+    out.insert(kColorFileMark, 1);
+    QSaveFile f(file.toLocalFile());
+    if (!f.open(QIODevice::WriteOnly) || f.write(QJsonDocument(out).toJson()) < 0 || !f.commit())
+        return QStringLiteral("Could not write ") + file.fileName() + QStringLiteral(".");
+    return {};
+}
+
+QString Preferences::importColors(const QUrl& file)
+{
+    if (!file.isLocalFile())
+        return QStringLiteral("Pick a file on this computer.");
+    QFile f(file.toLocalFile());
+    if (!f.open(QIODevice::ReadOnly))
+        return QStringLiteral("Could not open ") + file.fileName() + QStringLiteral(".");
+    if (f.size() > kColorFileMaxBytes)
+        return QStringLiteral("That is not a colors file.");
+    const QJsonObject in = QJsonDocument::fromJson(f.read(kColorFileMaxBytes)).object();
+    if (!in.contains(kColorFileMark))
+        return QStringLiteral("That is not a colors file.");
+    const QVariantMap clean = cleanEdits({{QStringLiteral("custom"), in.toVariantMap()}}).value(QStringLiteral("custom")).toMap();
+    if (clean.size() != 4)
+        return QStringLiteral("That colors file is missing some colors.");
+    QVariantMap edits = m_colorEdits;
+    edits.insert(QStringLiteral("custom"), clean);
+    setColorEdits(edits);
+    setColorMode(QStringLiteral("custom"));
+    return {};
 }
 
 } // namespace cj

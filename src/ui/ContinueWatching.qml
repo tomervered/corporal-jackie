@@ -35,9 +35,9 @@ ListView {
     implicitWidth: count * (tileWidth + spacing) - spacing
     spacing: Theme.posterGap
     clip: true
-    topMargin: 4
-    leftMargin: 4
-    rightMargin: 3
+    topMargin: 8
+    leftMargin: 8
+    rightMargin: 8
     boundsBehavior: Flickable.StopAtBounds
     model: entries
     ScrollBar.horizontal: ScrollBar { policy: row.contentWidth > row.width ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }

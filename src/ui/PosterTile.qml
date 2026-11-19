@@ -5,8 +5,8 @@ import QtQuick.Controls.Basic
 // under it. Shows the name on a plain tile when there is no poster. A
 // poster that fails to download (a busy image server answers some of a
 // burst of requests with an error) is asked for again a few times, further
-// apart each time. Keyboard focus draws an accent outline; the pointer
-// lightens the poster.
+// apart each time. Keyboard focus and the pointer draw a soft accent
+// glow around it.
 Item {
     id: tile
     property var item: ({})
@@ -15,6 +15,7 @@ Item {
     property bool current: false
     property real posterWidth: Theme.posterWidth
     property string detail: tile.item.releaseInfo || ""
+    property color cornerColor: Theme.canvas   // what is behind the tile
     property real progress: -1          // 0-1 draws how far in, under the poster
     signal activated()
     width: posterWidth
@@ -22,20 +23,27 @@ Item {
     Accessible.role: Accessible.Button
     Accessible.name: tile.item.name || ""
 
-    Rectangle {
-        // The focus outline, just outside the poster.
-        anchors { fill: art; margins: -3 }
-        radius: Theme.radius + 3
-        color: "transparent"
-        border.width: 2
-        border.color: Theme.accent
-        visible: tile.current
+    // The chosen tile (keyboard or pointer) glows: an accent outline just
+    // outside the poster, with two fainter rings beyond it.
+    readonly property bool lit: tile.current || tileHover.hovered
+    Repeater {
+        model: [[-7, 0.10], [-5, 0.22], [-3, 1]]
+        Rectangle {
+            required property var modelData
+            anchors { fill: art; margins: modelData[0] }
+            radius: art.radius - modelData[0]
+            color: "transparent"
+            border.width: 2
+            border.color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, modelData[1])
+            opacity: tile.lit ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 120 } }
+        }
     }
     Rectangle {
         id: art
         width: parent.width
         height: parent.width * 1.5
-        radius: Theme.radius
+        radius: Theme.posterRadius
         color: Theme.raised
         clip: true
         Text {
@@ -64,6 +72,7 @@ Item {
         }
         Rectangle {
             anchors.fill: parent
+            radius: art.radius
             color: "white"
             opacity: tileHover.hovered ? 0.08 : 0
             Behavior on opacity { NumberAnimation { duration: 120 } }
@@ -76,6 +85,7 @@ Item {
             color: "#a0000000"
             Rectangle { width: parent.width * Math.min(1, tile.progress); height: parent.height; color: Theme.accent }
         }
+        CornerMask { anchors.fill: parent; radius: art.radius; color: tile.cornerColor }
         Timer {
             id: retry
             interval: 2000 * Math.pow(2, tile.attempt) + Math.random() * 1000

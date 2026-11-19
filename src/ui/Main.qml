@@ -105,7 +105,7 @@ Window {
 
     function toggleEpisodes() {
         root.episodesVisible = !root.episodesVisible && browser.playingEpisodes.length > 0
-        if (root.episodesVisible) root.browseVisible = false
+        if (root.episodesVisible) { root.browseVisible = false; controlBar.closePanel() }
         else inputLayer.forceActiveFocus()
     }
 
@@ -158,7 +158,7 @@ Window {
     Timer {
         id: hideTimer
         interval: 2500
-        onTriggered: if (session.hasMedia && !session.paused && !controlBar.inUse && !root.episodesVisible) root.controlsVisible = false
+        onTriggered: if (session.hasMedia && !session.paused && !controlBar.inUse && !cornerHover.hovered && !root.episodesVisible) root.controlsVisible = false
     }
 
     // --- Video --------------------------------------------------------------
@@ -184,6 +184,13 @@ Window {
     }
 
     FileDialog {
+        id: audioDialog
+        title: "Load an audio track"
+        nameFilters: ["Audio (*.mka *.m4a *.aac *.ac3 *.eac3 *.dts *.flac *.mp3 *.ogg *.opus *.wav)", "All files (*)"]
+        onAccepted: session.addExternalAudio(selectedFile)
+    }
+
+    FileDialog {
         id: subtitleDialog
         title: "Load a subtitle file"
         nameFilters: ["Subtitles (*.srt *.ass *.ssa *.vtt *.sub *.sup)", "All files (*)"]
@@ -202,9 +209,11 @@ Window {
         // input.conf: Space, arrows, F, M, J...). The app adds none here.
         // mpv repeats a held key itself, so Qt's repeats are dropped.
         Keys.onPressed: event => {
-            // Esc closes the keyboard sheet first (then it leaves full screen).
-            if (event.key === Qt.Key_Escape && root.helpVisible) {
-                root.helpVisible = false
+            // Esc closes an open panel or the keyboard sheet first (then it
+            // leaves full screen).
+            if (event.key === Qt.Key_Escape && (controlBar.openPanel !== "" || root.helpVisible)) {
+                if (controlBar.openPanel !== "") controlBar.closePanel()
+                else root.helpVisible = false
                 inputLayer.escapeClosedSheet = true
                 event.accepted = true
                 return
@@ -232,7 +241,12 @@ Window {
             hoverEnabled: true
             cursorShape: root.controlsVisible || !session.hasMedia ? Qt.ArrowCursor : Qt.BlankCursor
             onPositionChanged: root.showControls()
-            onClicked: { inputLayer.forceActiveFocus(); if (session.hasMedia) session.togglePause() }
+            // With a panel open, a click on the picture closes it instead.
+            onClicked: {
+                inputLayer.forceActiveFocus()
+                if (controlBar.openPanel !== "") controlBar.closePanel()
+                else if (session.hasMedia) session.togglePause()
+            }
             onDoubleClicked: root.toggleFullscreen()
         }
 
@@ -288,6 +302,8 @@ Window {
         objectName: "episodesPanel"
         visible: root.episodesVisible && !root.pagesVisible && session.hasMedia
         anchors { top: parent.top; bottom: parent.bottom; right: parent.right; margins: 16 }
+        // Under Back and Close, so they never cover its own ×.
+        anchors.topMargin: corner.y + corner.height + 10
         // Above the control bar, which stays usable while it is open.
         anchors.bottomMargin: 72
         width: Math.min(440, parent.width - 32)
@@ -317,7 +333,7 @@ Window {
         id: upscalerBadge
         objectName: "upscalerBadge"
         anchors { top: parent.top; left: parent.left; margins: 16 }
-        visible: session.hasMedia && session.upscalerStatus !== "" && !root.pagesVisible
+        visible: preferences.showUpscalerBadge && session.hasMedia && session.upscalerStatus !== "" && !root.pagesVisible
                  && (upscalerBadgeTimer.running || root.controlsVisible)
         width: badgeRow.implicitWidth + 24
         height: badgeRow.implicitHeight + 12
@@ -390,8 +406,49 @@ Window {
         objectName: "shortcutsSheet"
         anchors.centerIn: parent
         anchors.verticalCenterOffset: -20
+        // Beside the playback settings when they are open, not under them.
+        anchors.horizontalCenterOffset: controlBar.openPanel === "settings" && root.width > 1100 ? -200 : 0
         visible: root.helpVisible && !root.pagesVisible
         onCloseRequested: { root.helpVisible = false; inputLayer.forceActiveFocus() }
+    }
+
+    // --- Back and Close, top right ---------------------------------------------
+
+    // Back shows the pages (the video keeps its place to come back to);
+    // Close stops the video and lets go of it (Q does the same).
+    Rectangle {
+        id: corner
+        objectName: "playerCorner"
+        anchors { top: parent.top; right: parent.right; topMargin: 16; rightMargin: 16 }
+        visible: session.hasMedia && !root.pagesVisible
+        opacity: root.controlsVisible ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 200 } }
+        width: cornerRow.implicitWidth + 8
+        height: cornerRow.implicitHeight + 8
+        radius: height / 2
+        color: Qt.rgba(Theme.panel.r, Theme.panel.g, Theme.panel.b, 0.86)
+        border.color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.14)
+        HoverHandler { id: cornerHover }
+        MouseArea { anchors.fill: parent; enabled: root.controlsVisible }
+        Row {
+            id: cornerRow
+            anchors.centerIn: parent
+            spacing: 2
+            IconButton {
+                objectName: "backToPages"
+                enabled: root.controlsVisible
+                iconName: "arrowLeft"
+                tip: "Back to browsing (B)"
+                onClicked: { controlBar.closePanel(); root.toggleBrowse() }
+            }
+            IconButton {
+                objectName: "closeVideo"
+                enabled: root.controlsVisible
+                iconName: "close"
+                tip: "Close video (Q)"
+                onClicked: { controlBar.closePanel(); session.stop() }
+            }
+        }
     }
 
     // --- Controls bar ---------------------------------------------------------
@@ -406,15 +463,15 @@ Window {
         fullScreen: root.visibility === Window.FullScreen
         statsShown: root.statsVisible
         onStatsRequested: root.statsVisible = !root.statsVisible
-        onOpenRequested: openDialog.open()
-        onOpenLinkRequested: linkPopup.open()
         onSubtitleFileRequested: subtitleDialog.open()
-        onBrowseRequested: root.toggleBrowse()
+        onAudioFileRequested: audioDialog.open()
         onSettingsRequested: root.toggleSettings()
         shortcutsShown: root.helpVisible
         onShortcutsRequested: root.helpVisible = !root.helpVisible
         onFullScreenRequested: root.toggleFullscreen()
         onEpisodesRequested: root.toggleEpisodes()
+        // One panel at a time: a bar panel closes the episodes list.
+        onOpenPanelChanged: if (openPanel !== "") root.episodesVisible = false
     }
 
     // --- First run: what may be contacted -----------------------------------

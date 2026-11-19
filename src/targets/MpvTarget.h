@@ -61,6 +61,7 @@ public:
     void setAudioTrack(int id) override;
     void setSubtitleTrack(int id) override;
     void addExternalSubtitle(const QUrl& url) override;
+    void addExternalAudio(const QUrl& url) override;
     void addSubtitleTrack(const SubtitleSource& subtitle) override;
     void setSpeed(double factor) override;
     void setVolume(double volume) override;

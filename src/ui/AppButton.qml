@@ -13,9 +13,13 @@ Button {
     leftPadding: iconName !== "" && text !== "" ? 12 : 14
     rightPadding: 14
     Accessible.name: text
-    contentItem: Row {
-        spacing: 8
+    // The words get cut short (…) when the button is narrower than they are.
+    contentItem: Item {
+        readonly property real iconRoom: control.iconName !== "" ? 16 + (label.visible ? 8 : 0) : 0
+        implicitWidth: iconRoom + (label.visible ? label.implicitWidth : 0)
+        implicitHeight: Math.max(16, label.implicitHeight)
         Icon {
+            id: buttonIcon
             visible: control.iconName !== ""
             anchors.verticalCenter: parent.verticalCenter
             name: control.iconName
@@ -25,7 +29,9 @@ Button {
         Text {
             id: label
             textFormat: Text.PlainText
+            x: parent.iconRoom
             anchors.verticalCenter: parent.verticalCenter
+            width: Math.min(implicitWidth, parent.width - parent.iconRoom)
             visible: text !== ""
             text: control.text
             font: control.font

@@ -5,6 +5,7 @@
 #include "Session.h"
 
 #include <QFile>
+#include <QRegularExpression>
 #include <QSaveFile>
 
 #include <algorithm>
@@ -26,6 +27,27 @@ QString episodeLabel(const HistoryEntry& e)
     return label;
 }
 
+// Wide art for the Home card, from the same image service as the poster:
+// Cinemeta's posters live at images.metahub.space/poster/<size>/<imdb id>/img,
+// and that service has the backdrop at /background/ and episode stills on
+// episodes.metahub.space. Other posters get none (Home blurs the poster).
+QRegularExpression metahubPoster()
+{
+    static const QRegularExpression re(QStringLiteral("^https://images\\.metahub\\.space/poster/[a-z]+/(tt\\d{1,10})/img$"));
+    return re;
+}
+QString backdropFor(const HistoryEntry& e)
+{
+    const QRegularExpressionMatch m = metahubPoster().match(e.poster);
+    return m.hasMatch() ? QStringLiteral("https://images.metahub.space/background/medium/%1/img").arg(m.captured(1)) : QString();
+}
+QString stillFor(const HistoryEntry& e)
+{
+    const QRegularExpressionMatch m = metahubPoster().match(e.poster);
+    if (!m.hasMatch() || e.season <= 0 || e.episode <= 0)
+        return {};
+    return QStringLiteral("https://episodes.metahub.space/%1/%2/%3/w780.jpg").arg(m.captured(1)).arg(e.season).arg(e.episode);
+}
 } // namespace
 
 Library::Library(Storage& storage, Session& session, Browser& browser, QObject* parent)
@@ -131,6 +153,8 @@ QVariantList Library::continueWatching() const
             {"name", e.itemName.isEmpty() ? e.source.title : e.itemName},
             {"subtitle", episodeLabel(e)},
             {"poster", e.poster},
+            {"backdrop", backdropFor(e)},
+            {"still", stillFor(e)},
             {"position", e.position},
             {"duration", e.duration},
             {"progress", e.duration > 0 ? std::clamp(e.position / e.duration, 0.0, 1.0) : 0.0},
