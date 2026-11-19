@@ -460,8 +460,9 @@ jobs:
           brew install qt mpv boost openssl@3 ninja pkgconf ccache
           # mpv's .pc file asks for keg-only libraries (libarchive) that
           # pkg-config does not look in; without them mpv/client.h is not found.
-          extra=$(ls -d "$(brew --prefix)"/opt/*/lib/pkgconfig 2>/dev/null | tr '\n' ':')
-          echo "PKG_CONFIG_PATH=${extra}${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
+          # Only that one: other keg-only paths (an old openssl@1.1) would
+          # take over the link line.
+          echo "PKG_CONFIG_PATH=$(brew --prefix libarchive)/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
 
       - uses: ./.github/actions/ccache
         with:
