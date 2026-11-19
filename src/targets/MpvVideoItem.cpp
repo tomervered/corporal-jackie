@@ -4,6 +4,7 @@
 #include "MpvTarget.h"
 #include "Session.h"
 
+#include <QElapsedTimer>
 #include <QOpenGLContext>
 #include <QOpenGLFramebufferObject>
 #include <QQuickOpenGLUtils>
@@ -13,6 +14,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <utility>
 
 #ifdef Q_OS_MACOS
 #include "MetalFxUpscaler.h"
@@ -33,6 +35,7 @@ class MpvRenderer : public QQuickFramebufferObject::Renderer
 public:
     ~MpvRenderer() override
     {
+        QObject::disconnect(m_swapConnection);
         if (m_ctx)
             mpv_render_context_free(m_ctx);
     }
@@ -49,6 +52,26 @@ public:
         m_metalFx = t && t->upscaler() == Upscaler::MetalFx;
         m_upscaleHeight = t ? t->upscaleHeight() : 0;
         m_videoSize = t ? QSize(t->videoWidth(), t->videoHeight()) : QSize();
+
+        auto* window = video->window();
+        if (window && !m_swapConnection) {
+            m_swapConnection = QObject::connect(window, &QQuickWindow::frameSwapped, window,
+                                                [this] { onFrameSwapped(); }, Qt::DirectConnection);
+        }
+        const auto* session = video->session();
+        const bool playing = t && window && window->isExposed() && session
+            && session->state() == PlaybackState::Playing && !session->buffering();
+        const double fps = playing ? t->videoFps() * session->speed() : 0;
+        // Leave room for the ordinary cadence of video and display refresh
+        // rates that don't divide evenly.
+        const double threshold = fps > 0 ? qMax(48.0, 1900.0 / fps) : 0;
+        const uint64_t epoch = t ? t->presentationEpoch() : 0;
+        if (epoch != m_presentationEpoch || (threshold > 0) != (m_gapThreshold > 0)) {
+            m_lastSwap.invalidate();
+            m_videoFramePending = false;
+        }
+        m_presentationEpoch = epoch;
+        m_gapThreshold = threshold;
     }
 
     QOpenGLFramebufferObject* createFramebufferObject(const QSize& size) override
@@ -62,6 +85,14 @@ public:
     {
         if (!m_ctx)
             return;
+        if (m_gapThreshold > 0) {
+            mpv_render_frame_info frame{};
+            mpv_render_context_get_info(m_ctx, {MPV_RENDER_PARAM_NEXT_FRAME_INFO, &frame});
+            // Resizing the window or painting controls can reuse the old frame.
+            if ((frame.flags & MPV_RENDER_FRAME_INFO_PRESENT)
+                && !(frame.flags & (MPV_RENDER_FRAME_INFO_REDRAW | MPV_RENDER_FRAME_INFO_REPEAT)))
+                m_videoFramePending = true;
+        }
         QOpenGLFramebufferObject* target = framebufferObject();
 #ifdef Q_OS_MACOS
         if (m_metalFx && renderWithMetalFx(target))
@@ -83,6 +114,24 @@ public:
     }
 
 private:
+    void onFrameSwapped()
+    {
+        if (!std::exchange(m_videoFramePending, false))
+            return;
+        if (!m_lastSwap.isValid()) {
+            m_lastSwap.start();
+            return;
+        }
+        const qint64 gap = m_lastSwap.restart();
+        if (gap <= m_gapThreshold)
+            return;
+        if (auto* target = m_target.data()) {
+            QMetaObject::invokeMethod(target, [target, epoch = m_presentationEpoch, gap] {
+                target->reportPresentationGap(epoch, gap);
+            }, Qt::QueuedConnection);
+        }
+    }
+
 #ifdef Q_OS_MACOS
     // mpv draws the frame small, about at the video's own size, and MetalFX
     // scales it up to the surface (or to the chosen height, then stretched).
@@ -154,6 +203,11 @@ private:
     mpv_render_context* m_ctx = nullptr;
     // Copied from the target in synchronize().
     QPointer<MpvTarget> m_target;
+    QMetaObject::Connection m_swapConnection;
+    QElapsedTimer m_lastSwap;
+    uint64_t m_presentationEpoch = 0;
+    double m_gapThreshold = 0;
+    bool m_videoFramePending = false;
     bool m_metalFx = false;
     int m_upscaleHeight = 0;
     QSize m_videoSize;

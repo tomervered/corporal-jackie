@@ -53,14 +53,18 @@ Item {
         id: detailHeader
         width: parent.width
         spacing: 24
-        Image {
+        RoundedArtwork {
             id: detailPoster
             width: 170; height: 255
-            source: browser.detail.poster || ""
-            visible: status === Image.Ready
-            fillMode: Image.PreserveAspectCrop
-            sourceSize.width: Math.ceil(width * Screen.devicePixelRatio)
-            asynchronous: true
+            visible: posterImage.status === Image.Ready
+            Image {
+                id: posterImage
+                anchors.fill: parent
+                source: browser.detail.poster || ""
+                fillMode: Image.PreserveAspectCrop
+                sourceSize.width: Math.ceil(width * Screen.devicePixelRatio)
+                asynchronous: true
+            }
         }
         Column {
             width: parent.width - (detailPoster.visible ? detailPoster.width + 24 : 0)

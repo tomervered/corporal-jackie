@@ -19,8 +19,11 @@ Window {
 
     // The look: Theme follows the saved choice, and Qt's own controls (menus,
     // tooltips, scroll bars, dialogs' parts) take their colours from it.
-    Binding { target: Theme; property: "mode"; value: preferences.colorMode }
-    Binding { target: Theme; property: "edits"; value: preferences.colorEdits }
+    Binding {
+        target: Theme
+        property: "selection"
+        value: ({ mode: preferences.colorMode, edits: preferences.colorEdits })
+    }
     Binding { target: Theme; property: "playerHalo"; value: preferences.playerHalo }
     palette {
         window: Theme.panel
@@ -45,12 +48,12 @@ Window {
 
     property bool controlsVisible: true
     property bool statsVisible: false
-    property bool helpVisible: false
     property bool browseVisible: false
     // The pages fill the window when nothing plays, and cover the video on B.
     readonly property bool pagesVisible: browseVisible || settingsVisible || (!session.hasMedia && !session.loading)
     property bool settingsVisible: false
     property bool episodesVisible: false
+    property int windowedVisibility: Window.Windowed
     property string errorText: ""
     property string osdText: ""
     // When the pages close by themselves (a video started from them), the
@@ -110,13 +113,15 @@ Window {
         else inputLayer.forceActiveFocus()
     }
 
-    // Full screen lives in the Session, so mpv's F and Esc keys and the
-    // window agree on it.
+    // Use the same window transition for keyboard, pointer and session events.
     function toggleFullscreen() { session.fullScreen = !session.fullScreen }
     onVisibilityChanged: {
-        if (root.visibility === Window.FullScreen || root.visibility === Window.Windowed
-                || root.visibility === Window.Maximized)
-            session.fullScreen = root.visibility === Window.FullScreen
+        if (root.visibility === Window.Windowed || root.visibility === Window.Maximized) {
+            root.windowedVisibility = root.visibility
+            session.fullScreen = false
+        } else if (root.visibility === Window.FullScreen) {
+            session.fullScreen = true
+        }
     }
 
     function showControls() {
@@ -148,7 +153,7 @@ Window {
         function onScreenshotSaved(path) { root.osd("Screenshot saved to Pictures › Corporal Jackie") }
         function onFullScreenChanged() {
             if ((root.visibility === Window.FullScreen) !== session.fullScreen)
-                root.visibility = session.fullScreen ? Window.FullScreen : Window.Windowed
+                root.visibility = session.fullScreen ? Window.FullScreen : root.windowedVisibility
         }
         // mpv's I key: mpv's own stats need a script, so the app shows its own.
         function onAppActionRequested(action) { if (action === "stats") root.statsVisible = !root.statsVisible }
@@ -204,34 +209,35 @@ Window {
         id: inputLayer
         anchors.fill: parent
         focus: true
-        property bool escapeClosedSheet: false
+        property bool escapeHandled: false
 
-        // Every key goes to mpv, which runs its own bindings (its standard
-        // input.conf: Space, arrows, F, M, J...). The app adds none here.
-        // mpv repeats a held key itself, so Qt's repeats are dropped.
+        // Handle window commands immediately. mpv handles playback keys and
+        // repeats held keys itself, so Qt's repeats are dropped.
         Keys.onPressed: event => {
-            // Esc closes an open panel or the keyboard sheet first (then it
-            // leaves full screen).
-            if (event.key === Qt.Key_Escape && (controlBar.openPanel !== "" || root.helpVisible)) {
-                if (controlBar.openPanel !== "") controlBar.closePanel()
-                else root.helpVisible = false
-                inputLayer.escapeClosedSheet = true
-                event.accepted = true
+            event.accepted = true
+            if (event.isAutoRepeat) return
+            // Shift+F belongs to mpv (subtitle size).
+            if (event.key === Qt.Key_F && event.modifiers === Qt.NoModifier) {
+                root.toggleFullscreen()
                 return
             }
-            if (!event.isAutoRepeat)
-                session.keyEvent(event.key, event.modifiers, event.text, true)
-            event.accepted = true
+            // Esc closes the open panel before it leaves full screen.
+            if (event.key === Qt.Key_Escape) {
+                inputLayer.escapeHandled = controlBar.openPanel !== "" || session.fullScreen
+                if (controlBar.openPanel !== "") controlBar.closePanel()
+                else if (session.fullScreen) session.fullScreen = false
+                if (inputLayer.escapeHandled) return
+            }
+            session.keyEvent(event.key, event.modifiers, event.text, true)
         }
         Keys.onReleased: event => {
-            if (event.key === Qt.Key_Escape && inputLayer.escapeClosedSheet) {
-                inputLayer.escapeClosedSheet = false
-                event.accepted = true
+            event.accepted = true
+            if (event.isAutoRepeat) return
+            if (event.key === Qt.Key_Escape && inputLayer.escapeHandled) {
+                inputLayer.escapeHandled = false
                 return
             }
-            if (!event.isAutoRepeat)
-                session.keyEvent(event.key, event.modifiers, event.text, false)
-            event.accepted = true
+            session.keyEvent(event.key, event.modifiers, event.text, false)
         }
         // A key held while a panel opens is never released here: stop mpv
         // repeating it.
@@ -287,7 +293,10 @@ Window {
         id: pagesView
         objectName: "pages"
         visible: root.pagesVisible
-        anchors.fill: parent
+        // Keep the library state while watching without relaying out its
+        // hidden pages at every step of a native window resize.
+        Binding on width { when: root.pagesVisible; value: root.width; restoreMode: Binding.RestoreNone }
+        Binding on height { when: root.pagesVisible; value: root.height; restoreMode: Binding.RestoreNone }
         settingsOpen: root.settingsVisible
         onCloseRequested: { root.browseVisible = false; root.settingsVisible = false; inputLayer.forceActiveFocus() }
         onSettingsRequested: root.toggleSettings()
@@ -401,16 +410,13 @@ Window {
         streaming: root.streaming
     }
 
-    // mpv's keys, from Options › Keyboard shortcuts, in the middle of the
-    // video. The bar stays usable under it (choosing the item again closes it).
+    // Keyboard help replaces the playback settings panel and stays centered.
     ShortcutsOverlay {
         objectName: "shortcutsSheet"
         anchors.centerIn: parent
         anchors.verticalCenterOffset: -20
-        // Beside the playback settings when they are open, not under them.
-        anchors.horizontalCenterOffset: controlBar.openPanel === "settings" && root.width > 1100 ? -200 : 0
-        visible: root.helpVisible && !root.pagesVisible
-        onCloseRequested: { root.helpVisible = false; inputLayer.forceActiveFocus() }
+        visible: controlBar.openPanel === "shortcuts" && !root.pagesVisible
+        onCloseRequested: { controlBar.closePanel(); inputLayer.forceActiveFocus() }
     }
 
     // --- Back and Close, top right ---------------------------------------------
@@ -469,11 +475,8 @@ Window {
         onSubtitleFileRequested: subtitleDialog.open()
         onAudioFileRequested: audioDialog.open()
         onSettingsRequested: root.toggleSettings()
-        shortcutsShown: root.helpVisible
-        onShortcutsRequested: root.helpVisible = !root.helpVisible
         onFullScreenRequested: root.toggleFullscreen()
         onEpisodesRequested: root.toggleEpisodes()
-        // One panel at a time: a bar panel closes the episodes list.
         onOpenPanelChanged: if (openPanel !== "") root.episodesVisible = false
     }
 

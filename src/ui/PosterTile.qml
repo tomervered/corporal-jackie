@@ -15,7 +15,6 @@ Item {
     property bool current: false
     property real posterWidth: Theme.posterWidth
     property string detail: tile.item.releaseInfo || ""
-    property color cornerColor: Theme.canvas   // what is behind the tile
     property real progress: -1          // 0-1 draws how far in, under the poster
     signal activated()
     width: posterWidth
@@ -35,9 +34,9 @@ Item {
         visible: opacity > 0
         Behavior on opacity { NumberAnimation { duration: 140 } }
         onVisibleChanged: if (visible) requestPaint()
-        onWidthChanged: requestPaint()
-        onHeightChanged: requestPaint()
-        Connections { target: Theme; function onAccentChanged() { glow.requestPaint() } }
+        onWidthChanged: if (visible) requestPaint()
+        onHeightChanged: if (visible) requestPaint()
+        Connections { target: Theme; enabled: glow.visible; function onAccentChanged() { glow.requestPaint() } }
         onPaint: {
             const ctx = getContext("2d")
             ctx.reset()
@@ -53,13 +52,12 @@ Item {
             shape(); ctx.fill()
         }
     }
-    Rectangle {
+    RoundedArtwork {
         id: art
         width: parent.width
         height: parent.width * 1.5
-        radius: Theme.posterRadius
         color: Theme.raised
-        clip: true
+        backdrop: Theme.canvas
         Text {
             textFormat: Text.PlainText
             anchors { fill: parent; margins: 12 }
@@ -99,10 +97,10 @@ Item {
             color: "#a0000000"
             Rectangle { width: parent.width * Math.min(1, tile.progress); height: parent.height; color: Theme.accent }
         }
-        CornerMask { anchors.fill: parent; radius: art.radius; color: tile.cornerColor }
-        // The outline sits on the poster's edge (it also hides the mask's seam).
+        // The outline shows focus or hover on the same rounded edge.
         Rectangle {
             anchors.fill: parent
+            z: 2
             radius: art.radius
             color: "transparent"
             border.width: 2

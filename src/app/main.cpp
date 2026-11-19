@@ -22,6 +22,7 @@
 #include <QQmlError>
 #include <QQuickWindow>
 #include <QSslSocket>
+#include <QStandardPaths>
 #include <QTimer>
 #ifdef Q_OS_WIN
 #  include <QtGui/qpa/qplatformwindow_p.h>
@@ -50,6 +51,8 @@ int main(int argc, char* argv[])
     args.addOption(smokeTest);
     args.addPositionalArgument(QStringLiteral("file"), QStringLiteral("A video file to open."));
     args.process(app);
+    if (args.isSet(smokeTest))
+        QStandardPaths::setTestModeEnabled(true);
     cj::AppCore::useLeftToRight();
 
     // mpv parses numbers with the C locale; Qt may have changed it.

@@ -16,8 +16,7 @@ Item {
     property bool shown: true
     property bool fullScreen: false
     property bool statsShown: false
-    property bool shortcutsShown: false
-    // "", "chapters", "volume", "tracks" or "settings".
+    // "", "chapters", "volume", "tracks", "settings" or "shortcuts".
     property string openPanel: ""
     // The playback setting showing its choices, or "".
     property string openChoice: ""
@@ -27,7 +26,6 @@ Item {
     signal subtitleFileRequested()
     signal audioFileRequested()
     signal settingsRequested()
-    signal shortcutsRequested()
     signal statsRequested()
     signal fullScreenRequested()
     signal episodesRequested()
@@ -676,8 +674,7 @@ Item {
         PanelRow {
             objectName: "shortcutsItem"
             label: "Keyboard shortcuts"
-            selected: controlBar.shortcutsShown
-            onClicked: controlBar.shortcutsRequested()
+            onClicked: controlBar.togglePanel("shortcuts")
         }
         PanelRow {
             label: "All settings"

@@ -554,6 +554,7 @@ void MpvTarget::setState(PlaybackState s)
     if (s == m_state)
         return;
     m_state = s;
+    ++m_presentationEpoch;
     emit stateChanged(s);
 }
 
@@ -978,7 +979,14 @@ void MpvTarget::processEvents()
         case MPV_EVENT_START_FILE:
             m_loadsInFlight = qMax(0, m_loadsInFlight - 1);
             m_fileLoaded = false;
+            ++m_presentationEpoch;
+            m_presentationGaps = 0;
+            m_longestPresentationGap = 0;
             setState(PlaybackState::Loading);
+            emitStats();
+            break;
+        case MPV_EVENT_SEEK:
+            ++m_presentationEpoch;
             break;
         case MPV_EVENT_FILE_LOADED:
             qCInfo(lcTargets) << "File loaded";
@@ -1238,6 +1246,16 @@ QString MpvTarget::upscalerLabel() const
     return name + (m_upscaleHeight > 0 ? QStringLiteral(" to %1p").arg(m_upscaleHeight) : QStringLiteral(" to window size"));
 }
 
+void MpvTarget::reportPresentationGap(uint64_t epoch, qint64 milliseconds)
+{
+    if (epoch != m_presentationEpoch)
+        return;
+    ++m_presentationGaps;
+    m_longestPresentationGap = qMax(m_longestPresentationGap, milliseconds);
+    qCDebug(lcTargets) << "Qt presentation gap:" << milliseconds << "ms";
+    emitStats();
+}
+
 void MpvTarget::emitStats()
 {
     const bool hw = !m_hwdecCurrent.isEmpty() && m_hwdecCurrent != QLatin1String("no");
@@ -1254,6 +1272,9 @@ void MpvTarget::emitStats()
         // refresh: which one grows says why playback stutters.
         {QStringLiteral("Dropped frames"), QStringLiteral("%1 drawing, %2 decoding").arg(m_dropped).arg(m_decoderDropped)},
         {QStringLiteral("Late frames"), QStringLiteral("%1 delayed, %2 mistimed").arg(m_delayed).arg(m_mistimed)},
+        {QStringLiteral("Qt presentation gaps"), m_mode == Mode::Video
+            ? QStringLiteral("%1 (%2 ms longest)").arg(m_presentationGaps).arg(m_longestPresentationGap)
+            : QStringLiteral("—")},
     });
 }
 

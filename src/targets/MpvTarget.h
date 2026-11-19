@@ -47,6 +47,9 @@ public:
     int upscaleHeight() const { return m_upscaleHeight; }
     int videoWidth() const { return m_videoWidth; }
     int videoHeight() const { return m_videoHeight; }
+    double videoFps() const { return m_fps; }
+    uint64_t presentationEpoch() const { return m_presentationEpoch; }
+    void reportPresentationGap(uint64_t epoch, qint64 milliseconds);
     // The video surface could not run MetalFX: turn it off.
     Q_INVOKABLE void renderUpscalerFailed();
 
@@ -165,6 +168,9 @@ private:
     int64_t m_decoderDropped = 0;
     int64_t m_delayed = 0;
     int64_t m_mistimed = 0;
+    uint64_t m_presentationEpoch = 0;
+    int m_presentationGaps = 0;
+    qint64 m_longestPresentationGap = 0;
 
     uint64_t m_nextReplyId = 1000;
     QHash<uint64_t, QString> m_pendingScreenshots;

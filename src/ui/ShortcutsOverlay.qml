@@ -1,10 +1,7 @@
 import QtQuick
 import QtQuick.Controls.Basic
 
-// mpv's own keys, which the video uses (the app adds none of its own), in
-// the middle of the picture: what each does on the left, its keys on the
-// right. The full list is mpv's input.conf. The × (or Playback settings ›
-// Keyboard shortcuts again, or Esc) closes it.
+// Playback and window keys, grouped in a scrollable sheet over the video.
 Rectangle {
     id: sheet
     signal closeRequested()
@@ -45,11 +42,10 @@ Rectangle {
             ["Screenshot", "S"],
             ["Diagnostics", "I"]]]
     ]
-    readonly property real room: parent ? parent.width : 900
-    readonly property int columns: room > 1250 ? 3 : room > 720 ? 2 : 1
+    readonly property int columns: width >= 620 ? 2 : 1
 
-    width: Math.min(columns === 3 ? 1060 : columns === 2 ? 760 : 420, room - 28)
-    height: Math.min(header.height + body.implicitHeight + 20, (parent ? parent.height : 600) - 110)
+    width: Math.min(680, parent.width - 32)
+    height: Math.min(header.height + body.implicitHeight + 16, 420, parent.height - 112)
     radius: 15
     color: Theme.pPanel
     border.color: Qt.rgba(Theme.pText.r, Theme.pText.g, Theme.pText.b, 0.2)
@@ -61,7 +57,7 @@ Rectangle {
     Item {
         id: header
         anchors { left: parent.left; right: parent.right; top: parent.top }
-        height: 58
+        height: 48
         Text {
             textFormat: Text.PlainText
             anchors { left: parent.left; leftMargin: 20; verticalCenter: parent.verticalCenter }
@@ -91,15 +87,14 @@ Rectangle {
 
         Grid {
             id: body
-            x: 22
-            width: flick.width - 44 - (flick.contentHeight > flick.height ? 10 : 0)
+            x: 16
+            width: flick.width - 32 - (flick.contentHeight > flick.height ? 10 : 0)
             columns: sheet.columns
-            columnSpacing: 32
+            columnSpacing: 20
             readonly property real columnWidth: (width - (columns - 1) * columnSpacing) / columns
             // Two columns: Playback on the left, the other two on the right.
             Repeater {
-                model: sheet.columns === 3 ? [[sheet.groups[0]], [sheet.groups[1]], [sheet.groups[2]]]
-                     : sheet.columns === 2 ? [[sheet.groups[0]], sheet.groups.slice(1)]
+                model: sheet.columns === 2 ? [[sheet.groups[0]], sheet.groups.slice(1)]
                      : [sheet.groups]
                 Column {
                     required property var modelData
@@ -124,7 +119,7 @@ Rectangle {
                                     id: keyRow
                                     required property var modelData
                                     width: body.columnWidth
-                                    height: 32
+                                    height: 27
                                     Text {
                                         textFormat: Text.PlainText
                                         anchors { left: parent.left; right: cap.left; rightMargin: 10; verticalCenter: parent.verticalCenter }

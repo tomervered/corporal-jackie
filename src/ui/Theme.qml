@@ -5,13 +5,13 @@ import QtQuick
 // olive dark (the default), OLED black, bright and custom (the person's
 // own palette, which can go to a file and come back). Each starts from four
 // colours (accent, canvas, panel, text) that Settings > Appearance can
-// change; the rest are mixed from those four. Main.qml sets `mode` and
-// `edits` from the saved preferences.
+// change; the rest are mixed from those four. Main.qml supplies the saved
+// selection as one value so a preset switch applies both parts together.
 QtObject {
     id: theme
 
-    property string mode: "dark"   // dark, oled, bright, custom
-    property var edits: ({})       // {mode: {accent, canvas, panel, text}}
+    property var selection: ({ mode: "dark", edits: {} })
+    readonly property string mode: selection.mode
 
     readonly property var presets: ({
         dark:   { canvas: "#171b16", panel: "#20251e", text: "#eaeee5", accent: "#a0b583" },
@@ -37,9 +37,10 @@ QtObject {
     ]
     // The four colours of the current look, with the person's changes.
     function base(key) {
-        const own = (edits || {})[mode] || {}
-        if (mode === "oled" && (key === "canvas" || key === "panel")) return "#000000"
-        return own[key] || (presets[mode] || presets.dark)[key]
+        const selected = selection
+        const own = (selected.edits || {})[selected.mode] || {}
+        if (selected.mode === "oled" && (key === "canvas" || key === "panel")) return "#000000"
+        return own[key] || (presets[selected.mode] || presets.dark)[key]
     }
     // `amount` of a, the rest b.
     function mix(a, b, amount) {
