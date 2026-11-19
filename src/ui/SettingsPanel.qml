@@ -51,11 +51,29 @@ Item {
         edits[Theme.mode] = own
         preferences.colorEdits = edits
     }
-    function usePalette(colors) {
+    // The four colours in use now.
+    function currentColors() {
+        return { accent: Theme.accent.toString(), canvas: Theme.canvas.toString(), panel: Theme.panel.toString(), text: Theme.text.toString() }
+    }
+    // entry: [name, colors, mode]. Commando Jackie and OLED black are modes
+    // (unchanged); the rest are the Custom mode with these colours.
+    function isCurrentPalette(entry) {
+        const own = (preferences.colorEdits || {})[entry[2]]
+        if (entry[2] !== "custom") return Theme.mode === entry[2] && !own
+        if (Theme.mode !== "custom") return false
+        const now = currentColors()
+        return ["accent", "canvas", "panel", "text"].every(k => now[k].toLowerCase() === String(entry[1][k]).toLowerCase())
+    }
+    function usePalette(entry) {
         const edits = JSON.parse(JSON.stringify(preferences.colorEdits || {}))
-        edits.custom = { accent: colors.accent, canvas: colors.canvas, panel: colors.panel, text: colors.text }
+        if (entry[2] !== "custom") {
+            delete edits[entry[2]]
+        } else {
+            const c = entry[1]
+            edits.custom = { accent: c.accent, canvas: c.canvas, panel: c.panel, text: c.text }
+        }
         preferences.colorEdits = edits
-        preferences.colorMode = "custom"
+        preferences.colorMode = entry[2]
     }
     function resetColors() {
         const edits = JSON.parse(JSON.stringify(preferences.colorEdits || {}))
@@ -214,17 +232,81 @@ Item {
                 objectName: "settingsAppearance"
                 title: "Appearance"
                 expanded: true
-                Choice {
-                    objectName: "colorMode"
-                    title: "Color mode"
-                    detail: "Olive dark is the default. OLED black turns the background and panels pure black. Bright is a light look for a sunny room. Custom is your own palette, which you can save to a file and load again."
-                    options: [["dark", "Olive dark"], ["oled", "OLED black"], ["bright", "Bright"], ["custom", "Custom"]]
-                    value: preferences.colorMode
-                    onPicked: v => preferences.colorMode = v
+                // One list: the built-in looks, the ready-made palettes and
+                // the ones the person saved. Commando Jackie and OLED black
+                // are modes of their own; the rest set the Custom mode.
+                SettingRow {
+                    objectName: "colorPalettes"
+                    title: "Color Palettes"
+                    detail: "Commando Jackie is the default. OLED black turns the background and panels pure black. Palettes you save or import are added here."
+                    Flow {
+                        width: 440
+                        spacing: 8
+                        Repeater {
+                            model: Theme.palettes.concat((preferences.savedPalettes || []).map(p => [p.name, p, "custom", true]))
+                            AbstractButton {
+                                id: paletteButton
+                                required property var modelData
+                                readonly property var colors: modelData[1]
+                                readonly property bool chosen: panel.isCurrentPalette(modelData)
+                                objectName: "palette-" + modelData[0]
+                                width: 104; height: 58
+                                hoverEnabled: true
+                                Accessible.name: modelData[0] + " palette" + (chosen ? ", chosen" : "")
+                                onClicked: panel.usePalette(modelData)
+                                background: Rectangle {
+                                    radius: 7
+                                    color: paletteButton.colors.canvas
+                                    border.width: paletteButton.chosen || paletteButton.visualFocus || paletteButton.hovered ? 2 : 1
+                                    border.color: paletteButton.chosen || paletteButton.visualFocus || paletteButton.hovered ? Theme.accent : Theme.line
+                                    Rectangle {
+                                        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 5 }
+                                        height: 20
+                                        radius: 4
+                                        color: paletteButton.colors.panel
+                                        Rectangle {
+                                            anchors { left: parent.left; leftMargin: 6; verticalCenter: parent.verticalCenter }
+                                            width: 26; height: 8; radius: 4
+                                            color: paletteButton.colors.accent
+                                        }
+                                        Icon {
+                                            visible: paletteButton.chosen
+                                            anchors { right: parent.right; rightMargin: 4; verticalCenter: parent.verticalCenter }
+                                            name: "check"
+                                            size: 14
+                                            color: paletteButton.colors.text
+                                        }
+                                    }
+                                    Text {
+                                        textFormat: Text.PlainText
+                                        anchors { left: parent.left; right: parent.right; leftMargin: 8; rightMargin: 6; bottom: parent.bottom; bottomMargin: 4 }
+                                        text: paletteButton.modelData[0]
+                                        color: paletteButton.colors.text
+                                        font.pixelSize: 11
+                                        lineHeight: 0.95
+                                        wrapMode: Text.WordWrap
+                                        maximumLineCount: 2
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                                // A saved palette can be taken off the list.
+                                IconButton {
+                                    visible: paletteButton.modelData[3] === true && paletteButton.hovered
+                                    x: parent.width - width + 6; y: -6
+                                    width: 22; height: 22
+                                    iconName: "close"
+                                    iconSize: 11
+                                    tip: "Remove " + paletteButton.modelData[0]
+                                    background: Rectangle { radius: 11; color: Theme.panel; border.color: Theme.line }
+                                    onClicked: preferences.removePalette(paletteButton.modelData[0])
+                                }
+                            }
+                        }
+                    }
                 }
                 SettingRow {
-                    title: "Color palette"
-                    detail: "Changes apply to this mode only, in the pages and on the player."
+                    title: "Customize"
+                    detail: "Changes the palette in use, in the pages and on the player."
                     Grid {
                         columns: 2
                         columnSpacing: 18
@@ -239,6 +321,7 @@ Item {
                                 opacity: locked ? 0.45 : 1
                                 AbstractButton {
                                     id: swatch
+                                    objectName: "swatch-" + swatchRow.modelData[0]
                                     width: 34; height: 30
                                     enabled: !swatchRow.locked
                                     Accessible.name: swatchRow.modelData[1] + " color"
@@ -251,7 +334,7 @@ Item {
                                         border.color: swatch.visualFocus ? Theme.accent : Theme.line
                                         Rectangle { anchors { fill: parent; margins: 4 } radius: 3; color: Theme[swatchRow.modelData[0]] }
                                     }
-                                    onClicked: { colorDialog.key = swatchRow.modelData[0]; colorDialog.selectedColor = Theme[swatchRow.modelData[0]]; colorDialog.open() }
+                                    onClicked: { colorPopup.key = swatchRow.modelData[0]; colorPopup.parent = swatch; colorPopup.open() }
                                 }
                                 Text {
                                     textFormat: Text.PlainText
@@ -264,81 +347,75 @@ Item {
                                 Text {
                                     textFormat: Text.PlainText
                                     anchors.verticalCenter: parent.verticalCenter
-                                    text: Theme[swatchRow.modelData[0]].toString().toUpperCase()
+                                    readonly property string presetName: Format.colorName(Theme[swatchRow.modelData[0]])
+                                    text: presetName !== "" ? presetName : Theme[swatchRow.modelData[0]].toString().toUpperCase()
                                     color: Theme.muted
-                                    font.family: "monospace"
+                                    font.family: presetName !== "" ? Qt.application.font.family : "monospace"
                                     font.pixelSize: Theme.smallSize
                                 }
                             }
                         }
                     }
                 }
+                ActionRow {
+                    title: "Restore this palette's colors"
+                    AppButton {
+                        text: "Restore defaults"
+                        enabled: !!(preferences.colorEdits || {})[Theme.mode] && Theme.mode !== "custom"
+                        onClicked: panel.resetColors()
+                    }
+                }
                 SettingRow {
-                    title: "Ready-made palettes"
-                    detail: "Picking one switches to Custom and starts it from these colors."
-                    Flow {
-                        width: 400
-                        spacing: 8
-                        Repeater {
-                            model: Theme.palettes
-                            AbstractButton {
-                                id: paletteButton
-                                required property var modelData
-                                objectName: "palette-" + modelData[0]
-                                width: 92; height: 58
-                                Accessible.name: modelData[0] + " palette"
-                                onClicked: panel.usePalette(modelData[1])
-                                background: Rectangle {
-                                    radius: 7
-                                    color: paletteButton.modelData[1].canvas
-                                    border.width: paletteButton.visualFocus || paletteButton.hovered ? 2 : 1
-                                    border.color: paletteButton.visualFocus || paletteButton.hovered ? Theme.accent : Theme.line
-                                    Rectangle {
-                                        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 6 }
-                                        height: 22
-                                        radius: 4
-                                        color: paletteButton.modelData[1].panel
-                                        Rectangle {
-                                            anchors { left: parent.left; leftMargin: 6; verticalCenter: parent.verticalCenter }
-                                            width: 26; height: 8; radius: 4
-                                            color: paletteButton.modelData[1].accent
-                                        }
-                                    }
-                                    Text {
-                                        textFormat: Text.PlainText
-                                        anchors { left: parent.left; leftMargin: 8; bottom: parent.bottom; bottomMargin: 6 }
-                                        text: paletteButton.modelData[0]
-                                        color: paletteButton.modelData[1].text
-                                        font.pixelSize: 12
-                                    }
-                                }
+                    id: saveRow
+                    title: "Save this palette"
+                    detail: saveRow.result !== "" ? saveRow.result : "Name it to add it to Color Palettes, or export it to a file to share."
+                    property string result: ""
+                    Row {
+                        spacing: 6
+                        AppField {
+                            id: paletteName
+                            objectName: "paletteName"
+                            width: 170
+                            placeholderText: "Palette name"
+                            maximumLength: 40
+                            onAccepted: saveButton.clicked()
+                        }
+                        AppButton {
+                            id: saveButton
+                            objectName: "savePalette"
+                            text: "Save"
+                            enabled: paletteName.text.trim() !== ""
+                            onClicked: {
+                                const error = preferences.savePalette(paletteName.text, panel.currentColors())
+                                if (error === "") panel.usePalette([paletteName.text.trim(), panel.currentColors(), "custom"])
+                                saveRow.result = error !== "" ? error : "Saved as " + paletteName.text.trim() + "."
                             }
+                        }
+                        AppButton {
+                            objectName: "exportColors"
+                            text: "Export…"
+                            onClicked: colorsExportDialog.open()
                         }
                     }
                 }
                 ActionRow {
-                    title: "Colors file"
-                    detail: colorsResult !== "" ? colorsResult : "Save the four colors of this mode to a file, or load a file someone shared (it becomes Custom)."
-                    property string colorsResult: ""
-                    id: colorsFileRow
-                    AppButton {
-                        objectName: "exportColors"
-                        text: "Export…"
-                        onClicked: colorsExportDialog.open()
-                    }
+                    id: importRow
+                    title: "Import a palette"
+                    detail: importRow.result !== "" ? importRow.result : "Load a palette file someone shared. It is added to Color Palettes and used."
+                    property string result: ""
                     AppButton {
                         objectName: "importColors"
                         text: "Import…"
                         onClicked: colorsImportDialog.open()
                     }
                 }
-                ActionRow {
-                    title: "Restore this mode's colors"
-                    AppButton {
-                        text: "Restore defaults"
-                        enabled: !!(preferences.colorEdits || {})[Theme.mode]
-                        onClicked: panel.resetColors()
-                    }
+                Choice {
+                    objectName: "playerHalo"
+                    title: "Player control halo"
+                    detail: "The soft fade behind the player's controls, in any color. With white or near-white panels the controls are charcoal."
+                    options: [["full", "Full"], ["half", "Half"], ["little", "Just a little"], ["off", "Off"]]
+                    value: preferences.playerHalo
+                    onPicked: v => preferences.playerHalo = v
                 }
             }
 
@@ -407,7 +484,7 @@ Item {
                 Rectangle {
                     objectName: "subtitleSample"
                     width: Math.min(parent.width, 560)
-                    height: Math.round(width / 2)
+                    height: Math.round(width * 9 / 16)
                     radius: 6
                     color: Theme.canvas
                     Image {
@@ -419,22 +496,40 @@ Item {
                         asynchronous: true
                     }
                     CornerMask { anchors.fill: parent; radius: parent.radius; color: Theme.panel }
+                    // Sized the way mpv sizes them: letters 55 and the outline
+                    // its width in units of a 720-line picture, scaled to this
+                    // one (Qt's own text outline is a fixed hairline).
+                    readonly property real unit: height / 720
+                    readonly property real outlineWidth: session.subtitleStyle.outline * unit
                     Rectangle {
                         anchors.centerIn: sample
-                        width: sample.contentWidth + 16
-                        height: sample.contentHeight + 6
+                        width: sample.contentWidth + 2 * Math.max(4, parent.outlineWidth * 2)
+                        height: sample.contentHeight + 2 * Math.max(2, parent.outlineWidth)
                         color: Qt.rgba(0, 0, 0, session.subtitleStyle.background / 100)
+                    }
+                    // The outline: copies of the line in black, all around it.
+                    Repeater {
+                        // Two rings of 16, so a thick outline has no gaps.
+                        model: parent.outlineWidth > 0 ? 32 : 0
+                        Text {
+                            required property int index
+                            readonly property real reach: sample.parent.outlineWidth * (index < 16 ? 1 : 0.5)
+                            textFormat: Text.PlainText
+                            x: sample.x + Math.cos((index % 16) * Math.PI / 8) * reach
+                            y: sample.y + Math.sin((index % 16) * Math.PI / 8) * reach
+                            text: sample.text
+                            font: sample.font
+                            color: "black"
+                        }
                     }
                     Text {
                         textFormat: Text.PlainText
                         id: sample
-                        anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 14 }
+                        anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: Math.round(parent.height * 0.05) }
                         text: "This is how subtitles look"
                         font.family: session.subtitleStyle.font !== "" ? session.subtitleStyle.font : "sans-serif"
-                        font.pixelSize: Math.round(20 * session.subtitleScale)
+                        font.pixelSize: Math.max(8, Math.round(55 * parent.unit * session.subtitleScale))
                         color: session.subtitleStyle.color
-                        style: session.subtitleStyle.outline > 0 ? Text.Outline : Text.Normal
-                        styleColor: "black"
                     }
                 }
                 Item { width: 1; height: 12 }
@@ -448,25 +543,25 @@ Item {
                 Choice {
                     title: "Size"
                     detail: "While watching, G makes subtitles bigger and Shift+G smaller."
-                    options: [[0.75, "Small"], [1.0, "Normal"], [1.25, "Large"], [1.5, "Larger"], [2.0, "Huge"]]
+                    options: Format.subtitleSizes
                     value: Math.round(session.subtitleScale * 100) / 100
                     onPicked: v => session.subtitleScale = v
                 }
                 Choice {
                     title: "Color"
-                    options: [["#FFFFFF", "White"], ["#FFE14D", "Yellow"], ["#C8C8C8", "Grey"]]
+                    options: Format.subtitleColors
                     value: session.subtitleStyle.color.toUpperCase()
                     onPicked: v => panel.setSubtitleStyle("color", v)
                 }
                 Choice {
                     title: "Outline"
-                    options: [[0, "None"], [1.5, "Thin"], [3, "Normal"], [5, "Thick"]]
+                    options: Format.subtitleOutlines
                     value: session.subtitleStyle.outline
                     onPicked: v => panel.setSubtitleStyle("outline", v)
                 }
                 Choice {
                     title: "Background"
-                    options: [[0, "None"], [40, "Light"], [70, "Dark"], [100, "Solid"]]
+                    options: Format.subtitleBackgrounds
                     value: session.subtitleStyle.background
                     onPicked: v => panel.setSubtitleStyle("background", v)
                 }
@@ -691,6 +786,46 @@ Item {
         }
     }
 
+    // Named colors to pick from; "Other color…" opens the full picker.
+    Popup {
+        id: colorPopup
+        objectName: "colorPopup"
+        property string key
+        y: parent ? parent.height + 6 : 0
+        padding: 12
+        background: Rectangle { radius: 10; color: Theme.overlay; border.color: Theme.line }
+        Column {
+            spacing: 10
+            Grid {
+                columns: 6
+                spacing: 6
+                Repeater {
+                    model: Format.colorPresets
+                    AbstractButton {
+                        id: presetButton
+                        required property var modelData
+                        objectName: "colorPreset-" + modelData[1]
+                        width: 34; height: 30
+                        hoverEnabled: true
+                        Accessible.name: modelData[1]
+                        ToolTip.visible: hovered
+                        ToolTip.text: modelData[1]
+                        onClicked: { panel.setColor(colorPopup.key, modelData[0]); colorPopup.close() }
+                        background: Rectangle {
+                            radius: 5
+                            color: presetButton.modelData[0]
+                            border.width: presetButton.hovered || presetButton.visualFocus ? 2 : 1
+                            border.color: presetButton.hovered || presetButton.visualFocus ? Theme.accent : Theme.line
+                        }
+                    }
+                }
+            }
+            AppButton {
+                text: "Other color…"
+                onClicked: { colorDialog.key = colorPopup.key; colorDialog.selectedColor = Theme[colorPopup.key]; colorPopup.close(); colorDialog.open() }
+            }
+        }
+    }
     ColorDialog {
         id: colorDialog
         property string key
@@ -728,9 +863,8 @@ Item {
         defaultSuffix: "json"
         nameFilters: ["Corporal Jackie colors (*.json)"]
         onAccepted: {
-            const error = preferences.exportColors(selectedFile, { accent: Theme.accent.toString(), canvas: Theme.canvas.toString(),
-                                                                   panel: Theme.panel.toString(), text: Theme.text.toString() })
-            colorsFileRow.colorsResult = error !== "" ? error : "Saved."
+            const error = preferences.exportColors(selectedFile, paletteName.text, panel.currentColors())
+            saveRow.result = error !== "" ? error : "Exported."
         }
     }
     FileDialog {
@@ -740,7 +874,7 @@ Item {
         nameFilters: ["Corporal Jackie colors (*.json)", "All files (*)"]
         onAccepted: {
             const error = preferences.importColors(selectedFile)
-            colorsFileRow.colorsResult = error !== "" ? error : "Loaded into Custom."
+            importRow.result = error !== "" ? error : "Imported and added to Color Palettes."
         }
     }
     FolderDialog {

@@ -15,8 +15,8 @@ Rectangle {
     // Read once here, not once per row: each read builds the whole list.
     readonly property bool hasEpisodes: browser.playingEpisodes.length > 0
 
-    color: Theme.panel
-    border.color: Theme.line
+    color: Theme.pPanel
+    border.color: Theme.pLine
     radius: 10
 
     // Clicks and scrolls on the panel stay here, away from the video below.
@@ -64,12 +64,13 @@ Rectangle {
             anchors { left: backButton.visible ? backButton.right : parent.left; right: closeButton.left
                       leftMargin: backButton.visible ? 8 : 0; verticalCenter: parent.verticalCenter }
             text: panel.pickedEpisode >= 0 ? browser.streamsTitle : browser.playingShowName
-            color: Theme.text
+            color: Theme.pText
             font.pixelSize: 17
             font.weight: Font.DemiBold
             elide: Text.ElideRight
         }
         IconButton {
+            onPlayer: true
             id: closeButton
             anchors { right: parent.right; verticalCenter: parent.verticalCenter }
             iconName: "close"
@@ -90,6 +91,7 @@ Rectangle {
         section.property: "season"
         section.delegate: SectionLabel {}
         delegate: RowItem {
+            onPlayer: true
             required property var modelData
             required property int index
             readonly property bool playing: index === browser.playingEpisodeIndex
@@ -109,6 +111,7 @@ Rectangle {
         anchors { left: parent.left; right: parent.right; top: header.bottom; bottom: parent.bottom; margins: 12 }
         spacing: 6
         Muted {
+            color: Theme.pMuted
             width: parent.width
             text: browser.streamsLoading ? "Asking your add-ons… (" + browser.streams.length + " found so far)"
                 : browser.streams.length === 0 ? "No way to play this episode was found."
@@ -126,6 +129,7 @@ Rectangle {
             section.property: "group"
             section.delegate: SectionLabel {}
             delegate: RowItem {
+                onPlayer: true
                 required property var modelData
                 required property int index
                 primary: modelData.provider + " · " + modelData.name

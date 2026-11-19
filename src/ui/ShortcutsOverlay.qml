@@ -51,8 +51,8 @@ Rectangle {
     width: Math.min(columns === 3 ? 1060 : columns === 2 ? 760 : 420, room - 28)
     height: Math.min(header.height + body.implicitHeight + 20, (parent ? parent.height : 600) - 110)
     radius: 15
-    color: Theme.panel
-    border.color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.2)
+    color: Theme.pPanel
+    border.color: Qt.rgba(Theme.pText.r, Theme.pText.g, Theme.pText.b, 0.2)
     Accessible.role: Accessible.Dialog
     Accessible.name: "Keyboard shortcuts"
     // Clicks on the sheet stay here (they would pause the video).
@@ -66,11 +66,12 @@ Rectangle {
             textFormat: Text.PlainText
             anchors { left: parent.left; leftMargin: 20; verticalCenter: parent.verticalCenter }
             text: "Keyboard shortcuts"
-            color: Theme.text
+            color: Theme.pText
             font.pixelSize: Theme.headingSize
             font.weight: Font.DemiBold
         }
         IconButton {
+            onPlayer: true
             objectName: "closeShortcuts"
             anchors { right: parent.right; rightMargin: 10; verticalCenter: parent.verticalCenter }
             iconName: "close"
@@ -112,7 +113,7 @@ Rectangle {
                             Text {
                                 textFormat: Text.PlainText
                                 text: parent.modelData[0]
-                                color: Theme.muted
+                                color: Theme.pMuted
                                 font.pixelSize: Theme.smallSize
                                 font.weight: Font.DemiBold
                                 bottomPadding: 6
@@ -128,7 +129,7 @@ Rectangle {
                                         textFormat: Text.PlainText
                                         anchors { left: parent.left; right: cap.left; rightMargin: 10; verticalCenter: parent.verticalCenter }
                                         text: keyRow.modelData[0]
-                                        color: Theme.text
+                                        color: Theme.pText
                                         font.pixelSize: 14
                                         elide: Text.ElideRight
                                     }
@@ -138,14 +139,14 @@ Rectangle {
                                         width: capText.implicitWidth + 14
                                         height: 24
                                         radius: 5
-                                        color: Theme.canvas
-                                        border.color: Theme.line
+                                        color: Theme.pCanvas
+                                        border.color: Theme.pLine
                                         Text {
                                             id: capText
                                             textFormat: Text.PlainText
                                             anchors.centerIn: parent
                                             text: keyRow.modelData[1]
-                                            color: Theme.text
+                                            color: Theme.pText
                                             font.family: "monospace"
                                             font.pixelSize: 12
                                         }

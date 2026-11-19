@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Shapes
+import QtQuick.Window
 
 // Rounds the corners of a picture: paints the four corners outside a
 // rounded rectangle in the colour behind it. (Qt 6.4 has no mask effect
@@ -8,8 +9,12 @@ Shape {
     id: mask
     property real radius: 10
     property color color: Theme.canvas
+    // Smooth edges, drawn at the screen's real pixel density (at 1× they
+    // came out jagged on a scaled display).
     layer.enabled: true
     layer.samples: 4
+    layer.smooth: true
+    layer.textureSize: Qt.size(Math.ceil(width * Screen.devicePixelRatio), Math.ceil(height * Screen.devicePixelRatio))
     ShapePath {
         strokeWidth: -1
         fillColor: mask.color

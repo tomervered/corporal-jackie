@@ -434,6 +434,30 @@ private slots:
         QCOMPARE(m_core->preferences().colorMode(), QStringLiteral("custom"));
         QTest::qWait(200);
         shot("settings-custom");
+        // Customize: a swatch opens named colors; a chosen one is shown by name, not hex.
+        {
+            auto find = [this](const char* name) {
+                QQuickItem* hit = nullptr;
+                QList<QQuickItem*> todo2{m_window->contentItem()};
+                while (!todo2.isEmpty() && !hit) {
+                    QQuickItem* i = todo2.takeLast();
+                    if (i->objectName() == QLatin1String(name))
+                        hit = i;
+                    todo2 += i->childItems();
+                }
+                return hit;
+            };
+            QQuickItem* swatch = find("swatch-accent");
+            QVERIFY(swatch);
+            QVERIFY(QMetaObject::invokeMethod(swatch, "clicked"));
+            QTest::qWait(200);
+            shot("settings-colors");
+            QQuickItem* gold = find("colorPreset-Gold");
+            QVERIFY(gold);
+            QVERIFY(QMetaObject::invokeMethod(gold, "clicked"));
+            QTest::qWait(100);
+            QCOMPARE(m_core->preferences().colorEdits().value(QStringLiteral("custom")).toMap().value(QStringLiteral("accent")).toString().toLower(), QStringLiteral("#e5b95c"));
+        }
         m_core->preferences().setColorMode(QStringLiteral("dark"));
         QQuickItem* panel = m_window->findChild<QQuickItem*>(QStringLiteral("settingsPanel"));
         QVERIFY(panel);
@@ -556,6 +580,16 @@ private slots:
         QTRY_VERIFY(visible("tracksPanel"));
         QTRY_VERIFY(visible("subtitleDelayValue"));
         shot("player-tracks");
+        // Style: how subtitles look, changed from the player.
+        click("styleTab");
+        QTRY_VERIFY(visible("choice-subOutline"));
+        QVERIFY(!visible("loadSubtitle") && !visible("subtitleDelayValue"));
+        QTest::qWait(100);   // the panel grows and moves up first
+        click("choice-subOutline");
+        QCOMPARE(m_window->findChild<QQuickItem*>(QStringLiteral("controlBar"))->property("openChoice").toString(), QStringLiteral("subOutline"));
+        QTest::qWait(150);
+        shot("player-tracks-style");
+        click("choice-subOutline");
         click("audioTab");
         QTRY_VERIFY(visible("loadAudio"));
         QVERIFY(!visible("subtitleDelayValue"));
@@ -567,6 +601,22 @@ private slots:
         click("choice-crop");
         QTest::qWait(50);
         shot("player-settings");
+        // White panels: the player's controls turn charcoal (the pages keep white).
+        {
+            Preferences& prefs = m_core->preferences();
+            prefs.setColorEdits({{QStringLiteral("custom"), QVariantMap{{QStringLiteral("accent"), QStringLiteral("#8a5a2b")}, {QStringLiteral("canvas"), QStringLiteral("#f6f4ef")},
+                                                                         {QStringLiteral("panel"), QStringLiteral("#ffffff")}, {QStringLiteral("text"), QStringLiteral("#2a2723")}}}});
+            prefs.setColorMode(QStringLiteral("custom"));
+            QQuickItem* gearPanel = m_window->findChild<QQuickItem*>(QStringLiteral("settingsPopup"));
+            QVERIFY(gearPanel);
+            QTRY_COMPARE(gearPanel->property("color").value<QColor>().name(), QStringLiteral("#24262a"));
+            shot("player-settings-charcoal");
+            prefs.setPlayerHalo(QStringLiteral("off"));
+            QTRY_COMPARE(gearPanel->property("color").value<QColor>().name(), QStringLiteral("#24262a"));   // charcoal stays; only the fade goes
+            prefs.setPlayerHalo(QStringLiteral("full"));
+            prefs.setColorEdits({});
+            prefs.setColorMode(QStringLiteral("dark"));
+        }
         session.setCrop(QStringLiteral("21:9"));
         QCOMPARE(m_target.last(), QStringLiteral("crop 21:9"));
         session.setCrop(QStringLiteral("5:4"));   // not offered

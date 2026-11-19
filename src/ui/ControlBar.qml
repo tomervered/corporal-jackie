@@ -55,9 +55,9 @@ Item {
     Rectangle {
         anchors.fill: parent
         gradient: Gradient {
-            GradientStop { position: 0; color: "transparent" }
-            GradientStop { position: 0.7; color: Theme.panel }
-            GradientStop { position: 1; color: Theme.panel }
+            GradientStop { position: 0; color: Qt.rgba(Theme.pPanel.r, Theme.pPanel.g, Theme.pPanel.b, 0) }
+            GradientStop { position: 0.7; color: Qt.rgba(Theme.pPanel.r, Theme.pPanel.g, Theme.pPanel.b, Theme.haloStrength) }
+            GradientStop { position: 1; color: Qt.rgba(Theme.pPanel.r, Theme.pPanel.g, Theme.pPanel.b, Theme.haloStrength) }
         }
     }
     // Clicks on the bar stay here (they would pause the video below).
@@ -68,6 +68,7 @@ Item {
         anchors { left: parent.left; leftMargin: 14; bottom: parent.bottom; bottomMargin: 10 }
         spacing: 2
         IconButton {
+            onPlayer: true
             objectName: "playPause"
             iconName: session.paused || session.state === Playback.Ended ? "play" : "pause"
             tip: session.paused || session.state === Playback.Ended ? "Play (Space)" : "Pause (Space)"
@@ -76,6 +77,7 @@ Item {
         }
         // The video's next chapter (a song in a concert, a scene in a film).
         IconButton {
+            onPlayer: true
             objectName: "nextTrack"
             visible: session.chapters.length > 1
             enabled: session.currentChapter < session.chapters.length - 1
@@ -84,15 +86,36 @@ Item {
             tip: "Next chapter"
             onClicked: session.nextChapter()
         }
-        Text {
-            textFormat: Text.PlainText
+        IconButton {
+            onPlayer: true
+            id: chaptersButton
+            objectName: "trackList"
+            visible: session.chapters.length > 1
+            iconName: "chapters"
+            tip: controlBar.openPanel === "chapters" ? "" : "Chapters"
+            Accessible.name: "Chapters"
+            active: controlBar.openPanel === "chapters"
+            onClicked: controlBar.togglePanel("chapters")
+        }
+        // Where it is, bright; how long it is, muted.
+        Row {
             anchors.verticalCenter: parent.verticalCenter
-            leftPadding: 6
-            text: Format.time(seek.pressed ? seek.value : session.position)
-                  + (controlBar.width > 640 ? " / " + Format.time(session.duration) : "")
-            color: Theme.text
-            font.pixelSize: Theme.smallSize
+            leftPadding: 8
+            Accessible.role: Accessible.StaticText
             Accessible.name: "Played " + Format.time(session.position) + " of " + Format.time(session.duration)
+            Text {
+                textFormat: Text.PlainText
+                text: Format.time(seek.pressed ? seek.value : session.position)
+                color: Theme.pText
+                font.pixelSize: Theme.smallSize + 1
+            }
+            Text {
+                textFormat: Text.PlainText
+                visible: controlBar.width > 640
+                text: " / " + Format.time(session.duration)
+                color: Theme.pMuted
+                font.pixelSize: Theme.smallSize + 1
+            }
         }
     }
 
@@ -128,7 +151,7 @@ Item {
             width: seek.availableWidth
             height: seekHover.hovered || seek.pressed ? 5 : 4
             Behavior on height { NumberAnimation { duration: 100 } }
-            Rectangle { anchors.fill: parent; radius: height / 2; color: Theme.line }
+            Rectangle { anchors.fill: parent; radius: height / 2; color: Theme.pLine }
             Rectangle {
                 width: seek.visualPosition * parent.width
                 height: parent.height
@@ -142,7 +165,7 @@ Item {
                 width: session.abLoopB >= 0 ? ((session.abLoopB - session.abLoopA) / Math.max(1, session.duration)) * parent.width : 2
                 y: parent.height + 3
                 height: 3
-                color: Theme.text
+                color: Theme.pText
                 opacity: 0.8
             }
             // Chapter starts: small breaks in the track.
@@ -155,7 +178,7 @@ Item {
                     y: -1
                     width: 2
                     height: parent.height + 2
-                    color: Theme.canvas
+                    color: Theme.pCanvas
                 }
             }
         }
@@ -178,8 +201,8 @@ Item {
             width: hoverText.implicitWidth + 14
             height: hoverText.implicitHeight + 8
             radius: 4
-            color: Theme.panel
-            border.color: Theme.line
+            color: Theme.pPanel
+            border.color: Theme.pLine
             Text {
                 id: hoverText
                 textFormat: Text.PlainText
@@ -189,7 +212,7 @@ Item {
                     const c = i >= 0 ? session.chapters[i] : null
                     return Format.time(seek.hoverTime) + (c ? "  ·  " + (c.title || "Chapter " + (i + 1)) : "")
                 }
-                color: Theme.text
+                color: Theme.pText
                 font.pixelSize: 12
             }
         }
@@ -203,30 +226,31 @@ Item {
         spacing: 0
 
         IconButton {
-            id: chaptersButton
-            objectName: "trackList"
-            visible: session.chapters.length > 1
-            iconName: "chapters"
-            tip: controlBar.openPanel === "chapters" ? "" : "Chapters"
-            Accessible.name: "Chapters"
-            active: controlBar.openPanel === "chapters"
-            onClicked: controlBar.togglePanel("chapters")
+
+            onPlayer: true
+            objectName: "episodesButton"
+            visible: browser.playingEpisodes.length > 0
+            iconName: "episodes"
+            tip: "Episodes"
+            onClicked: { controlBar.closePanel(); controlBar.episodesRequested() }
         }
         // The speaker: 0 to 3 waves for the level, the accent colour above
         // 100%. A click opens the volume slider above it, the next closes it.
         IconButton {
+            onPlayer: true
             id: speaker
             objectName: "volumeButton"
             readonly property real level: session.muted ? 0 : session.volume
             iconName: session.muted ? "muted"
                     : level <= 0 ? "volume0" : level <= 33 ? "volume1" : level <= 66 ? "volume2" : "volume3"
-            iconColor: level > 100 ? Theme.accent : Theme.text
+            iconColor: level > 100 ? Theme.accent : Theme.pText
             tip: ""
             Accessible.name: "Volume " + Math.round(session.volume) + "%" + (session.muted ? ", muted" : "")
             onClicked: controlBar.togglePanel("volume")
             WheelHandler { onWheel: event => controlBar.nudgeVolume(event.angleDelta.y) }
         }
         IconButton {
+            onPlayer: true
             id: tracksButton
             objectName: "captionsButton"
             iconName: "captions"
@@ -236,12 +260,7 @@ Item {
             onClicked: controlBar.togglePanel("tracks")
         }
         IconButton {
-            visible: browser.playingEpisodes.length > 0
-            iconName: "episodes"
-            tip: "Episodes"
-            onClicked: { controlBar.closePanel(); controlBar.episodesRequested() }
-        }
-        IconButton {
+            onPlayer: true
             id: gearButton
             objectName: "optionsButton"
             iconName: "gear"
@@ -251,6 +270,7 @@ Item {
             onClicked: controlBar.togglePanel("settings")
         }
         IconButton {
+            onPlayer: true
             iconName: controlBar.fullScreen ? "windowed" : "fullscreen"
             tip: controlBar.fullScreen ? "Exit full screen (F)" : "Full screen (F)"
             onClicked: controlBar.fullScreenRequested()
@@ -271,7 +291,7 @@ Item {
         title: "Chapters"
         width: Math.min(340, controlBar.width - 24)
         maxHeight: controlBar.panelMaxHeight
-        x: Math.max(12, Math.min(controlBar.width - width - 12, rightGroup.x + chaptersButton.x + chaptersButton.width / 2 - width / 2))
+        x: Math.max(12, Math.min(controlBar.width - width - 12, leftGroup.x + chaptersButton.x + chaptersButton.width / 2 - width / 2))
         y: controlBar.panelBottom - height
         Repeater {
             model: chaptersPanel.visible ? session.chapters : []
@@ -297,8 +317,8 @@ Item {
         x: Math.min(controlBar.width - width - 4, rightGroup.x + speaker.x + speaker.width / 2 - width / 2)
         y: controlBar.panelBottom - height
         radius: 12
-        color: Theme.panel
-        border.color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.17)
+        color: Theme.pPanel
+        border.color: Qt.rgba(Theme.pText.r, Theme.pText.g, Theme.pText.b, 0.17)
         MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons }
         WheelHandler { onWheel: event => controlBar.nudgeVolume(event.angleDelta.y) }
 
@@ -307,7 +327,7 @@ Item {
             textFormat: Text.PlainText
             anchors { top: parent.top; topMargin: 12; horizontalCenter: parent.horizontalCenter }
             text: Math.round(volumeSlider.pressed ? volumeSlider.value : session.volume) + "%"
-            color: session.volume > 100 ? Theme.accent : Theme.text
+            color: session.volume > 100 ? Theme.accent : Theme.pText
             font.pixelSize: Theme.bodySize
             font.weight: Font.DemiBold
         }
@@ -332,20 +352,20 @@ Item {
                 y: volumeSlider.topPadding
                 width: 4
                 height: volumeSlider.availableHeight
-                Rectangle { anchors.fill: parent; radius: 2; color: Theme.line }
+                Rectangle { anchors.fill: parent; radius: 2; color: Theme.pLine }
                 Rectangle {
                     anchors.bottom: parent.bottom
                     width: parent.width
                     height: (1 - volumeSlider.visualPosition) * parent.height
                     radius: 2
-                    color: session.muted ? Theme.muted : Theme.accent
+                    color: session.muted ? Theme.pMuted : Theme.accent
                 }
                 Rectangle {
                     y: (1 - 100 / volumeSlider.to) * parent.height - height / 2
                     x: -4
                     width: 12
                     height: 2
-                    color: Theme.text
+                    color: Theme.pText
                     opacity: 0.7
                 }
                 Text {
@@ -353,7 +373,7 @@ Item {
                     x: 12
                     y: (1 - 100 / volumeSlider.to) * parent.height - height / 2
                     text: "100"
-                    color: Theme.muted
+                    color: Theme.pMuted
                     font.pixelSize: 10
                 }
             }
@@ -363,11 +383,12 @@ Item {
                 width: volumeSlider.pressed ? 16 : 14
                 height: width
                 radius: width / 2
-                color: Theme.text
+                color: Theme.pText
                 border.color: "#80000000"
             }
         }
         IconButton {
+            onPlayer: true
             id: muteToggle
             objectName: "muteButton"
             anchors { bottom: parent.bottom; bottomMargin: 6; horizontalCenter: parent.horizontalCenter }
@@ -393,7 +414,7 @@ Item {
         contentItem: Text {
             textFormat: Text.PlainText
             text: small.text
-            color: Theme.text
+            color: Theme.pText
             font.pixelSize: 13
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
@@ -401,8 +422,8 @@ Item {
         }
         background: Rectangle {
             radius: 7
-            color: small.checked ? Theme.raised : small.down ? Theme.pressed : small.hovered ? Theme.hover : "transparent"
-            border.color: small.checked ? Theme.accent : Theme.line
+            color: small.checked ? Theme.pRaised : small.down ? Theme.pPressed : small.hovered ? Theme.pHover : "transparent"
+            border.color: small.checked ? Theme.accent : Theme.pLine
         }
     }
     PlayerPanel {
@@ -410,6 +431,12 @@ Item {
         objectName: "tracksPanel"
         visible: controlBar.openPanel === "tracks"
         readonly property bool subtitles: controlBar.tracksTab === "subtitles"
+        readonly property bool style: controlBar.tracksTab === "style"
+        function setStyle(key, value) {
+            const st = session.subtitleStyle
+            st[key] = value
+            session.subtitleStyle = st
+        }
         title: "Audio & subtitles"
         width: Math.min(365, controlBar.width - 24)
         maxHeight: controlBar.panelMaxHeight
@@ -426,12 +453,69 @@ Item {
                 checked: tracksPanel.subtitles
                 onClicked: controlBar.tracksTab = "subtitles"
             }
+            // How subtitles look, between the subtitle and audio tracks.
+            SmallButton {
+                objectName: "styleTab"
+                text: "Style"
+                checked: tracksPanel.style
+                onClicked: controlBar.tracksTab = "style"
+            }
             SmallButton {
                 objectName: "audioTab"
                 text: "Audio"
-                checked: !tracksPanel.subtitles
+                checked: controlBar.tracksTab === "audio"
                 onClicked: controlBar.tracksTab = "audio"
             }
+        }
+        PanelChoices {
+            key: "subSize"
+            visible: tracksPanel.style
+            open: controlBar.openChoice === "subSize"
+            onToggled: controlBar.openChoice = open ? "" : "subSize"
+            label: "Size"
+            options: Format.subtitleSizes
+            current: Math.round(session.subtitleScale * 100) / 100
+            onPicked: v => session.subtitleScale = v
+        }
+        PanelChoices {
+            key: "subColor"
+            visible: tracksPanel.style
+            open: controlBar.openChoice === "subColor"
+            onToggled: controlBar.openChoice = open ? "" : "subColor"
+            label: "Color"
+            options: Format.subtitleColors
+            current: session.subtitleStyle.color.toUpperCase()
+            onPicked: v => tracksPanel.setStyle("color", v)
+        }
+        PanelChoices {
+            key: "subOutline"
+            visible: tracksPanel.style
+            open: controlBar.openChoice === "subOutline"
+            onToggled: controlBar.openChoice = open ? "" : "subOutline"
+            label: "Outline"
+            options: Format.subtitleOutlines
+            current: session.subtitleStyle.outline
+            onPicked: v => tracksPanel.setStyle("outline", v)
+        }
+        PanelChoices {
+            key: "subBackground"
+            visible: tracksPanel.style
+            open: controlBar.openChoice === "subBackground"
+            onToggled: controlBar.openChoice = open ? "" : "subBackground"
+            label: "Background"
+            options: Format.subtitleBackgrounds
+            current: session.subtitleStyle.background
+            onPicked: v => tracksPanel.setStyle("background", v)
+        }
+        PanelChoices {
+            key: "subFont"
+            visible: tracksPanel.style
+            open: controlBar.openChoice === "subFont"
+            onToggled: controlBar.openChoice = open ? "" : "subFont"
+            label: "Font"
+            options: [["", "Default"]].concat(Qt.fontFamilies().map(f => [f, f]))
+            current: session.subtitleStyle.font
+            onPicked: v => tracksPanel.setStyle("font", v)
         }
         PanelRow {
             visible: tracksPanel.subtitles
@@ -441,7 +525,7 @@ Item {
             onClicked: session.setSubtitleTrack(-1)
         }
         Repeater {
-            model: tracksPanel.visible ? (tracksPanel.subtitles ? session.subtitleTracks : session.audioTracks) : []
+            model: tracksPanel.visible && !tracksPanel.style ? (tracksPanel.subtitles ? session.subtitleTracks : session.audioTracks) : []
             PanelRow {
                 required property var modelData
                 label: modelData.name || modelData.label
@@ -451,11 +535,12 @@ Item {
             }
         }
         Muted {
-            visible: !tracksPanel.subtitles && session.audioTracks.length === 0
+            visible: controlBar.tracksTab === "audio" && session.audioTracks.length === 0
             leftPadding: 10
             text: "No audio tracks."
         }
         PanelRow {
+            visible: !tracksPanel.style
             objectName: tracksPanel.subtitles ? "loadSubtitle" : "loadAudio"
             label: tracksPanel.subtitles ? "Load subtitle file…" : "Load audio track…"
             onClicked: {
@@ -471,12 +556,12 @@ Item {
             width: tracksPanel.width
             spacing: 6
             leftPadding: 14
-            Rectangle { width: parent.width - 28; height: 1; color: Theme.divider }
+            Rectangle { width: parent.width - 28; height: 1; color: Theme.pDivider }
             Text {
                 textFormat: Text.PlainText
                 topPadding: 4
                 text: "Subtitle timing"
-                color: Theme.text
+                color: Theme.pText
                 font.pixelSize: 13
                 font.weight: Font.DemiBold
             }
@@ -491,7 +576,7 @@ Item {
                     horizontalAlignment: Text.AlignHCenter
                     text: (session.subtitleDelay > 0 ? "+" : session.subtitleDelay < 0 ? "−" : "")
                           + Math.abs(session.subtitleDelay).toFixed(1) + " s"
-                    color: Theme.text
+                    color: Theme.pText
                     font.pixelSize: 13
                 }
                 SmallButton { text: "Later"; onClicked: session.subtitleDelay = Math.round((session.subtitleDelay + 0.1) * 10) / 10 }
@@ -502,50 +587,6 @@ Item {
 
     // Playback settings: each choice shows its value and opens its list in
     // place; a second click on it closes the list.
-    component Choices: Column {
-        id: choices
-        property string key
-        property string label
-        property var options: []     // [[value, label], ...]
-        property var current
-        property bool open: false
-        signal picked(var value)
-        signal toggled()
-        width: parent ? parent.width : 300
-        PanelRow {
-            objectName: "choice-" + choices.key
-            label: choices.label
-            value: (choices.options.find(o => o[0] === choices.current) || [null, ""])[1]
-            expandable: true
-            expanded: choices.open
-            enabled: choices.enabled
-            onClicked: choices.toggled()
-        }
-        Item {
-            visible: choices.open
-            width: parent.width
-            height: visible ? optionColumn.implicitHeight + 6 : 0
-            Rectangle { x: 10; y: 2; width: 1; height: optionColumn.implicitHeight; color: Theme.line }
-            Column {
-                id: optionColumn
-                x: 18
-                y: 2
-                width: parent.width - 22
-                Repeater {
-                    model: choices.open ? choices.options : []
-                    PanelRow {
-                        required property var modelData
-                        implicitHeight: 33
-                        fontSize: 13
-                        label: modelData[1]
-                        selected: modelData[0] === choices.current
-                        tickSpace: true
-                        onClicked: choices.picked(modelData[0])
-                    }
-                }
-            }
-        }
-    }
     PlayerPanel {
         id: settingsPanel
         objectName: "settingsPopup"
@@ -556,7 +597,7 @@ Item {
         x: Math.max(12, Math.min(controlBar.width - width - 12, rightGroup.x + gearButton.x + gearButton.width / 2 - width / 2))
         y: controlBar.panelBottom - height
 
-        Choices {
+        PanelChoices {
             key: "speed"
             open: controlBar.openChoice === "speed"
             onToggled: controlBar.openChoice = open ? "" : key
@@ -567,7 +608,7 @@ Item {
             current: session.speed
             onPicked: v => session.speed = v
         }
-        Choices {
+        PanelChoices {
             key: "aspect"
             open: controlBar.openChoice === "aspect"
             onToggled: controlBar.openChoice = open ? "" : key
@@ -578,7 +619,7 @@ Item {
             current: session.aspectRatio
             onPicked: v => session.setAspectRatio(v)
         }
-        Choices {
+        PanelChoices {
             key: "crop"
             open: controlBar.openChoice === "crop"
             onToggled: controlBar.openChoice = open ? "" : key
@@ -588,7 +629,7 @@ Item {
             current: session.crop
             onPicked: v => session.setCrop(v)
         }
-        Choices {
+        PanelChoices {
             key: "upscaler"
             open: controlBar.openChoice === "upscaler"
             onToggled: controlBar.openChoice = open ? "" : key
@@ -598,7 +639,7 @@ Item {
             current: session.upscaler
             onPicked: v => session.upscaler = v
         }
-        Choices {
+        PanelChoices {
             key: "upscaleTo"
             open: controlBar.openChoice === "upscaleTo"
             onToggled: controlBar.openChoice = open ? "" : key
@@ -609,7 +650,7 @@ Item {
             current: session.upscaleHeight
             onPicked: v => session.upscaleHeight = v
         }
-        Rectangle { width: parent.width; height: 1; color: Theme.divider }
+        Rectangle { width: parent.width; height: 1; color: Theme.pDivider }
         PanelRow {
             label: "Reset picture"
             enabled: session.supports("AspectRatio") || session.supports("VideoEqualizer")

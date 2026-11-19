@@ -11,7 +11,8 @@ ToolButton {
     property real iconSize: 20
     property bool takesFocus: false
     property bool active: false        // its menu is open, or it is switched on
-    property color iconColor: Theme.text
+    property bool onPlayer: false      // over the video: the player's colours
+    property color iconColor: onPlayer ? Theme.pText : Theme.text
     focusPolicy: takesFocus ? Qt.StrongFocus : Qt.NoFocus
     implicitWidth: 40
     implicitHeight: 40
@@ -27,13 +28,13 @@ ToolButton {
         contentItem: Text {
             textFormat: Text.PlainText
             text: tipBox.text
-            color: Theme.text
+            color: control.onPlayer ? Theme.pText : Theme.text
             font.pixelSize: 12
         }
         background: Rectangle {
             radius: 5
-            color: Theme.panel
-            border.color: Theme.line
+            color: control.onPlayer ? Theme.pPanel : Theme.panel
+            border.color: control.onPlayer ? Theme.pLine : Theme.line
         }
     }
     contentItem: Item {
@@ -49,7 +50,8 @@ ToolButton {
     }
     background: Rectangle {
         radius: width / 2
-        color: control.down ? Theme.pressed : control.hovered || control.active ? Theme.hover : "transparent"
+        color: control.down ? (control.onPlayer ? Theme.pPressed : Theme.pressed)
+             : control.hovered || control.active ? (control.onPlayer ? Theme.pHover : Theme.hover) : "transparent"
         border.width: control.visualFocus ? 2 : 0
         border.color: Theme.accent
     }

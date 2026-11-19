@@ -29,12 +29,17 @@ Item {
         transformOrigin: Item.TopLeft
         ShapePath {
             strokeColor: icon.path[1] ? "transparent" : icon.color
-            strokeWidth: icon.path[1] ? 0 : 1.8
+            strokeWidth: icon.path[1] ? 0 : 1.75
             fillColor: icon.path[1] ? icon.color : "transparent"
             fillRule: ShapePath.OddEvenFill
             capStyle: ShapePath.RoundCap
             joinStyle: ShapePath.RoundJoin
             PathSvg { path: icon.path[0] }
+        }
+        ShapePath {
+            strokeWidth: -1
+            fillColor: icon.path.length > 2 ? icon.color : "transparent"
+            PathSvg { path: icon.path.length > 2 ? icon.path[2] : "" }
         }
     }
 }

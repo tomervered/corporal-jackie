@@ -483,6 +483,15 @@ private slots:
             QCOMPARE(addons.addons().size(), 1);
             QCOMPARE(addons.catalogs().size(), 1);
             QCOMPARE(addons.catalogs()[0].name, QStringLiteral("Addon A · Top movies"));
+            // Switched off: kept, but gives no lists and is asked for nothing.
+            QVERIFY(addons.setEnabled("org.a", false));
+            QVERIFY(!addons.setEnabled("org.a", false));
+            QVERIFY(addons.catalogs().isEmpty());
+            const auto before = server.requests.size();
+            Waiter<bool> done;
+            addons.fetchStreams("movie", "tt1", [](const QList<StreamOption>&, const QString&, const QString&) {}, [&] { done.value = true; });
+            done.wait();
+            QCOMPARE(server.requests.size(), before);
         }
         // A restart keeps the list, without asking the network, and does
         // not bring back the removed WikiMaze.
@@ -491,6 +500,10 @@ private slots:
         QCOMPARE(again.addons().size(), 1);
         QCOMPARE(again.addons()[0].manifest.name, QStringLiteral("Addon A"));
         QCOMPARE(int(server.requests.size()), asked);
+        // ...and that it was switched off.
+        QVERIFY(again.addons()[0].disabled);
+        QVERIFY(again.setEnabled("org.a", true));
+        QCOMPARE(again.catalogs().size(), 1);
     }
 
     void asksTheRightAddonsAndSurvivesBadOnes()

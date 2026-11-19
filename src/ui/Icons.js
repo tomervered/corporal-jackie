@@ -1,6 +1,8 @@
 .pragma library
 // The icons of Icon.qml, shared by all of them: name: [SVG path data on a
-// 24 x 24 grid, filled (true) or drawn as lines].
+// 24 x 24 grid, filled (true) or drawn as lines, and optionally a second
+// path that is always filled (a play mark inside a line icon)].
+// The player bar's icons follow Tomer's icon set (2026-11-19).
 var paths = {
     home: ["m3 10 9-7 9 7v10h-6v-7H9v7H3z", false],
     discover: ["M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0zM16 8l-3 6-5 2 3-6z", false],
@@ -9,24 +11,23 @@ var paths = {
     local: ["M3 6h7l2 3h9v11H3z", false],
     settings: ["M3 7h3m6 0h9M3 17h10m6 0h2M6 7a3 3 0 1 0 6 0a3 3 0 1 0-6 0zM13 17a3 3 0 1 0 6 0a3 3 0 1 0-6 0z", false],
     search: ["M4 11a7 7 0 1 0 14 0a7 7 0 1 0-14 0zm12 5 5 5", false],
-    play: ["M6 3l15 9-15 9z", true],
+    play: ["M5 3.5 20 12 5 20.5z", true],
     pause: ["M6 4h4v16H6zM14 4h4v16h-4z", true],
-    next: ["M5 4l10 8-10 8zM17 4h2v16h-2z", true],
-    chapters: ["M4 5h3v14H4zM11 6h9M11 12h9M11 18h9", false],
-    volume: ["M3 9h4l5-4v14l-5-4H3zM16 9a5 5 0 0 1 0 6M18 6a9 9 0 0 1 0 12", false],
-    volume0: ["M3 9h4l5-4v14l-5-4H3z", false],
-    volume1: ["M3 9h4l5-4v14l-5-4H3zM15.5 10a3 3 0 0 1 0 4", false],
-    volume2: ["M3 9h4l5-4v14l-5-4H3zM15.5 10a3 3 0 0 1 0 4M17.6 7.6a6.2 6.2 0 0 1 0 8.8", false],
-    volume3: ["M3 9h4l5-4v14l-5-4H3zM15.5 10a3 3 0 0 1 0 4M17.6 7.6a6.2 6.2 0 0 1 0 8.8M19.8 5.3a9.4 9.4 0 0 1 0 13.4", false],
-    muted: ["M3 9h4l5-4v14l-5-4H3zM16 9l6 6m0-6-6 6", false],
-    captions: ["M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zM10 10a2 2 0 1 0 0 4m7-4a2 2 0 1 0 0 4", false],
-    gear: ["M9.8 2h4.4l.6 2.5 1.5.9 2.5-.8 2.2 3.8-1.9 1.8v1.9l1.9 1.8-2.2 3.8-2.5-.8-1.5.9-.6 2.5H9.8l-.6-2.5-1.5-.9-2.5.8L3 13.9l1.9-1.8v-1.9L3 8.4l2.2-3.8 2.5.8 1.5-.9zM12 7.4a3.9 3.9 0 1 0 0 7.8 3.9 3.9 0 0 0 0-7.8z", true],
-    fullscreen: ["M3 9V4h5m8 0h5v5m0 6v5h-5m-8 0H3v-5", false],
-    windowed: ["M8 3v5H3m13-5v5h5m0 8h-5v5M3 16h5v5", false],
+    next: ["M18 5v14", false, "m5 5 11 7-11 7z"],
+    chapters: ["M3 4h3v16H3zM10 5h11M10 12h11M10 19h11", false],
+    volume: ["M2 9h4l5-4v14l-5-4H2z M14 9q3 3 0 6M17 6q5 6 0 12M20 3q7 9 0 18", false],
+    volume0: ["M2 9h4l5-4v14l-5-4H2z", false],
+    volume1: ["M2 9h4l5-4v14l-5-4H2z M14 9q3 3 0 6", false],
+    volume2: ["M2 9h4l5-4v14l-5-4H2z M14 9q3 3 0 6M17 6q5 6 0 12", false],
+    volume3: ["M2 9h4l5-4v14l-5-4H2z M14 9q3 3 0 6M17 6q5 6 0 12M20 3q7 9 0 18", false],
+    muted: ["M2 9h4l5-4v14l-5-4H2z M15 9l6 6m0-6-6 6", false],
+    captions: ["M4.5 5h15a2.5 2.5 0 0 1 2.5 2.5v9a2.5 2.5 0 0 1-2.5 2.5h-15A2.5 2.5 0 0 1 2 16.5v-9A2.5 2.5 0 0 1 4.5 5zM10 10a2.5 2.5 0 1 0 0 4m7-4a2.5 2.5 0 1 0 0 4", false],
+    gear: ["m9.5 4 .6-1h3.8l.7 2.4 1.7 1 2.4-.5 1.9 3.2-1.7 1.9v2l1.7 1.9-1.9 3.3-2.4-.5-1.7 1-.7 2.4h-3.8l-.7-2.4-1.7-1-2.4.5-1.9-3.3 1.7-1.9v-2L3.4 9.1l1.9-3.2 2.4.5 1.7-1zM9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0z", false],
+    fullscreen: ["M3 9V3h6m6 0h6v6m0 6v6h-6m-6 0H3v-6", false],
+    windowed: ["M9 3v6H3m12-6v6h6m0 6h-6v6M3 15h6v6", false],
     arrowLeft: ["M20 12H5m6-6-6 6 6 6", false],
     close: ["M6 6l12 12M18 6 6 18", false],
-    // Three cards, stacked: the episodes of a season.
-    episodes: ["M4 12h10a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2zM6 8h10a2 2 0 0 1 2 2v7M9 4h10a2 2 0 0 1 2 2v7", false],
+    episodes: ["M6.5 4h12a2.5 2.5 0 0 1 2.5 2.5v9M4.9 7.5h10.7a2.4 2.4 0 0 1 2.4 2.4v7.2a2.4 2.4 0 0 1-2.4 2.4H4.9a2.4 2.4 0 0 1-2.4-2.4V9.9a2.4 2.4 0 0 1 2.4-2.4z", false, "m8.7 10.5 4.6 3-4.6 3z"],
     browse: ["M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z", false],
     link: ["M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1", false],
     file: ["M6 3h8l5 5v13H6zM14 3v5h5", false],

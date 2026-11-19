@@ -138,14 +138,14 @@ Item {
         id: grid
         anchors { left: parent.left; right: parent.right; top: discoverBar.bottom; bottom: parent.bottom; topMargin: 18 }
         readonly property int columns: Math.max(2, Math.floor((width - 14 + Theme.posterGap) / (140 + Theme.posterGap)))
-        cellWidth: Math.floor((width - 19) / columns)
+        cellWidth: Math.floor((width - 26) / columns)
         cellHeight: (cellWidth - Theme.posterGap) * 1.5 + 58 + 20
         clip: true
         activeFocusOnTab: true
         keyNavigationEnabled: true
         boundsBehavior: Flickable.StopAtBounds
-        topMargin: 8
-        leftMargin: 8
+        topMargin: 12
+        leftMargin: 12
         model: gridModel
         ScrollBar.vertical: ScrollBar {}
         delegate: PosterTile {

@@ -12,7 +12,7 @@ Rectangle {
         textFormat: Text.PlainText
         id: stats
         anchors.centerIn: parent
-        color: Theme.text
+        color: Theme.pText
         font.family: "monospace"
         font.pixelSize: 13
         text: {

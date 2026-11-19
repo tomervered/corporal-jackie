@@ -21,6 +21,7 @@ Window {
     // tooltips, scroll bars, dialogs' parts) take their colours from it.
     Binding { target: Theme; property: "mode"; value: preferences.colorMode }
     Binding { target: Theme; property: "edits"; value: preferences.colorEdits }
+    Binding { target: Theme; property: "playerHalo"; value: preferences.playerHalo }
     palette {
         window: Theme.panel
         windowText: Theme.text
@@ -352,7 +353,7 @@ Window {
             Text {
                 textFormat: Text.PlainText
                 text: session.upscalerStatus
-                color: Theme.text
+                color: Theme.pText
                 font.pixelSize: 14
             }
         }
@@ -426,8 +427,8 @@ Window {
         width: cornerRow.implicitWidth + 8
         height: cornerRow.implicitHeight + 8
         radius: height / 2
-        color: Qt.rgba(Theme.panel.r, Theme.panel.g, Theme.panel.b, 0.86)
-        border.color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.14)
+        color: Qt.rgba(Theme.pPanel.r, Theme.pPanel.g, Theme.pPanel.b, 0.86)
+        border.color: Qt.rgba(Theme.pText.r, Theme.pText.g, Theme.pText.b, 0.14)
         HoverHandler { id: cornerHover }
         MouseArea { anchors.fill: parent; enabled: root.controlsVisible }
         Row {
@@ -435,6 +436,7 @@ Window {
             anchors.centerIn: parent
             spacing: 2
             IconButton {
+                onPlayer: true
                 objectName: "backToPages"
                 enabled: root.controlsVisible
                 iconName: "arrowLeft"
@@ -442,6 +444,7 @@ Window {
                 onClicked: { controlBar.closePanel(); root.toggleBrowse() }
             }
             IconButton {
+                onPlayer: true
                 objectName: "closeVideo"
                 enabled: root.controlsVisible
                 iconName: "close"

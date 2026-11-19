@@ -105,6 +105,8 @@ public:
     Q_INVOKABLE void removeAddon(const QString& addonId);
     // Moves an add-on up (-1) or down (+1): its lists and streams come first.
     Q_INVOKABLE void moveAddon(const QString& addonId, int delta);
+    // Off: the add-on stays installed but gives no lists, details or streams.
+    Q_INVOKABLE void setAddonEnabled(const QString& addonId, bool enabled);
     Q_INVOKABLE bool addFolder(const QUrl& folder);
     Q_INVOKABLE void removeFolder(const QString& path);
     Q_INVOKABLE void rescanFolders();

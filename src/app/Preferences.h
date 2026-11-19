@@ -45,6 +45,11 @@ class Preferences : public QObject
     Q_PROPERTY(QVariantMap colorEdits READ colorEdits WRITE setColorEdits NOTIFY appearanceChanged)
     // The upscaler badge over the video (top left).
     Q_PROPERTY(bool showUpscalerBadge READ showUpscalerBadge WRITE setShowUpscalerBadge NOTIFY appearanceChanged)
+    // With white or near-white panels the player's controls turn charcoal,
+    // unless this is on.
+    Q_PROPERTY(QString playerHalo READ playerHalo WRITE setPlayerHalo NOTIFY appearanceChanged)
+    // Palettes the person named and saved: [{name, accent, canvas, panel, text}].
+    Q_PROPERTY(QVariantList savedPalettes READ savedPalettes NOTIFY appearanceChanged)
 
 public:
     // defaultCacheFolder: the torrent cache under the app's cache folder.
@@ -83,12 +88,21 @@ public:
     QString colorMode() const { return m_colorMode; }
     bool showUpscalerBadge() const { return m_upscalerBadge; }
     void setShowUpscalerBadge(bool on);
+    // How strong the fade behind the player's controls is: full, half, little or off.
+    QString playerHalo() const { return m_playerHalo; }
+    void setPlayerHalo(const QString& level);
+    QVariantList savedPalettes() const { return m_savedPalettes; }
+    // Adds a palette under `name` (one of the same name is replaced). ""
+    // or what went wrong.
+    Q_INVOKABLE QString savePalette(const QString& name, const QVariantMap& colors);
+    Q_INVOKABLE void removePalette(const QString& name);
     void setColorMode(const QString& mode);
     QVariantMap colorEdits() const { return m_colorEdits; }
     void setColorEdits(const QVariantMap& edits);
     // The four colours (accent, canvas, panel, text) to a small JSON file,
-    // and back: an import becomes the Custom mode. "" or what went wrong.
-    Q_INVOKABLE QString exportColors(const QUrl& file, const QVariantMap& colors) const;
+    // and back: an import is saved under its name and becomes the Custom
+    // mode. "" or what went wrong.
+    Q_INVOKABLE QString exportColors(const QUrl& file, const QString& name, const QVariantMap& colors) const;
     Q_INVOKABLE QString importColors(const QUrl& file);
 
     void setTorrentsInMemory(bool on);
@@ -133,6 +147,9 @@ private:
     QString m_colorMode = QStringLiteral("dark");
     QVariantMap m_colorEdits;
     bool m_upscalerBadge = true;
+    QString m_playerHalo = QStringLiteral("full");
+    QVariantList m_savedPalettes;
+    void storePalettes();
     struct Started { bool inMemory; int memoryCapMB; int diskCacheGB; QString folder; } m_started;
 };
 
