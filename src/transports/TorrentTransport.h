@@ -76,6 +76,9 @@ public:
 
     static QString infoHashOf(const QUrl& torrentUrl);
 
+    // Tests: the engine listens on 127.0.0.1 only.
+    bool loopbackOnly() const { return m_settings.loopbackOnly; }
+
 signals:
     // Twice a second while a torrent is the current item. Emitted from a
     // worker thread (libtorrent calls can block), so connections are queued.

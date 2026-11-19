@@ -36,5 +36,8 @@ var paths = {
     up: ["M6 15l6-6 6 6", false],
     down: ["M6 9l6 6 6-6", false],
     trash: ["M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13", false],
-    refresh: ["M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5", false]
+    refresh: ["M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5", false],
+    download: ["M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0zM12 7v9m-4-4 4 4 4-4", false],
+    downloads: ["M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4", false],
+    folder: ["M3 6h7l2 3h9v11H3z", false]
 };

@@ -99,6 +99,11 @@ public:
     // changes.
     void applyNetwork(const BrokerSettings& settings);
 
+    // Lets one torrent send pieces to peers while uploads are off (a download
+    // the person chose to share), or puts it back under the global switch.
+    // Applies at once, and if the torrent is added later.
+    void setSharing(const QString& infoHash, bool on);
+
     // Deletes least recently used torrents until the cache is under its cap.
     // Torrents with an open handle are never deleted. Runs on its own after
     // open and close; public for tests.

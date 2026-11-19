@@ -60,6 +60,15 @@ target_link_libraries(tst_storage PRIVATE cj_storage cj::sqlite)
 cj_add_test(tst_app FakeTarget.h)
 target_link_libraries(tst_app PRIVATE cj_app)
 
+# Downloads to a chosen folder: torrents (in order, and the normal way) from
+# local seeders, web links from a fake server.
+cj_add_test(tst_downloads TorrentHarness.h FakeHttpServer.h)
+target_link_libraries(tst_downloads PRIVATE cj_app cj_broker cj::libtorrent Qt6::Network)
+if(WIN32)
+    target_compile_definitions(tst_downloads PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+endif()
+set_tests_properties(tst_downloads PROPERTIES TIMEOUT 300)
+
 # The window, loaded as the app loads it, against the fake target and a fake
 # add-on: every page opens, keys work, and QML gives no warnings.
 include(${PROJECT_SOURCE_DIR}/src/ui/QmlFiles.cmake)

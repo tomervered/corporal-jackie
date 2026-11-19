@@ -4,7 +4,7 @@ Owns pages, controls and user input. Never calls mpv, libtorrent or the network 
 
 - `Main.qml`: the window: video, keyboard and mouse, overlays, and where the parts below go.
 - Player: `ControlBar` (one row of icons), `BarButton`, `PlainMenuItem`, `EpisodesPanel` (the episodes of the series that plays), `LinkPopup`, `Toast`, `StatsOverlay`, `ShortcutsOverlay`, and `Format.js` for times and rates.
-- `Pages.qml`: the side bar, the header with the search of every add-on, page history and shared keys. Each page is its own file (`HomePage`, `SearchPage`, `DiscoverPage`, `DetailPage`, `StreamsPage`, `LibraryPage`, `AddonsPage`, `FoldersPage` (shown as Local), `SettingsPanel`) and has `takeFocus()`.
+- `Pages.qml`: the side bar, the header with the search of every add-on, page history and shared keys. Each page is its own file (`HomePage`, `SearchPage`, `DiscoverPage`, `DetailPage`, `StreamsPage`, `LibraryPage`, `AddonsPage`, `FoldersPage` (shown as Local), `DownloadsPage`, `SettingsPanel`) and has `takeFocus()`.
 - `ContinueWatching.qml`.
 - Pieces: `Theme` (the three looks, their colours, type sizes and spacing; a singleton that Main.qml points at the saved look), `Icon` with `Icons.js` (line icons drawn with Qt Quick Shapes from SVG path data), `IconButton`, `AppButton`, `AppField`, `AppCombo`, `AppSwitch`, `Muted`, `Heading`, `PageTitle`, `SectionLabel`, `RowItem`, `PosterTile`, `PosterRow`, `NavButton`, `Chip`. `images/logo.png` is the side bar's badge.
 

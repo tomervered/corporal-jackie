@@ -12,13 +12,13 @@ import QtQuick.Controls.Basic
 Rectangle {
     id: pages
 
-    property string page: "home"   // home, discover, search, detail, streams, library, addons, folders
+    property string page: "home"   // home, discover, search, detail, streams, library, addons, folders, downloads
     // Settings shows over whichever page is open, and closes back to it.
     property bool settingsOpen: false
     readonly property string shownPage: settingsOpen ? "settings" : page
     readonly property var titles: ({
         home: "Home", discover: "Discover", search: "Search", library: "Library",
-        addons: "Add-ons", folders: "Local", settings: "Settings", detail: ""
+        addons: "Add-ons", folders: "Local", downloads: "Downloads", settings: "Settings", detail: ""
     })
     property var history: []
     property string searchType: ""     // the type picked on the search page; "" = all
@@ -55,6 +55,11 @@ Rectangle {
         browser.searchAll(text, searchType)
         if (settingsOpen) settingsRequested()
         go("search")
+    }
+    // Settings, opened at one of its groups.
+    function openSettingsAt(title) {
+        if (!settingsOpen) settingsRequested()
+        settingsPage.openGroup(title)
     }
     function focusSearch() { globalSearch.forceActiveFocus(); globalSearch.selectAll() }
     function back() {
@@ -143,7 +148,7 @@ Rectangle {
     Component.onCompleted: if (visible) show()
     readonly property var pageItems: ({
         home: homePage, search: searchPage, discover: discoverPage, detail: detailPage,
-        streams: streamsPage, library: libraryPage, addons: addonsPage, folders: foldersPage
+        streams: streamsPage, library: libraryPage, addons: addonsPage, folders: foldersPage, downloads: downloadsPage
     })
 
     // --- Side bar ----------------------------------------------------------------
@@ -193,6 +198,13 @@ Rectangle {
             NavButton { text: "Library"; iconName: "library"; selected: pages.shownPage === "library"; onClicked: pages.goTop("library") }
             NavButton { text: "Add-ons"; iconName: "addons"; selected: pages.shownPage === "addons"; onClicked: pages.goTop("addons") }
             NavButton { text: "Local"; iconName: "local"; selected: pages.shownPage === "folders"; onClicked: pages.goTop("folders") }
+            NavButton {
+                objectName: "downloadsNav"
+                text: downloads.activeCount > 0 ? "Downloads (" + downloads.activeCount + ")" : "Downloads"
+                iconName: "downloads"
+                selected: pages.shownPage === "downloads"
+                onClicked: pages.goTop("downloads")
+            }
         }
 
         Column {
@@ -338,6 +350,7 @@ Rectangle {
         LibraryPage { id: libraryPage; nav: pages; anchors.fill: pageArea; visible: pages.shownPage === "library" }
         AddonsPage { id: addonsPage; nav: pages; anchors.fill: pageArea; visible: pages.shownPage === "addons" }
         FoldersPage { id: foldersPage; nav: pages; anchors.fill: pageArea; visible: pages.shownPage === "folders" }
+        DownloadsPage { id: downloadsPage; nav: pages; anchors.fill: pageArea; visible: pages.shownPage === "downloads" }
         SettingsPanel {
             id: settingsPage
             objectName: "settingsPanel"

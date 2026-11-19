@@ -9,5 +9,7 @@ Turns one file inside a torrent into seekable bytes: piece deadlines per reader,
 - `BrokerScheduling.cpp`: which pieces to ask for and by when as readers move; in RAM-only mode, which pieces to drop.
 - `BrokerUpkeep.cpp`: reloads, resume data, the disk cache cap, and the numbers the UI shows.
 - `MemoryStorage.h/.cpp`: RAM-only piece storage.
+- `TorrentDownloader.h/.cpp`: downloads for the "normal torrent" setting, in a libtorrent session of its own: rarest pieces first, straight into the download folder, seeding while the person shares it. Not used for playback.
+- `UploadGuard.h`: drops peers' requests while uploads are off, except for torrents the person chose to share (`setSharing`).
 
 libtorrent throws when called on a torrent removed a moment ago; every such call is guarded so it can never crash the app. The code builds against libtorrent 2.0 and 2.1 without deprecated calls; differences are behind `LIBTORRENT_VERSION_NUM`. Releases use libtorrent 2.1.2 with the patch in `third_party/libtorrent` ([docs/ENGINE.md](../../docs/ENGINE.md)).

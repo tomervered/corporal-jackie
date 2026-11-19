@@ -45,6 +45,12 @@ Column {
     }
     readonly property int hiddenCount: browser.streams.length - shown.length
 
+    // Starts a download and says so; Downloads in the side bar shows it.
+    function download(index) {
+        const error = downloads.downloadStream(index)
+        nav.message(error !== "" ? error : "Downloading. Open Downloads in the side bar to see it.", error !== "")
+    }
+
     function toggleProvider(name) {
         const hidden = nav.hiddenProviders
         nav.hiddenProviders = hidden.indexOf(name) < 0 ? hidden.concat([name]) : hidden.filter(p => p !== name)
@@ -113,10 +119,26 @@ Column {
         section.property: nav.streamSort === "best" ? "group" : ""
         section.delegate: SectionLabel {}
         delegate: RowItem {
+            id: streamRow
             required property var modelData
+            readonly property bool canSave: downloads.canDownloadStream(modelData.index)
             primary: modelData.provider + " · " + modelData.name
             secondary: (modelData.description ? modelData.description.replace(/\n/g, "  ") + "\n" : "") + modelData.facts
+            rightPadding: canSave ? 64 : 12
             onClicked: browser.play(modelData.index)
+            // Save it to the download folder instead of playing it.
+            IconButton {
+                objectName: "downloadButton"
+                visible: streamRow.canSave
+                anchors { right: parent.right; rightMargin: 12; verticalCenter: parent.verticalCenter }
+                iconName: "download"
+                iconSize: 26
+                implicitWidth: 44
+                implicitHeight: 44
+                tip: "Download"
+                takesFocus: true
+                onClicked: streamPane.download(streamRow.modelData.index)
+            }
         }
         Keys.onReturnPressed: playCurrent()
         Keys.onEnterPressed: playCurrent()

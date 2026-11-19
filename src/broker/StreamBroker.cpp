@@ -16,6 +16,8 @@ StreamBroker::~StreamBroker() { m_engine->shutdown(); }
 int StreamBroker::listenPort() const { return m_engine->listenPort(); }
 void StreamBroker::applyNetwork(const BrokerSettings& settings) { m_engine->applyNetwork(settings); }
 
+void StreamBroker::setSharing(const QString& infoHash, bool on) { m_engine->setSharing(infoHash.toLower().toStdString(), on); }
+
 StreamStats StreamBroker::torrentStats(const QString& infoHash) const
 {
     return m_engine->torrentStats(infoHash.toLower().toStdString());

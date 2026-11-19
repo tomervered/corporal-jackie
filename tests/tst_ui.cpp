@@ -7,6 +7,7 @@
 
 #include "AppCore.h"
 #include "Browser.h"
+#include "Downloads.h"
 #include "FakeHttpServer.h"
 #include "FakeTarget.h"
 #include "KeyedListModel.h"
@@ -281,6 +282,8 @@ private slots:
         };
         QCOMPARE(shownFiles(), (QStringList{"first.mkv", "small.mkv"}));   // best first: 1080p
         shot("detail");
+        // Each way to play that can be saved has a download button.
+        QTRY_VERIFY(countItems(list, "downloadButton") == 2);
 
         // Sorted by size, the one with a known size comes first.
         m_pages->setProperty("streamSort", QStringLiteral("largest"));
@@ -350,6 +353,44 @@ private slots:
         QTRY_VERIFY(!m_core->browser().installing());
         call("goTop", "folders");
         shot("folders");
+    }
+
+    // Downloads in the side bar, and its settings group.
+    void downloadsPage()
+    {
+        QQuickItem* nav = m_window->findChild<QQuickItem*>(QStringLiteral("downloadsNav"));
+        QVERIFY(nav && nav->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(nav, "clicked"));
+        QCOMPARE(page(), QStringLiteral("downloads"));
+        QQuickItem* list = m_window->findChild<QQuickItem*>(QStringLiteral("downloadList"));
+        QVERIFY(list && list->isVisible());
+        QCOMPARE(list->property("count").toInt(), 0);
+        shot("downloads-empty");
+
+        // One web download, slow enough to show its progress.
+        Downloads& downloads = m_core->downloads();
+        downloads.setFolder(QUrl::fromLocalFile(m_root.filePath(QStringLiteral("saved"))));
+        FakeHttpServer::Answer slow;
+        slow.body = QByteArray(600, 'x');
+        slow.contentType = "video/mp4";
+        slow.trickleMs = 1;
+        m_server.set(QStringLiteral("/slow.mp4"), slow);
+        QCOMPARE(downloads.start(PlayableSource::fromUrl(QUrl(m_server.base() + QStringLiteral("/slow.mp4")), "Slow")), QString());
+        QTRY_COMPARE(list->property("count").toInt(), 1);
+        QTRY_VERIFY(downloads.items().value(0).toMap().value("percent").toInt() > 20);
+        QTest::qWait(600);   // the page updates twice a second
+        shot("downloads");
+        QTRY_COMPARE_WITH_TIMEOUT(downloads.items().value(0).toMap().value("state").toString(), QStringLiteral("done"), 20000);
+        shot("downloads-done");
+        downloads.clearFinished();
+        call("openSettingsAt", "Downloads");
+        QQuickItem* group = m_window->findChild<QQuickItem*>(QStringLiteral("downloadsGroup"));
+        QVERIFY(group);
+        QTRY_VERIFY(group->property("expanded").toBool());
+        QVERIFY(m_window->findChild<QQuickItem*>(QStringLiteral("normalTorrentsToggle")));
+        shot("settings-downloads");
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        call("goTop", "home");
     }
 
     void settingsAndShortcuts()
@@ -555,6 +596,15 @@ private slots:
 
 private:
     QString page() const { return m_pages->property("page").toString(); }
+    // Visible items of that name under `item`, delegates included (a view
+    // parents those to its content item, not as QObject children).
+    static int countItems(QQuickItem* item, const char* name)
+    {
+        int n = item->objectName() == QLatin1String(name) && item->isVisible() ? 1 : 0;
+        for (QQuickItem* child : item->childItems())
+            n += countItems(child, name);
+        return n;
+    }
     QVariantList rows(const char* name) const { return m_core->browser().property(name).toList(); }
 
     void call(const char* function, const char* arg)
