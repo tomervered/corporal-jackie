@@ -1,7 +1,7 @@
 // The window as the app shows it, against the fake player and a fake add-on:
 // every page opens, the keys do what the shortcut list says, and nothing in
 // QML warns along the way (a warning is a broken binding or a missing name).
-// Over the video, every key goes to the player's own bindings.
+// Over the video, playback keys go to the player's own bindings.
 //
 // Set CJ_UI_SHOTS to a folder to save a picture of each page there.
 
@@ -24,6 +24,7 @@
 #include <QColor>
 #include <QDir>
 #include <QJSValue>
+#include <QPointer>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlError>
@@ -40,16 +41,18 @@ using test::FakeHttpServer;
 
 namespace {
 
-// Stands in for the mpv video item: the window only sets its session.
+// Stands in for the mpv video item.
 class FakeVideoSurface : public QQuickItem
 {
     Q_OBJECT
     Q_PROPERTY(cj::Session* playbackSession MEMBER m_session NOTIFY sessionChanged)
+    Q_PROPERTY(bool covered MEMBER m_covered)
 signals:
     void sessionChanged();
 
 private:
     Session* m_session = nullptr;
+    bool m_covered = false;
 };
 
 QByteArray manifest()
@@ -381,8 +384,9 @@ private slots:
         QVERIFY(nav && nav->isVisible());
         QVERIFY(QMetaObject::invokeMethod(nav, "clicked"));
         QCOMPARE(page(), QStringLiteral("downloads"));
-        QQuickItem* list = m_window->findChild<QQuickItem*>(QStringLiteral("downloadList"));
-        QVERIFY(list && list->isVisible());
+        const auto downloadList = [this] { return m_window->findChild<QQuickItem*>(QStringLiteral("downloadList")); };
+        QTRY_VERIFY(downloadList() && downloadList()->isVisible());
+        QQuickItem* list = downloadList();
         QCOMPARE(list->property("count").toInt(), 0);
         shot("downloads-empty");
 
@@ -403,8 +407,8 @@ private slots:
         shot("downloads-done");
         downloads.clearFinished();
         call("openSettingsAt", "Downloads");
+        QTRY_VERIFY(m_window->findChild<QQuickItem*>(QStringLiteral("downloadsGroup")));
         QQuickItem* group = m_window->findChild<QQuickItem*>(QStringLiteral("downloadsGroup"));
-        QVERIFY(group);
         QTRY_VERIFY(group->property("expanded").toBool());
         QVERIFY(m_window->findChild<QQuickItem*>(QStringLiteral("normalTorrentsToggle")));
         shot("settings-downloads");
@@ -430,6 +434,7 @@ private slots:
             todo += i->childItems();
         }
         QVERIFY(plum);
+        const QPointer<QQuickItem> paletteTile(plum);
         QVERIFY(QMetaObject::invokeMethod(plum, "clicked"));
         QCOMPARE(m_core->preferences().colorMode(), QStringLiteral("custom"));
         QTest::qWait(200);
@@ -457,6 +462,8 @@ private slots:
             QVERIFY(QMetaObject::invokeMethod(gold, "clicked"));
             QTest::qWait(100);
             QCOMPARE(m_core->preferences().colorEdits().value(QStringLiteral("custom")).toMap().value(QStringLiteral("accent")).toString().toLower(), QStringLiteral("#e5b95c"));
+            QCOMPARE(find("palette-Plum"), paletteTile.data());
+            QVERIFY(paletteTile);
         }
         m_core->preferences().setColorMode(QStringLiteral("dark"));
         QQuickItem* panel = m_window->findChild<QQuickItem*>(QStringLiteral("settingsPanel"));
@@ -514,6 +521,8 @@ private slots:
     void playerKeys()
     {
         Session& session = m_core->session();
+        QQuickItem* video = m_window->findChild<QQuickItem*>(QStringLiteral("videoSurface"));
+        QVERIFY(video);
         session.openPath(QStringLiteral("http://127.0.0.1:1/clip.mkv"));
         m_target.startPlaying(600);
         QTRY_VERIFY(session.hasMedia());
@@ -658,27 +667,40 @@ private slots:
         // Back and Close sit at the top right.
         QVERIFY(visible("backToPages") && visible("closeVideo"));
 
-        // Playback settings › Keyboard shortcuts shows the keys in the middle; the ×,
-        // the same item again, or Esc closes them.
-        QObject* bar = m_window->findChild<QObject*>(QStringLiteral("controlBar"));
+        // Keyboard shortcuts replaces the settings panel and fits the window.
         QQuickItem* sheet = m_window->findChild<QQuickItem*>(QStringLiteral("shortcutsSheet"));
-        QVERIFY(bar && sheet);
-        QVERIFY(QMetaObject::invokeMethod(bar, "shortcutsRequested"));
+        QVERIFY(sheet);
+        click("optionsButton");
+        QTRY_VERIFY(visible("settingsPopup"));
+        click("shortcutsItem");
         QVERIFY(sheet->isVisible());
+        QVERIFY(!visible("settingsPopup"));
+        QVERIFY(sheet->width() <= 680);
+        QVERIFY(qAbs(sheet->mapToScene(QPointF(sheet->width() / 2, 0)).x() - m_window->width() / 2.0) <= 1);
         shot("player-shortcuts");
         QQuickItem* closeKeys = m_window->findChild<QQuickItem*>(QStringLiteral("closeShortcuts"));
         QVERIFY(closeKeys);
         QTest::mouseClick(m_window, Qt::LeftButton, {}, closeKeys->mapToScene(QPointF(closeKeys->width() / 2, closeKeys->height() / 2)).toPoint());
         QTRY_VERIFY(!sheet->isVisible());
-        QVERIFY(QMetaObject::invokeMethod(bar, "shortcutsRequested"));
+        click("optionsButton");
+        click("shortcutsItem");
         QVERIFY(sheet->isVisible());
-        QVERIFY(QMetaObject::invokeMethod(bar, "shortcutsRequested"));
+        click("optionsButton");
         QVERIFY(!sheet->isVisible());
-        QVERIFY(QMetaObject::invokeMethod(bar, "shortcutsRequested"));
+        QVERIFY(visible("settingsPopup"));
+        click("shortcutsItem");
         m_target.commands.clear();
         QTest::keyClick(m_window, Qt::Key_Escape);
         QVERIFY(!sheet->isVisible());
         QVERIFY(!m_target.sent(QStringLiteral("keydown %1").arg(int(Qt::Key_Escape))));
+        const auto originalVisibility = m_window->visibility();
+        QTest::keyClick(m_window, Qt::Key_F);
+        QVERIFY(session.fullScreen());
+        QTRY_COMPARE(m_window->visibility(), QWindow::FullScreen);
+        QVERIFY(!m_target.sent(QStringLiteral("keydown %1").arg(int(Qt::Key_F))));
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QVERIFY(!session.fullScreen());
+        QTRY_COMPARE(m_window->visibility(), originalVisibility);
         // The diagnostics stay over the video, not over the pages.
         QQuickItem* stats = nullptr;
         for (QQuickItem* item : m_window->contentItem()->childItems())
@@ -696,9 +718,14 @@ private slots:
         // The pages still open over the video (from the Browse button).
         m_window->setProperty("browseVisible", true);
         QVERIFY(m_pages->isVisible());
+        QVERIFY(video->property("covered").toBool());
         shot("pages-over-video");
         m_window->setProperty("browseVisible", false);
         QVERIFY(!m_pages->isVisible());
+        QVERIFY(!video->property("covered").toBool());
+        session.stop();
+        m_target.setState(PlaybackState::Idle);
+        QTRY_COMPARE(video->size(), QSizeF(1, 1));
     }
 
     // While an episode plays, the Episodes button lists the show's episodes

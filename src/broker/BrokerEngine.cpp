@@ -820,6 +820,8 @@ void Engine::onReadPiece(Torrent& t, const lt::read_piece_alert& rp)
         return;
     const int p = static_cast<int>(rp.piece);
     t.readsPending.erase(p);
+    if (t.openHandles == 0)
+        return;  // a late alert must not refill a closed reader's cache
     const auto store = m_memory ? m_memory->find(t.id) : nullptr;
     if (rp.error && store && !store->has(p)) {
         // RAM only: the piece is gone from memory although libtorrent still

@@ -778,12 +778,16 @@ private slots:
         a.reset();
         QTest::qWait(1500);  // several times the idle delay: one reader is left
         QVERIFY(!broker.torrentStats(hash).paused);
+        QVERIFY(broker.readCacheBytes() >= kPiece);
         b.reset();
+        QCOMPARE(broker.readCacheBytes(), qint64(0));
         QTRY_VERIFY_WITH_TIMEOUT(broker.torrentStats(hash).paused, 5000);
+        QCOMPARE(broker.readCacheBytes(), qint64(0));
 
         auto c = broker.open({link});
         QVERIFY(c);
         QVERIFY(!broker.torrentStats(hash).paused);
+        QCOMPARE(readRange(*c, 0, kPiece), t.data[0].left(int(kPiece)));
         const qint64 middle = 8 * MiB;
         QVERIFY(readRange(*c, middle, kPiece) == t.data[0].mid(int(middle), int(kPiece)));
     }

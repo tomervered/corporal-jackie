@@ -92,28 +92,22 @@ Flickable {
                 }
             }
             // The whole poster, never cropped, with how far in under it.
-            Item {
+            RoundedArtwork {
                 id: heroPoster
+                objectName: "heroPoster"
                 x: 24
                 y: 22
                 height: parent.height - 44
                 width: Math.round(height / 1.5)
-                visible: heroPosterImage.status === Image.Ready
-                Rectangle { anchors { fill: parent; margins: -1 } radius: 7; color: "transparent"; border.color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.18) }
-                Image {
-                    id: heroPosterImage
-                    objectName: "heroPoster"
-                    anchors.fill: parent
-                    source: homePage.latest ? homePage.latest.poster : ""
-                    fillMode: Image.PreserveAspectFit
-                    sourceSize.width: Math.ceil(width * Screen.devicePixelRatio)
-                    asynchronous: true
-                }
+                visible: status === Image.Ready
+                source: homePage.latest ? homePage.latest.poster : ""
+                fillMode: Image.PreserveAspectFit
+                progress: homePage.latest ? homePage.latest.progress : -1
                 Rectangle {
-                    anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-                    height: 4
-                    color: "#a0000000"
-                    Rectangle { width: parent.width * (homePage.latest ? Math.min(1, homePage.latest.progress) : 0); height: parent.height; color: Theme.accent }
+                    anchors.fill: parent
+                    radius: heroPoster.radius
+                    color: "transparent"
+                    border.color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.18)
                 }
             }
             Column {

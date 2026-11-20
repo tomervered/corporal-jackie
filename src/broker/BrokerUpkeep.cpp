@@ -154,6 +154,14 @@ void Engine::releaseHandle(Torrent& t)
         if (t.openHandles > 0)
             --t.openHandles;
         last = t.openHandles == 0;
+        if (last) {
+            // These are reader copies. The verified data stays in the
+            // underlying disk or RAM store for the next open.
+            t.pieces.clear();
+            t.pieceOrder.clear();
+            t.pieceBytes = 0;
+            t.readErrors.clear();
+        }
         if (!t.inUse())
             t.idleSince = Clock::now();
         schedule(t, true);

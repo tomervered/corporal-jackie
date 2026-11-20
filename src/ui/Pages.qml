@@ -26,6 +26,7 @@ Rectangle {
     property string discoverType: ""   // the type picked on Discover
     property string streamSort: "best" // how ways to play are ordered: best, seeders, largest, smallest
     property var hiddenProviders: []   // add-ons whose ways to play are left out
+    property string pendingSettingsGroup: ""
     signal closeRequested()        // back to the video
     signal settingsRequested()     // opens or closes Settings
     signal openFileRequested()
@@ -59,8 +60,15 @@ Rectangle {
     }
     // Settings, opened at one of its groups.
     function openSettingsAt(title) {
+        pendingSettingsGroup = title
         if (!settingsOpen) settingsRequested()
-        settingsPage.openGroup(title)
+        showSettingsGroup()
+    }
+    function showSettingsGroup() {
+        if (settingsPage.item && pendingSettingsGroup !== "") {
+            settingsPage.item.openGroup(pendingSettingsGroup)
+            pendingSettingsGroup = ""
+        }
     }
     function focusSearch() { globalSearch.forceActiveFocus(); globalSearch.selectAll() }
     function back() {
@@ -138,19 +146,36 @@ Rectangle {
     // Each page starts with the keyboard on its main list, so arrows and
     // Enter work at once.
     onPageChanged: Qt.callLater(focusPage)
-    onSettingsOpenChanged: Qt.callLater(focusPage)
+    onSettingsOpenChanged: {
+        if (!settingsOpen) pendingSettingsGroup = ""
+        Qt.callLater(focusPage)
+    }
     function focusPage() {
         // The first-run screen keeps the keyboard until it is answered.
-        if (!preferences.privacyChosen) return
-        if (settingsOpen) { settingsPage.takeFocus(); return }
-        const current = pageItems[page]
+        if (!visible || !preferences.privacyChosen) return
+        const current = shownPage === "home" ? homePage : pageLoaders[shownPage]?.item
         if (current) current.takeFocus()
     }
     Component.onCompleted: if (visible) show()
-    readonly property var pageItems: ({
-        home: homePage, search: searchPage, discover: discoverPage, detail: detailPage,
-        streams: streamsPage, library: libraryPage, addons: addonsPage, folders: foldersPage, downloads: downloadsPage
+    readonly property var pageLoaders: ({
+        search: searchPage, discover: discoverPage, detail: detailPage, streams: streamsPage,
+        library: libraryPage, addons: addonsPage, folders: foldersPage, downloads: downloadsPage, settings: settingsPage
     })
+
+    // Incubate on first visit and retain scroll position on return.
+    component PageLoader: Loader {
+        required property string route
+        anchors.fill: pageArea
+        visible: pages.shownPage === route
+        asynchronous: true
+        active: false
+        onVisibleChanged: if (visible) active = true
+        Component.onCompleted: if (visible) active = true
+        onLoaded: if (visible) {
+            if (route === "settings") pages.showSettingsGroup()
+            Qt.callLater(pages.focusPage)
+        }
+    }
 
     // --- Side bar ----------------------------------------------------------------
 
@@ -372,20 +397,21 @@ Rectangle {
         }
 
         HomePage { id: homePage; nav: pages; anchors.fill: pageArea; visible: pages.shownPage === "home" }
-        SearchPage { id: searchPage; nav: pages; anchors.fill: pageArea; visible: pages.shownPage === "search" }
-        DiscoverPage { id: discoverPage; nav: pages; anchors.fill: pageArea; visible: pages.shownPage === "discover" }
-        DetailPage { id: detailPage; nav: pages; anchors.fill: pageArea; visible: pages.shownPage === "detail" }
-        StreamsPage { id: streamsPage; nav: pages; anchors.fill: pageArea; visible: pages.shownPage === "streams" }
-        LibraryPage { id: libraryPage; nav: pages; anchors.fill: pageArea; visible: pages.shownPage === "library" }
-        AddonsPage { id: addonsPage; nav: pages; anchors.fill: pageArea; visible: pages.shownPage === "addons" }
-        FoldersPage { id: foldersPage; nav: pages; anchors.fill: pageArea; visible: pages.shownPage === "folders" }
-        DownloadsPage { id: downloadsPage; nav: pages; anchors.fill: pageArea; visible: pages.shownPage === "downloads" }
-        SettingsPanel {
+        PageLoader { id: searchPage; route: "search"; sourceComponent: SearchPage { nav: pages } }
+        PageLoader { id: discoverPage; route: "discover"; sourceComponent: DiscoverPage { nav: pages } }
+        PageLoader { id: detailPage; route: "detail"; sourceComponent: DetailPage { nav: pages } }
+        PageLoader { id: streamsPage; route: "streams"; sourceComponent: StreamsPage { nav: pages } }
+        PageLoader { id: libraryPage; route: "library"; sourceComponent: LibraryPage { nav: pages } }
+        PageLoader { id: addonsPage; route: "addons"; sourceComponent: AddonsPage { nav: pages } }
+        PageLoader { id: foldersPage; route: "folders"; sourceComponent: FoldersPage { nav: pages } }
+        PageLoader { id: downloadsPage; route: "downloads"; sourceComponent: DownloadsPage { nav: pages } }
+        PageLoader {
             id: settingsPage
-            objectName: "settingsPanel"
-            anchors.fill: pageArea
-            visible: pages.settingsOpen
-            onCloseRequested: pages.settingsRequested()
+            route: "settings"
+            sourceComponent: SettingsPanel {
+                objectName: "settingsPanel"
+                onCloseRequested: pages.settingsRequested()
+            }
         }
     }
 }

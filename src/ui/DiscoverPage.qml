@@ -144,8 +144,8 @@ Item {
         activeFocusOnTab: true
         keyNavigationEnabled: true
         boundsBehavior: Flickable.StopAtBounds
-        topMargin: 12
-        leftMargin: 12
+        Component.onCompleted: if ("reuseItems" in grid) grid.reuseItems = true
+        leftMargin: Theme.posterGlowGutter
         model: gridModel
         ScrollBar.vertical: ScrollBar {}
         delegate: PosterTile {

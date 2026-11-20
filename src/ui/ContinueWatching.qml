@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import CorporalJackie.Player   // KeyedList
 
 // A row of what the user started and did not finish, newest first: a click
 // (or Enter) goes on from where they left off, ✕ (or Delete) takes it off
@@ -31,20 +32,20 @@ ListView {
     }
 
     orientation: ListView.Horizontal
-    implicitHeight: tileWidth * 1.5 + 74
+    implicitHeight: tileWidth * 1.5 + 68 + Theme.posterGlowGutter
     implicitWidth: count * (tileWidth + spacing) - spacing
     spacing: Theme.posterGap
     clip: true
-    topMargin: 12
-    leftMargin: 12
-    rightMargin: 12
+    reuseItems: true
+    leftMargin: Theme.posterGlowGutter
+    rightMargin: Theme.posterGlowGutter
     boundsBehavior: Flickable.StopAtBounds
-    model: entries
+    model: KeyedList { values: row.entries }
     ScrollBar.horizontal: ScrollBar { policy: row.contentWidth > row.width ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
 
     delegate: Item {
         id: tile
-        required property var modelData
+        required property var entry
         required property int index
         width: row.tileWidth
         height: poster.height
@@ -52,16 +53,16 @@ ListView {
         PosterTile {
             id: poster
             posterWidth: row.tileWidth
-            item: tile.modelData
-            detail: tile.modelData.subtitle !== "" ? tile.modelData.subtitle : row.remaining(tile.modelData)
-            progress: tile.modelData.progress
+            item: tile.entry
+            detail: tile.entry.subtitle !== "" ? tile.entry.subtitle : row.remaining(tile.entry)
+            progress: tile.entry.progress
             current: tile.ListView.isCurrentItem && row.activeFocus
             onActivated: row.resumeAt(tile.index)
         }
         // Play, over the poster, while the pointer is on it.
         Rectangle {
             x: (row.tileWidth - width) / 2
-            y: (row.tileWidth * 1.5 - height) / 2
+            y: poster.topInset + (row.tileWidth * 1.5 - height) / 2
             visible: hover.hovered
             width: 48; height: 48; radius: 24
             color: "#c0000000"
@@ -69,7 +70,7 @@ ListView {
         }
         IconButton {
             x: row.tileWidth - width - 4
-            y: 4
+            y: poster.topInset + 4
             visible: hover.hovered
             width: 32; height: 32
             iconName: "close"
@@ -77,7 +78,7 @@ ListView {
             iconColor: "white"
             tip: "Remove from Continue Watching"
             background: Rectangle { radius: 16; color: parent.hovered ? "#e0000000" : "#a0000000" }
-            onClicked: library.forget(tile.modelData.itemKey)
+            onClicked: library.forget(tile.entry.itemKey)
         }
     }
 }

@@ -55,14 +55,8 @@ Item {
     function currentColors() {
         return { accent: Theme.accent.toString(), canvas: Theme.canvas.toString(), panel: Theme.panel.toString(), text: Theme.text.toString() }
     }
-    // entry: [name, colors, mode]. Commando Jackie and OLED black are modes
-    // (unchanged); the rest are the Custom mode with these colours.
-    function isCurrentPalette(entry) {
-        const own = (preferences.colorEdits || {})[entry[2]]
-        if (entry[2] !== "custom") return Theme.mode === entry[2] && !own
-        if (Theme.mode !== "custom") return false
-        const now = currentColors()
-        return ["accent", "canvas", "panel", "text"].every(k => now[k].toLowerCase() === String(entry[1][k]).toLowerCase())
+    function paletteKey(colors) {
+        return [colors.accent, colors.canvas, colors.panel, colors.text].join("/").toLowerCase()
     }
     function usePalette(entry) {
         const edits = JSON.parse(JSON.stringify(preferences.colorEdits || {}))
@@ -72,8 +66,7 @@ Item {
             const c = entry[1]
             edits.custom = { accent: c.accent, canvas: c.canvas, panel: c.panel, text: c.text }
         }
-        preferences.colorEdits = edits
-        preferences.colorMode = entry[2]
+        preferences.setTheme(entry[2], edits)
     }
     function resetColors() {
         const edits = JSON.parse(JSON.stringify(preferences.colorEdits || {}))
@@ -240,6 +233,8 @@ Item {
                     title: "Color Palettes"
                     detail: "Commando Jackie is the default. OLED black turns the background and panels pure black. Palettes you save or import are added here."
                     Flow {
+                        id: palettePicker
+                        readonly property string liveKey: Theme.mode === "custom" ? panel.paletteKey(panel.currentColors()) : ""
                         width: 440
                         spacing: 8
                         Repeater {
@@ -248,7 +243,10 @@ Item {
                                 id: paletteButton
                                 required property var modelData
                                 readonly property var colors: modelData[1]
-                                readonly property bool chosen: panel.isCurrentPalette(modelData)
+                                readonly property string mode: modelData[2]
+                                readonly property string key: mode === "custom" ? panel.paletteKey(colors) : ""
+                                readonly property bool chosen: Theme.mode === mode && (mode === "custom"
+                                    ? key === palettePicker.liveKey : !(preferences.colorEdits || {})[mode])
                                 objectName: "palette-" + modelData[0]
                                 width: 104; height: 58
                                 hoverEnabled: true

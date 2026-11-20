@@ -300,11 +300,7 @@ void Preferences::save()
 
 void Preferences::setColorMode(const QString& mode)
 {
-    if (!knownMode(mode) || mode == m_colorMode)
-        return;
-    m_colorMode = mode;
-    m_storage.setSetting(kColorMode, mode);
-    emit appearanceChanged();
+    setTheme(mode, m_colorEdits);
 }
 
 void Preferences::setShowUpscalerBadge(bool on)
@@ -313,16 +309,31 @@ void Preferences::setShowUpscalerBadge(bool on)
         return;
     m_upscalerBadge = on;
     m_storage.setSetting(kUpscalerBadge, on);
+    emit upscalerBadgeChanged();
     emit appearanceChanged();
 }
 
 void Preferences::setColorEdits(const QVariantMap& edits)
 {
-    const QVariantMap clean = cleanEdits(edits);
-    if (clean == m_colorEdits)
+    setTheme(m_colorMode, edits);
+}
+
+void Preferences::setTheme(const QString& mode, const QVariantMap& edits)
+{
+    if (!knownMode(mode))
         return;
-    m_colorEdits = clean;
-    m_storage.setSetting(kColorEdits, QString::fromUtf8(QJsonDocument(QJsonObject::fromVariantMap(clean)).toJson(QJsonDocument::Compact)));
+    const QVariantMap clean = cleanEdits(edits);
+    if (mode == m_colorMode && clean == m_colorEdits)
+        return;
+    if (clean != m_colorEdits) {
+        m_colorEdits = clean;
+        m_storage.setSetting(kColorEdits, QString::fromUtf8(QJsonDocument(QJsonObject::fromVariantMap(clean)).toJson(QJsonDocument::Compact)));
+    }
+    if (mode != m_colorMode) {
+        m_colorMode = mode;
+        m_storage.setSetting(kColorMode, mode);
+    }
+    emit themeChanged();
     emit appearanceChanged();
 }
 
@@ -332,12 +343,14 @@ void Preferences::setPlayerHalo(const QString& level)
         return;
     m_playerHalo = level;
     m_storage.setSetting(kPlayerHalo, level);
+    emit playerHaloChanged();
     emit appearanceChanged();
 }
 
 void Preferences::storePalettes()
 {
     m_storage.setSetting(kSavedPalettes, QString::fromUtf8(QJsonDocument(QJsonArray::fromVariantList(m_savedPalettes)).toJson(QJsonDocument::Compact)));
+    emit savedPalettesChanged();
     emit appearanceChanged();
 }
 
@@ -415,8 +428,7 @@ QString Preferences::importColors(const QUrl& file)
         savePalette(name, clean);   // a full list just skips this
     QVariantMap edits = m_colorEdits;
     edits.insert(QStringLiteral("custom"), clean);
-    setColorEdits(edits);
-    setColorMode(QStringLiteral("custom"));
+    setTheme(QStringLiteral("custom"), edits);
     return {};
 }
 

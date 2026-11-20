@@ -41,15 +41,15 @@ class Preferences : public QObject
     Q_PROPERTY(QVariantMap earlierChoices READ earlierChoices CONSTANT)
     // The look: "dark" (olive), "oled" or "bright", and the colours the
     // person changed in each, as {mode: {accent, canvas, panel, text}}.
-    Q_PROPERTY(QString colorMode READ colorMode WRITE setColorMode NOTIFY appearanceChanged)
-    Q_PROPERTY(QVariantMap colorEdits READ colorEdits WRITE setColorEdits NOTIFY appearanceChanged)
+    Q_PROPERTY(QString colorMode READ colorMode WRITE setColorMode NOTIFY themeChanged)
+    Q_PROPERTY(QVariantMap colorEdits READ colorEdits WRITE setColorEdits NOTIFY themeChanged)
     // The upscaler badge over the video (top left).
-    Q_PROPERTY(bool showUpscalerBadge READ showUpscalerBadge WRITE setShowUpscalerBadge NOTIFY appearanceChanged)
+    Q_PROPERTY(bool showUpscalerBadge READ showUpscalerBadge WRITE setShowUpscalerBadge NOTIFY upscalerBadgeChanged)
     // With white or near-white panels the player's controls turn charcoal,
     // unless this is on.
-    Q_PROPERTY(QString playerHalo READ playerHalo WRITE setPlayerHalo NOTIFY appearanceChanged)
+    Q_PROPERTY(QString playerHalo READ playerHalo WRITE setPlayerHalo NOTIFY playerHaloChanged)
     // Palettes the person named and saved: [{name, accent, canvas, panel, text}].
-    Q_PROPERTY(QVariantList savedPalettes READ savedPalettes NOTIFY appearanceChanged)
+    Q_PROPERTY(QVariantList savedPalettes READ savedPalettes NOTIFY savedPalettesChanged)
 
 public:
     // defaultCacheFolder: the torrent cache under the app's cache folder.
@@ -99,6 +99,7 @@ public:
     void setColorMode(const QString& mode);
     QVariantMap colorEdits() const { return m_colorEdits; }
     void setColorEdits(const QVariantMap& edits);
+    Q_INVOKABLE void setTheme(const QString& mode, const QVariantMap& edits);
     // The four colours (accent, canvas, panel, text) to a small JSON file,
     // and back: an import is saved under its name and becomes the Custom
     // mode. "" or what went wrong.
@@ -124,6 +125,10 @@ signals:
     // The catalog add-on went from off to on or back: install or remove it.
     void catalogAddonChoiceChanged(bool on);
     void appearanceChanged();
+    void themeChanged();
+    void upscalerBadgeChanged();
+    void playerHaloChanged();
+    void savedPalettesChanged();
 
 private:
     void save();

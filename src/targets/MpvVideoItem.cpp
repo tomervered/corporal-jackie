@@ -4,6 +4,7 @@
 #include "MpvTarget.h"
 #include "Session.h"
 
+#include <QElapsedTimer>
 #include <QOpenGLContext>
 #include <QOpenGLFramebufferObject>
 #include <QQuickOpenGLUtils>
@@ -13,6 +14,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <utility>
 
 #ifdef Q_OS_MACOS
 #include "MetalFxUpscaler.h"
@@ -33,22 +35,46 @@ class MpvRenderer : public QQuickFramebufferObject::Renderer
 public:
     ~MpvRenderer() override
     {
-        if (m_ctx)
-            mpv_render_context_free(m_ctx);
+        QObject::disconnect(m_swapConnection);
+        releaseContext();
     }
 
     // Runs on the render thread while the GUI thread is blocked, so reading the
-    // item is safe here. The render context is created once a player is set.
+    // item is safe here. Only keep the render context while media is active.
     void synchronize(QQuickFramebufferObject* item) override
     {
         auto* video = static_cast<MpvVideoItem*>(item);
-        if (!m_ctx && video->target())
-            createContext(video, video->target());
         MpvTarget* t = video->target();
+        const auto* session = video->session();
+        const bool hasVideoOutput = t && session && (session->hasMedia() || session->loading());
+        if (!m_ctx && hasVideoOutput)
+            createContext(video, t);
+        m_hasVideoOutput = hasVideoOutput;
+        m_pendingLoadId = t ? t->pendingRenderLoad() : 0;
+        m_covered = video->covered();
         m_target = t;
         m_metalFx = t && t->upscaler() == Upscaler::MetalFx;
         m_upscaleHeight = t ? t->upscaleHeight() : 0;
         m_videoSize = t ? QSize(t->videoWidth(), t->videoHeight()) : QSize();
+
+        auto* window = video->window();
+        if (window && !m_swapConnection) {
+            m_swapConnection = QObject::connect(window, &QQuickWindow::frameSwapped, window,
+                                                [this] { onFrameSwapped(); }, Qt::DirectConnection);
+        }
+        const bool playing = t && window && window->isExposed() && !m_covered && session
+            && session->state() == PlaybackState::Playing && !session->buffering();
+        const double fps = playing ? t->videoFps() * session->speed() : 0;
+        // Leave room for the ordinary cadence of video and display refresh
+        // rates that don't divide evenly.
+        const double threshold = fps > 0 ? qMax(48.0, 1900.0 / fps) : 0;
+        const uint64_t epoch = t ? t->presentationEpoch() : 0;
+        if (epoch != m_presentationEpoch || (threshold > 0) != (m_gapThreshold > 0)) {
+            m_lastSwap.invalidate();
+            m_videoFramePending = false;
+        }
+        m_presentationEpoch = epoch;
+        m_gapThreshold = threshold;
     }
 
     QOpenGLFramebufferObject* createFramebufferObject(const QSize& size) override
@@ -60,9 +86,48 @@ public:
 
     void render() override
     {
+        if (!m_hasVideoOutput) {
+            if (m_ctx) {
+                releaseContext();
+                QQuickOpenGLUtils::resetOpenGLState();
+                qCInfo(lcTargets) << "mpv render context released";
+            }
+            return;
+        }
         if (!m_ctx)
             return;
         QOpenGLFramebufferObject* target = framebufferObject();
+        if (m_target && (target->height() != m_reportedHeight
+                         || (m_pendingLoadId != 0 && m_pendingLoadId != m_reportedLoadId))) {
+            m_reportedHeight = target->height();
+            m_reportedLoadId = m_pendingLoadId;
+            auto* player = m_target.data();
+            QMetaObject::invokeMethod(player, [player, height = m_reportedHeight, loadId = m_reportedLoadId] {
+                player->updateViewportHeight(height, loadId);
+            }, Qt::QueuedConnection);
+        }
+        if (m_covered) {
+            // Keep mpv's playback clock running while an opaque menu covers
+            // the picture. Qt can draw the menu without waiting for a
+            // presentation time we won't use.
+            int skip = 1;
+            int waitForTarget = 0;
+            mpv_render_param params[] = {
+                {MPV_RENDER_PARAM_SKIP_RENDERING, &skip},
+                {MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME, &waitForTarget},
+                {MPV_RENDER_PARAM_INVALID, nullptr},
+            };
+            mpv_render_context_render(m_ctx, params);
+            return;
+        }
+        if (m_gapThreshold > 0) {
+            mpv_render_frame_info frame{};
+            mpv_render_context_get_info(m_ctx, {MPV_RENDER_PARAM_NEXT_FRAME_INFO, &frame});
+            // Resizing the window or painting controls can reuse the old frame.
+            if ((frame.flags & MPV_RENDER_FRAME_INFO_PRESENT)
+                && !(frame.flags & (MPV_RENDER_FRAME_INFO_REDRAW | MPV_RENDER_FRAME_INFO_REPEAT)))
+                m_videoFramePending = true;
+        }
 #ifdef Q_OS_MACOS
         if (m_metalFx && renderWithMetalFx(target))
             return;
@@ -83,6 +148,35 @@ public:
     }
 
 private:
+    void releaseContext()
+    {
+#ifdef Q_OS_MACOS
+        m_upscaler.reset();
+#endif
+        if (m_ctx)
+            mpv_render_context_free(std::exchange(m_ctx, nullptr));
+        m_reportedHeight = 0;
+        m_reportedLoadId = 0;
+    }
+
+    void onFrameSwapped()
+    {
+        if (!std::exchange(m_videoFramePending, false))
+            return;
+        if (!m_lastSwap.isValid()) {
+            m_lastSwap.start();
+            return;
+        }
+        const qint64 gap = m_lastSwap.restart();
+        if (gap <= m_gapThreshold)
+            return;
+        if (auto* target = m_target.data()) {
+            QMetaObject::invokeMethod(target, [target, epoch = m_presentationEpoch, gap] {
+                target->reportPresentationGap(epoch, gap);
+            }, Qt::QueuedConnection);
+        }
+    }
+
 #ifdef Q_OS_MACOS
     // mpv draws the frame small, about at the video's own size, and MetalFX
     // scales it up to the surface (or to the chosen height, then stretched).
@@ -148,12 +242,21 @@ private:
                                       Qt::QueuedConnection);
         }, item);
         qCInfo(lcTargets) << "mpv render context ready";
-        QMetaObject::invokeMethod(player, "markRenderReady", Qt::QueuedConnection);
     }
 
     mpv_render_context* m_ctx = nullptr;
+    int m_reportedHeight = 0;
+    uint64_t m_pendingLoadId = 0;
+    uint64_t m_reportedLoadId = 0;
     // Copied from the target in synchronize().
     QPointer<MpvTarget> m_target;
+    QMetaObject::Connection m_swapConnection;
+    QElapsedTimer m_lastSwap;
+    uint64_t m_presentationEpoch = 0;
+    double m_gapThreshold = 0;
+    bool m_videoFramePending = false;
+    bool m_hasVideoOutput = false;
+    bool m_covered = false;
     bool m_metalFx = false;
     int m_upscaleHeight = 0;
     QSize m_videoSize;
@@ -173,8 +276,23 @@ void MpvVideoItem::setSession(Session* session)
 {
     if (session == m_session)
         return;
+    QObject::disconnect(m_loadRequested);
+    QObject::disconnect(m_stateChanged);
     m_session = session;
+    if (auto* player = target())
+        m_loadRequested = connect(player, &MpvTarget::renderLoadRequested, this, &MpvVideoItem::update);
+    if (session)
+        m_stateChanged = connect(session, &Session::stateChanged, this, &MpvVideoItem::update);
     emit sessionChanged();
+    update();
+}
+
+void MpvVideoItem::setCovered(bool covered)
+{
+    if (m_covered == covered)
+        return;
+    m_covered = covered;
+    emit coveredChanged();
     update();
 }
 

@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import CorporalJackie.Player   // KeyedList
 
 // Library: what to go on watching, then what the user saved.
 Item {
@@ -37,17 +38,17 @@ Item {
         id: libraryGrid
         objectName: "savedRow"
         anchors { left: parent.left; right: parent.right; top: libraryTop.bottom; topMargin: 12 }
-        height: (cell - Theme.posterGap) * 1.5 + 70
+        height: (cell - Theme.posterGap) * 1.5 + 68 + Theme.posterGlowGutter
         orientation: ListView.Horizontal
         spacing: Theme.posterGap
         clip: true
         activeFocusOnTab: true
         keyNavigationEnabled: true
         boundsBehavior: Flickable.StopAtBounds
-        topMargin: 12
-        leftMargin: 12
-        rightMargin: 12
-        model: library.items
+        reuseItems: true
+        leftMargin: Theme.posterGlowGutter
+        rightMargin: Theme.posterGlowGutter
+        model: KeyedList { values: library.items }
         ScrollBar.horizontal: ScrollBar { policy: libraryGrid.contentWidth > libraryGrid.width ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
         // A plain wheel (up and down) scrolls the row sideways.
         WheelHandler {
@@ -60,12 +61,12 @@ Item {
             }
         }
         delegate: PosterTile {
-            required property var modelData
+            required property var entry
             required property int index
-            item: modelData
+            item: entry
             posterWidth: cell - Theme.posterGap
             current: ListView.isCurrentItem && libraryGrid.activeFocus
-            onActivated: { libraryGrid.currentIndex = index; library.open(modelData.key) }
+            onActivated: { libraryGrid.currentIndex = index; library.open(entry.key) }
         }
         function openCurrent() {
             const item = library.items[currentIndex]

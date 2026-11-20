@@ -84,6 +84,26 @@ private slots:
         QCOMPARE(s.title(), QStringLiteral("testsrc-10s"));
     }
 
+    void staleFramebufferCannotStartAReplacedOrClosedLoad()
+    {
+        MpvTarget target(MpvTarget::Mode::Video);
+        Session session(&target);
+        session.openPath(kTestPattern);
+        const auto first = target.pendingRenderLoad();
+        QVERIFY(first != 0);
+
+        session.openPath(kTestPattern);
+        const auto replacement = target.pendingRenderLoad();
+        QVERIFY(replacement > first);
+        target.updateViewportHeight(720, first);
+        QCOMPARE(target.pendingRenderLoad(), replacement);
+
+        session.stop();
+        target.updateViewportHeight(720, replacement);
+        QCOMPARE(target.pendingRenderLoad(), uint64_t(0));
+        QCOMPARE(session.state(), PlaybackState::Idle);
+    }
+
     void pausesAndSeeks()
     {
         MpvTarget target(MpvTarget::Mode::Headless);

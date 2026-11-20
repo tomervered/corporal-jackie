@@ -11,59 +11,51 @@ Item {
     id: tile
     property var item: ({})
     property int attempt: 0
-    onItemChanged: { attempt = 0; retry.stop() }
+    onItemChanged: { attempt = 0; retry.stop(); art.cache = true }
     property bool current: false
     property real posterWidth: Theme.posterWidth
+    readonly property real topInset: Theme.posterGlowGutter
     property string detail: tile.item.releaseInfo || ""
-    property color cornerColor: Theme.canvas   // what is behind the tile
     property real progress: -1          // 0-1 draws how far in, under the poster
     signal activated()
     width: posterWidth
-    height: posterWidth * 1.5 + 58
+    height: topInset + posterWidth * 1.5 + 58
     Accessible.role: Accessible.Button
     Accessible.name: tile.item.name || ""
 
-    // The chosen tile (keyboard or pointer) glows: soft accent light around
-    // the poster (a blurred shadow drawn once by a Canvas, which works on
-    // every Qt version) and a thin outline on its edge.
+    // The chosen tile (keyboard or pointer) gets a soft glow and an outline.
     readonly property bool lit: tile.current || tileHover.hovered
-    Canvas {
+    Loader {
         id: glow
-        readonly property real spread: 14
+        readonly property real spread: Theme.posterGlowSpread
         anchors { fill: art; margins: -spread }
         opacity: tile.lit ? 1 : 0
-        visible: opacity > 0
+        active: !art.software && (tile.lit || opacity > 0)
         Behavior on opacity { NumberAnimation { duration: 140 } }
-        onVisibleChanged: if (visible) requestPaint()
-        onWidthChanged: requestPaint()
-        onHeightChanged: requestPaint()
-        Connections { target: Theme; function onAccentChanged() { glow.requestPaint() } }
-        onPaint: {
-            const ctx = getContext("2d")
-            ctx.reset()
-            const r = art.radius, x = spread, y = spread, w = width - 2 * spread, h = height - 2 * spread
-            const shape = () => { ctx.beginPath(); ctx.roundedRect(x, y, w, h, r, r); ctx.closePath() }
-            ctx.shadowColor = Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.55)
-            ctx.shadowBlur = 10
-            ctx.fillStyle = Theme.accent
-            shape(); ctx.fill()
-            // Only the light outside the poster stays.
-            ctx.shadowColor = "transparent"
-            ctx.globalCompositeOperation = "destination-out"
-            shape(); ctx.fill()
+        sourceComponent: ShaderEffect {
+            property size artSize: Qt.size(art.width, art.height)
+            property real cornerRadius: art.radius
+            property real spread: glow.spread
+            property color accent: Theme.accent
+            fragmentShader: "shaders/poster-glow.frag.qsb"
         }
     }
-    Rectangle {
+    RoundedArtwork {
         id: art
+        y: tile.topInset
         width: parent.width
         height: parent.width * 1.5
-        radius: Theme.posterRadius
         color: Theme.raised
-        clip: true
+        backdrop: Theme.canvas
+        source: tile.item.poster || ""
+        progress: tile.progress
+        highlight: tileHover.hovered ? 0.08 : 0
+        Behavior on highlight { NumberAnimation { duration: 120 } }
+        onStatusChanged: if (status === Image.Error && tile.attempt < 4) retry.start()
         Text {
             textFormat: Text.PlainText
             anchors { fill: parent; margins: 12 }
-            visible: poster.status !== Image.Ready
+            visible: art.status !== Image.Ready
             text: tile.item.name || ""
             color: Theme.text
             font.pixelSize: Theme.bodySize
@@ -73,36 +65,10 @@ Item {
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
         }
-        Image {
-            id: poster
-            anchors.fill: parent
-            source: tile.item.poster || ""
-            fillMode: Image.PreserveAspectCrop
-            // Decoded at the size it is drawn: Qt keeps every shown poster in
-            // memory at this size (twice the tile was 4 times the bytes at 100 %).
-            sourceSize.width: Math.ceil(tile.posterWidth * Screen.devicePixelRatio)
-            asynchronous: true
-            onStatusChanged: if (status === Image.Error && tile.attempt < 4) retry.start()
-        }
+        // The outline shows focus or hover on the same rounded edge.
         Rectangle {
             anchors.fill: parent
-            radius: art.radius
-            color: "white"
-            opacity: tileHover.hovered ? 0.08 : 0
-            Behavior on opacity { NumberAnimation { duration: 120 } }
-        }
-        // How far in
-        Rectangle {
-            visible: tile.progress > 0
-            anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-            height: 4
-            color: "#a0000000"
-            Rectangle { width: parent.width * Math.min(1, tile.progress); height: parent.height; color: Theme.accent }
-        }
-        CornerMask { anchors.fill: parent; radius: art.radius; color: tile.cornerColor }
-        // The outline sits on the poster's edge (it also hides the mask's seam).
-        Rectangle {
-            anchors.fill: parent
+            z: 2
             radius: art.radius
             color: "transparent"
             border.width: 2
@@ -116,9 +82,9 @@ Item {
             onTriggered: {
                 tile.attempt++
                 // Not from Qt's image cache, which may keep the failure.
-                poster.cache = false
-                poster.source = ""
-                poster.source = Qt.binding(() => tile.item.poster || "")
+                art.cache = false
+                art.source = ""
+                art.source = Qt.binding(() => tile.item.poster || "")
             }
         }
         HoverHandler { id: tileHover; cursorShape: Qt.PointingHandCursor }

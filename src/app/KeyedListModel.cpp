@@ -21,11 +21,17 @@ void KeyedListModel::setKeyRole(const QString& role)
 
 void KeyedListModel::setValues(const QVariantList& next)
 {
+    if (m_values == next)
+        return;
     const qsizetype oldSize = m_values.size();
     const qsizetype shared = std::min(oldSize, next.size());
     qsizetype same = 0;
-    while (same < shared && keyOf(m_values[same]) == keyOf(next[same]) && !keyOf(next[same]).isEmpty())
+    while (same < shared) {
+        const QString key = keyOf(next[same]);
+        if (key.isEmpty() || keyOf(m_values[same]) != key)
+            break;
         ++same;
+    }
 
     if (same < shared) {
         // Something other than the end changed: start over.
