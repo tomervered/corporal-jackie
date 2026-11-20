@@ -86,7 +86,7 @@ private:
     void importOldSettings();
     void restorePlaybackSettings();
     void restoreSources();
-    void dropDefaultAddonUntilChosen();
+    void matchDefaultAddonsUntilChosen();
     void retireCinemeta(bool always);
     void syncDefaultAddon(bool on);
 

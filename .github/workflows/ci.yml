@@ -920,7 +920,7 @@ jobs:
           - **Not code-signed.** Windows SmartScreen and macOS Gatekeeper will warn on first run. Updates are manual: download the new build.
           - **Windows:** unzip CorporalJackie-windows-x64.zip and run CorporalJackie.exe.
           - **macOS (Apple silicon):** unzip CorporalJackie-macos-arm64.zip, then right-click the app and choose Open the first time.
-          - Playing torrents and uploading to other peers are off until you turn them on. Nothing contacts WikiMaze, the DHT or open trackers until you answer the first-run screen. What the app sends and keeps: docs/PRIVACY.md.
+          - Playing torrents and uploading to other peers are off until you turn them on. Two add-ons come installed: WikiMaze and Public Domain Movies. Nothing contacts them, the DHT or open trackers until you answer the first-run screen. What the app sends and keeps: docs/PRIVACY.md.
           - Corporal Jackie does not provide, host or sell any movies or shows. Play only what you have the right to watch, and share only what you have the right to share: docs/COPYRIGHT_POLICY.md. Not affiliated with Stremio.
           EOF
           gh release create "$TAG" CorporalJackie-windows-x64.zip macos/CorporalJackie-macos-arm64.zip \

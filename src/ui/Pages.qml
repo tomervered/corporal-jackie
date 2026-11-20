@@ -83,8 +83,15 @@ Rectangle {
     }
     // Called when the pages appear.
     function show() {
-        if (browser.homeRows.length === 0) browser.loadHome()
+        // Nothing is asked of the add-ons before the first-run answer.
+        if (browser.homeRows.length === 0 && preferences.privacyChosen) browser.loadHome()
         focusPage()
+    }
+    Connections {
+        target: preferences
+        function onPrivacyChanged() {
+            if (pages.visible && preferences.privacyChosen && browser.homeRows.length === 0) browser.loadHome()
+        }
     }
     function openItem(open) {   // open: a function that sets browser.detail
         open()

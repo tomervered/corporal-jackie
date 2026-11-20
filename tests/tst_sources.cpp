@@ -460,9 +460,15 @@ private slots:
 
         {
             StremioAdapter addons(store, /*preinstall*/ true);
-            QCOMPARE(addons.addons().size(), 1);  // WikiMaze, from the built-in manifest
+            // WikiMaze and Public Domain Movies, from the built-in manifests.
+            QCOMPARE(addons.addons().size(), 2);
             QCOMPARE(addons.addons()[0].manifest.id, QStringLiteral("community.wikimaze"));
-            QVERIFY(addons.uninstall("community.wikimaze"));
+            QCOMPARE(addons.addons()[1].manifest.id, QStringLiteral("org.stremio.pubdomainmovies"));
+            QCOMPARE(addons.addons()[1].manifestUrl.toString(),
+                     QStringLiteral("https://caching.stremio.net/publicdomainmovies.now.sh/manifest.json"));
+            QCOMPARE(addons.catalogs().size(), 8);   // WikiMaze's 7 and the public-domain films
+            QVERIFY(addons.uninstallDefaults());
+            QVERIFY(!addons.uninstallDefaults());
 
             auto install = [&](const QString& link) {
                 Waiter<QString> w;
@@ -494,7 +500,7 @@ private slots:
             QCOMPARE(server.requests.size(), before);
         }
         // A restart keeps the list, without asking the network, and does
-        // not bring back the removed WikiMaze.
+        // not bring back the removed defaults.
         const int asked = int(server.requests.size());
         StremioAdapter again(store, true);
         QCOMPARE(again.addons().size(), 1);

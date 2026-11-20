@@ -57,6 +57,11 @@ struct Run
     AppCore& core;
 };
 
+QStringList defaultUrls()
+{
+    return {QString::fromLatin1(StremioAdapter::kDefaultAddonUrl), QString::fromLatin1(StremioAdapter::kPublicDomainUrl)};
+}
+
 QStringList addonUrls(const StremioAdapter& addons)
 {
     QStringList urls;
@@ -132,8 +137,8 @@ private slots:
     {
         Run run(m_root->path());
         QVERIFY(run.core.storage().isOpen());
-        // No add-ons: WikiMaze comes only with the first-run answer.
-        QVERIFY(run.core.addons().addons().isEmpty());
+        // WikiMaze and Public Domain Movies come installed.
+        QCOMPARE(addonUrls(run.core.addons()), defaultUrls());
         QVERIFY(run.core.localFiles().folders().isEmpty());
         QVERIFY(run.core.session().hardwareDecoding());
         QCOMPARE(run.core.session().subtitleScale(), 1.0);
@@ -151,7 +156,9 @@ private slots:
         const BrokerSettings s = run.core.brokerSettings();
         QVERIFY(!s.dht && !s.localDiscovery && !s.portMapping && !s.publicTrackers);
         QVERIFY(!s.torrents && !s.upload);
-        QVERIFY(run.core.addons().addons().isEmpty());
+        // Installed, but not asked for anything yet: no refresh, no requests.
+        QCOMPARE(addonUrls(run.core.addons()), defaultUrls());
+        QCOMPARE(run.core.addons().fetcher().inFlight(), 0);
     }
 
     // Torrents and uploading are their own answers, off unless given.
@@ -287,15 +294,15 @@ private slots:
             p.choosePrivacy(true, true, false, true);
             QCOMPARE(chosen.count(), 1);
             QVERIFY(p.privacyChosen());
-            QCOMPARE(addonUrls(run.core.addons()), QStringList{QString::fromLatin1(StremioAdapter::kDefaultAddonUrl)});
+            QCOMPARE(addonUrls(run.core.addons()), defaultUrls());
             const BrokerSettings s = run.core.brokerSettings();
             QVERIFY(s.dht && s.localDiscovery && s.portMapping);
             QVERIFY(!s.publicTrackers);
-            // WikiMaze goes when the switch goes off, and back when it is on again.
+            // Both go when the switch goes off, and come back when it is on again.
             p.setUseCatalogAddon(false);
             QVERIFY(run.core.addons().addons().isEmpty());
             p.setUseCatalogAddon(true);
-            QCOMPARE(run.core.addons().addons().size(), 1);
+            QCOMPARE(addonUrls(run.core.addons()), defaultUrls());
             p.setUseDht(false);
             QVERIFY(!run.core.brokerSettings().dht && !run.core.brokerSettings().localDiscovery);
             p.setUsePublicTrackers(true);
@@ -305,7 +312,7 @@ private slots:
         const Preferences& p = run.core.preferences();
         QVERIFY(p.privacyChosen());
         QVERIFY(p.useCatalogAddon() && !p.useDht() && p.usePublicTrackers() && p.usePortMapping());
-        QCOMPARE(run.core.addons().addons().size(), 1);
+        QCOMPARE(addonUrls(run.core.addons()), defaultUrls());
     }
 
     void changingOtherChoicesLeavesTheAddonListAlone()
@@ -314,34 +321,64 @@ private slots:
         Preferences& p = run.core.preferences();
         p.choosePrivacy(true, false, false, false);
         run.core.browser().removeAddon(QStringLiteral("community.wikimaze"));
-        QVERIFY(run.core.addons().addons().isEmpty());
+        const QStringList left{QString::fromLatin1(StremioAdapter::kPublicDomainUrl)};
+        QCOMPARE(addonUrls(run.core.addons()), left);
         // The person removed WikiMaze on the Add-ons page: no other switch brings it back.
         p.setUseDht(true);
         p.setUsePortMapping(true);
-        QVERIFY(run.core.addons().addons().isEmpty());
+        QCOMPARE(addonUrls(run.core.addons()), left);
     }
 
-    // An install from before the first-run screen keeps its other add-ons but
-    // loses WikiMaze until the person says yes.
-    void defaultAddonWaitsForTheAnswerOnAnOlderInstall()
+    // An install whose earlier answer was no keeps them out while the screen
+    // asks again, and after.
+    void anEarlierNoKeepsTheDefaultsOut()
     {
         {
             Run run(m_root->path());
-            run.core.preferences().choosePrivacy(true, false, false, false);
-            QCOMPARE(run.core.addons().addons().size(), 1);
-            // Back to how an old install looks: WikiMaze there, no answer.
-            run.core.storage().setSetting(QStringLiteral("privacy/chosen"), false);
+            run.core.preferences().choosePrivacy(false, false, false, false);
+            QVERIFY(run.core.addons().addons().isEmpty());
+            // The screen asks again (it gained a question).
+            run.core.storage().setSetting(QStringLiteral("privacy/version"), 1);
         }
         {
             Run run(m_root->path());
             QVERIFY(!run.core.preferences().privacyChosen());
             QVERIFY(run.core.addons().addons().isEmpty());
-            QVERIFY(run.core.storage().addons()->isEmpty());   // saved that way
             run.core.preferences().choosePrivacy(false, false, false, false);
         }
         Run run(m_root->path());
         QVERIFY(run.core.preferences().privacyChosen());
         QVERIFY(run.core.addons().addons().isEmpty());
+    }
+
+    // An install that said yes to WikiMaze before 0.3.1 gets Public Domain
+    // Movies once. Removed after that, it stays removed, and a removed
+    // WikiMaze does not come back with it.
+    void publicDomainMoviesJoinsAnEarlierYesOnce()
+    {
+        const QStringList wikimazeOnly{QString::fromLatin1(StremioAdapter::kDefaultAddonUrl)};
+        const QStringList publicDomainOnly{QString::fromLatin1(StremioAdapter::kPublicDomainUrl)};
+        {
+            Run run(m_root->path());
+            run.core.preferences().choosePrivacy(true, false, false, false);
+            run.core.browser().removeAddon(QString::fromLatin1(StremioAdapter::kPublicDomainId));
+            QCOMPARE(addonUrls(run.core.addons()), wikimazeOnly);
+            run.core.storage().setSetting(QStringLiteral("addons/defaultsVersion"), 1);   // as 0.3.0 left it
+        }
+        {
+            Run run(m_root->path());
+            QCOMPARE(addonUrls(run.core.addons()), defaultUrls());
+            run.core.browser().removeAddon(QString::fromLatin1(StremioAdapter::kPublicDomainId));
+        }
+        {
+            Run run(m_root->path());
+            QCOMPARE(addonUrls(run.core.addons()), wikimazeOnly);
+            run.core.browser().removeAddon(QString::fromLatin1(StremioAdapter::kDefaultAddonId));
+            run.core.addons().installDefaults({QString::fromLatin1(StremioAdapter::kPublicDomainId)});
+            run.core.storage().setSetting(QStringLiteral("addons/defaultsVersion"), 1);
+        }
+        Run run(m_root->path());
+        QCOMPARE(addonUrls(run.core.addons()), publicDomainOnly);
     }
 
     // Cinemeta, the default before WikiMaze, leaves an install once; added
@@ -406,13 +443,14 @@ private slots:
         {
             Run run(m_root->path());
             run.core.preferences().choosePrivacy(true, false, false, false);
-            QCOMPARE(run.core.addons().addons().size(), 1);
+            QCOMPARE(run.core.addons().addons().size(), 2);
             run.core.browser().removeAddon(QStringLiteral("community.wikimaze"));
+            run.core.browser().removeAddon(QString::fromLatin1(StremioAdapter::kPublicDomainId));
             QVERIFY(run.core.addons().addons().isEmpty());
             QVERIFY(run.core.browser().addFolder(QUrl::fromLocalFile(videos.path())));
         }
         Run run(m_root->path());
-        // Removing the last add-on is kept: no WikiMaze comes back.
+        // Removing the last add-on is kept: no default comes back.
         QVERIFY(run.core.addons().addons().isEmpty());
         QCOMPARE(run.core.localFiles().folders().size(), 1);
         QCOMPARE(QDir(run.core.localFiles().folders().first()), QDir(videos.path()));
@@ -425,23 +463,32 @@ private slots:
         {
             Run run(m_root->path());
             run.core.preferences().choosePrivacy(true, false, false, false);
+            QJsonArray list = run.core.addons().storedList();
+            list.append(QJsonObject{{"transportUrl", QStringLiteral("https://extra.example.com/manifest.json")},
+                                    {"manifest", QJsonObject{{"id", "org.example.extra"},
+                                                             {"version", "1.0.0"},
+                                                             {"name", "Extra"},
+                                                             {"resources", QJsonArray{"stream"}},
+                                                             {"types", QJsonArray{"movie"}},
+                                                             {"catalogs", QJsonArray{}}}}});
+            run.core.addons().restore(list);
             QVERIFY(run.core.browser().addFolder(QUrl::fromLocalFile(videos.path())));
             exported = run.core.storage().exportJson();
         }
         m_root = std::make_unique<QTemporaryDir>();
         Run run(m_root->path());
-        QVERIFY(run.core.addons().addons().isEmpty());
+        QCOMPARE(addonUrls(run.core.addons()), defaultUrls());
         QSignalSpy addons(&run.core.addons(), &StremioAdapter::addonsChanged);
         QSignalSpy folders(&run.core.localFiles(), &LocalLibrary::foldersChanged);
         QCOMPARE(run.core.storage().importJson(exported, Storage::ImportExtras::Include), QString());
         QVERIFY(addons.count() > 0);
         QVERIFY(folders.count() > 0);
-        // The export came from an install that said yes to WikiMaze; this one
-        // has not answered, so WikiMaze stays out until it does.
-        QVERIFY(run.core.addons().addons().isEmpty());
+        // The export's extra add-on joins the defaults; this install has not
+        // answered, so they stay while its switch is on, and go with a no.
+        QCOMPARE(addonUrls(run.core.addons()), defaultUrls() << QStringLiteral("https://extra.example.com/manifest.json"));
         QCOMPARE(run.core.localFiles().folders().size(), 1);
-        run.core.preferences().choosePrivacy(true, false, false, false);
-        QCOMPARE(addonUrls(run.core.addons()), QStringList{QString::fromLatin1(StremioAdapter::kDefaultAddonUrl)});
+        run.core.preferences().choosePrivacy(false, false, false, false);
+        QCOMPARE(addonUrls(run.core.addons()), QStringList{QStringLiteral("https://extra.example.com/manifest.json")});
     }
 
     void oldSettingsAreCopiedOnce()
@@ -454,7 +501,7 @@ private slots:
         }
         const QString data = QDir(m_root->path()).filePath(QStringLiteral("data"));
         QVERIFY(QDir().mkpath(data));
-        const QJsonObject oldAddon{{"transportUrl", QString::fromLatin1(StremioAdapter::kDefaultAddonUrl)},
+        const QJsonObject oldAddon{{"transportUrl", QStringLiteral("https://example.com/old/manifest.json")},
                                    {"manifest", QJsonObject{{"id", "org.example.old"},
                                                             {"version", "1.0.0"},
                                                             {"name", "Old"},
@@ -472,7 +519,8 @@ private slots:
             QVERIFY(!run.core.preferences().torrentsInMemory());
             QCOMPARE(run.core.preferences().diskCacheGB(), 25);
             QVERIFY(!run.core.brokerSettings().memoryOnly);
-            QCOMPARE(run.core.addons().addons().size(), 1);
+            // The old add-on, then the defaults (no answer yet: their switch is on).
+            QCOMPARE(run.core.addons().addons().size(), 3);
             QCOMPARE(run.core.addons().addons().first().manifest.id, QStringLiteral("org.example.old"));
             QCOMPARE(run.core.localFiles().folders(), QStringList{m_root->path()});
             run.core.session().setHardwareDecoding(true);

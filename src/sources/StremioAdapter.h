@@ -27,16 +27,21 @@ class StremioAdapter : public SourceAdapter
 
 public:
     static constexpr int kMaxAddons = 50;
-    // The add-on a first run can start with (lists and details, no streams).
+    // The add-ons a first run starts with: WikiMaze (lists and details, no
+    // streams) and Public Domain Movies (a list of public-domain films with
+    // their torrents).
     static constexpr auto kDefaultAddonId = "community.wikimaze";
     static constexpr auto kDefaultAddonUrl = "https://wikimaze-seven.vercel.app/manifest.json";
+    static constexpr auto kPublicDomainId = "org.stremio.pubdomainmovies";
+    static constexpr auto kPublicDomainUrl = "https://caching.stremio.net/publicdomainmovies.now.sh/manifest.json";
+    static QStringList defaultAddonIds();
     // The default before WikiMaze: removed once from installs that had it.
     static constexpr auto kCinemetaId = "com.linvo.cinemeta";
 
     // storeFile: a JSON file the installed list is kept in. Empty: no file;
     // the app keeps the list in its database through storedList(), restore()
     // and addonsChanged. With preinstall and no file yet, a first run starts
-    // with WikiMaze, which has catalogs and details but no streams.
+    // with the default add-ons (installDefaults()).
     explicit StremioAdapter(const QString& storeFile = {}, bool preinstall = true, QObject* parent = nullptr);
 
     QString id() const override { return QStringLiteral("stremio"); }
@@ -68,8 +73,12 @@ public:
     QJsonArray storedList() const;
     // Replaces the installed list with a stored one; bad entries are skipped.
     void restore(const QJsonArray& list);
-    // What a first run starts with: WikiMaze.
-    void installDefaults();
+    // What a first run starts with: WikiMaze and Public Domain Movies, from
+    // built-in copies of their manifests that the next refresh replaces.
+    // Ones already installed are left as they are. `only`: just these ids.
+    void installDefaults(const QStringList& only = {});
+    // Removes the default add-ons. True if any was installed.
+    bool uninstallDefaults();
 
     JsonFetcher& fetcher() { return m_fetcher; }
 

@@ -4,8 +4,9 @@ import "Notices.js" as Notices
 
 // Shown on first run, and again for an install that predates it, until the
 // person answers. Covers the window; nothing is contacted before the answer.
-// The switches start off, or as answered before when the screen asks again
-// after gaining a question. The answer goes to `preferences`.
+// The built-in add-ons' switch starts on (they come installed) and the rest
+// start off, or as answered before when the screen asks again after gaining
+// a question. The answer goes to `preferences`.
 Rectangle {
     id: screen
     objectName: "privacyScreen"
@@ -72,7 +73,7 @@ Rectangle {
             Text {
                 textFormat: Text.PlainText
                 width: parent.width
-                text: "Corporal Jackie has no server and no account, and sends nothing to its authors. Everything below is off until you allow it, and each choice can be changed later in Settings (P)."
+                text: "Corporal Jackie has no account and no telemetry. Nothing below is contacted until you continue. The built-in add-ons are on; everything else is off until you allow it, and each choice can be changed later in Settings (P)."
                 color: Theme.text
                 font.pixelSize: 14
                 wrapMode: Text.WordWrap
@@ -109,8 +110,8 @@ Rectangle {
 
             Option {
                 id: catalogAddonOption
-                title: "Browse and search with WikiMaze"
-                detail: "WikiMaze is a catalog add-on with data from Wikidata and TVmaze, run by this app's author on Vercel. It sees your IP address and every title you search for or open. Off: no lists or search until you add another add-on."
+                title: "Use the built-in add-ons: WikiMaze and Public Domain Movies"
+                detail: "WikiMaze gives lists and details from Wikidata and TVmaze; this app's author runs it on Vercel. Public Domain Movies lists films whose copyright has run out, with their torrents; it runs on Stremio's server. Each sees your IP address and what you browse or search in it. Off: both are removed, and there are no lists or search until you add another add-on."
                 checked: screen.catalogAddon
                 onCheckedChanged: screen.catalogAddon = checked
             }

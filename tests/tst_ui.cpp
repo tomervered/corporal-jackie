@@ -15,6 +15,7 @@
 #include "Preferences.h"
 #include "Session.h"
 #include "Storage.h"
+#include "StremioAdapter.h"
 #include "TorrentTransport.h"
 
 #include <QDateTime>
@@ -115,7 +116,9 @@ private slots:
         m_torrents = std::make_unique<TorrentTransport>(s);
         m_core->start(&m_target, *m_torrents, false);
 
-        // Only the fake add-on: WikiMaze would go to the internet.
+        // Only the fake add-on: the built-in ones would go to the internet.
+        QCOMPARE(m_core->addons().addons().size(), 2);
+        m_core->addons().uninstallDefaults();
         Browser& browser = m_core->browser();
         browser.installAddon(m_server.base() + QStringLiteral("/films/manifest.json"));
         QTRY_COMPARE(browser.addons().size(), 1);
@@ -160,11 +163,19 @@ private slots:
         QTest::keyClick(m_window, Qt::Key_P);
         QVERIFY(!m_window->property("settingsVisible").toBool());
 
-        // Switch on the second one (DHT and local discovery) and continue.
+        // Nothing was asked of the add-ons while the screen is up.
+        QCOMPARE(m_core->addons().fetcher().inFlight(), 0);
+        QVERIFY(m_core->browser().homeRows().isEmpty());
+
+        // The built-in add-ons' switch starts on: switch it off. Switch on
+        // the second one (DHT and local discovery) and continue.
+        QQuickItem* builtIn = options.at(0);
+        QVERIFY(screen->property("catalogAddon").toBool());
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, builtIn->mapToScene(QPointF(builtIn->width() - 30, builtIn->height() / 2)).toPoint());
+        QTRY_VERIFY(!screen->property("catalogAddon").toBool());
         QQuickItem* dht = options.at(1);
         QTest::mouseClick(m_window, Qt::LeftButton, {}, dht->mapToScene(QPointF(dht->width() - 30, dht->height() / 2)).toPoint());
         QTRY_VERIFY(screen->property("dht").toBool());
-        QVERIFY(!screen->property("catalogAddon").toBool());
 
         // Torrents and uploading are asked on their own; uploading only once
         // torrents are on. No "Allow all".
@@ -193,7 +204,7 @@ private slots:
         QVERIFY(p.useDht());
         QVERIFY(!p.useCatalogAddon() && !p.usePublicTrackers() && !p.usePortMapping());
         QVERIFY(p.useTorrents() && !p.allowUploads());
-        // WikiMaze stayed out; only the fake add-on is here.
+        // The built-in add-ons stayed out; only the fake add-on is here.
         QCOMPARE(m_core->browser().addons().size(), 1);
         noWarnings();
     }

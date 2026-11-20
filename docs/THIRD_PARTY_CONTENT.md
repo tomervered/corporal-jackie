@@ -4,7 +4,7 @@ Corporal Jackie can use Stremio-compatible add-ons. An add-on is a web service r
 
 ## Who runs them
 
-Add-ons are not run, checked or endorsed by this project, and this project is not affiliated with Stremio. WikiMaze, a catalog add-on run by the app's author with data from Wikidata (CC0) and TVmaze (CC BY-SA 4.0), is installed only if you allow it on the first-run screen. Every other add-on is one you install yourself by pasting its address on the Add-ons page.
+Add-ons are not run, checked or endorsed by this project, and this project is not affiliated with Stremio. Two add-ons come installed, and the first-run screen has a switch that removes both: WikiMaze, a catalog add-on run by the app's author with data from Wikidata (CC0) and TVmaze (CC BY-SA 4.0), and Public Domain Movies, an add-on on Stremio's server (`caching.stremio.net`) that lists films it describes as public domain, with torrents. This project has not checked the copyright status of each film in that list. Every other add-on is one you install yourself by pasting its address on the Add-ons page.
 
 ## What happens when you install one
 

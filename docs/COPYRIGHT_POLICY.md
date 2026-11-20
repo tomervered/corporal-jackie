@@ -5,8 +5,8 @@ Corporal Jackie is a media player. It does not provide, host or sell any movies 
 ## What the app does and does not do
 
 - It plays files on your computer, web links you open, and torrents you open.
-- It ships with no add-on that lists streams. WikiMaze, which you can allow on the first-run screen, gives titles, posters and descriptions, not streams.
-- This project keeps no list of add-ons or stream sources, recommends none, and installs none from links.
+- It comes with two add-ons, which one switch on the first-run screen removes. WikiMaze gives titles, posters and descriptions, not streams. Public Domain Movies, run on Stremio's server, lists films it describes as public domain, with torrents; this project has not checked each film's status, and torrents still play only after you turn them on.
+- Apart from those two, this project keeps no list of add-ons or stream sources, recommends none, and installs none from links.
 - It does not remove or get around DRM or any other copy protection.
 
 ## Choices you make
