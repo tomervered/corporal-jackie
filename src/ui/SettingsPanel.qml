@@ -602,8 +602,8 @@ Item {
                 title: "Privacy"
                 Note { text: "What Corporal Jackie may contact. Each applies at once. A VPN hides your IP address from torrent peers; this app does not. PRIVACY.md, next to the app, lists everything."; bottomPadding: 10 }
                 Toggle {
-                    title: "Browse and search with WikiMaze"
-                    detail: "WikiMaze (on Vercel, from this app's author) sees your IP address and every title you search for or open. Off removes it from Add-ons."
+                    title: "Use the built-in add-ons: WikiMaze and Public Domain Movies"
+                    detail: "WikiMaze (on Vercel, from this app's author) sees your IP address and every title you search for or open. Public Domain Movies (on Stremio's server) sees your IP address, its list pages and your searches in it. Off removes both from Add-ons."
                     checked: preferences.useCatalogAddon
                     onToggled: on => preferences.useCatalogAddon = on
                 }

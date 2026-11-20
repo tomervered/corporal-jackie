@@ -36,6 +36,10 @@ const QString kUpscaleHeight = QStringLiteral("playback/upscaleHeight");
 const QString kSubtitleStyle = QStringLiteral("subtitles/style");
 const QString kSubtitleScale = QStringLiteral("subtitles/scale");
 const QString kCinemetaRetired = QStringLiteral("addons/cinemetaRetired");
+// Bumped when a default add-on is added, so installs that kept the defaults
+// get the new one once. 2: Public Domain Movies (0.3.1).
+const QString kDefaultsVersion = QStringLiteral("addons/defaultsVersion");
+constexpr int kDefaultAddonsVersion = 2;
 
 QVariantMap styleToMap(const SubtitleStyle& s)
 {
@@ -193,14 +197,14 @@ void AppCore::shutDown()
         m_torrents->abort();
 }
 
-// The default add-on (WikiMaze) is installed only when the person says yes
-// on the first-run screen: a fresh install starts with no add-ons, and an
-// install from before that screen (or an import from one) loses it until
-// they answer.
-void AppCore::dropDefaultAddonUntilChosen()
+// The default add-ons (WikiMaze and Public Domain Movies) come installed:
+// until the person answers the first-run screen, the list matches that
+// screen's switch, which starts on unless they said no to it before. Nothing
+// is asked of them before the answer (Pages and main.cpp wait for it).
+void AppCore::matchDefaultAddonsUntilChosen()
 {
     if (!m_preferences->privacyChosen())
-        m_addons->uninstall(QString::fromLatin1(StremioAdapter::kDefaultAddonId));
+        syncDefaultAddon(m_preferences->earlierChoices().value(QStringLiteral("catalogAddon")).toBool());
 }
 
 // Cinemeta (Stremio's server) was the default add-on before WikiMaze. An
@@ -216,13 +220,10 @@ void AppCore::retireCinemeta(bool always)
 
 void AppCore::syncDefaultAddon(bool on)
 {
-    const QString id = QString::fromLatin1(StremioAdapter::kDefaultAddonId);
-    const auto& list = m_addons->addons();
-    const bool has = std::any_of(list.begin(), list.end(), [&](const InstalledAddon& a) { return a.manifest.id == id; });
-    if (on && !has)
+    if (on)
         m_addons->installDefaults();
-    else if (!on && has)
-        m_addons->uninstall(id);
+    else
+        m_addons->uninstallDefaults();
 }
 
 // Hardware decoding, the upscaler and the subtitle look, kept between runs.
@@ -250,7 +251,7 @@ void AppCore::restorePlaybackSettings()
 }
 
 // The add-on and folder lists live in the database; a fresh install starts
-// with WikiMaze. Changes are saved as they happen, and an import reloads them.
+// with the default add-ons. Changes are saved as they happen, and an import reloads them.
 void AppCore::restoreSources()
 {
     Storage* storage = m_storage.get();
@@ -259,7 +260,14 @@ void AppCore::restoreSources()
     if (const auto stored = storage->addons())
         addons->restore(*stored);
     retireCinemeta(false);
-    dropDefaultAddonUntilChosen();
+    matchDefaultAddonsUntilChosen();
+    // An install that said yes to the defaults before Public Domain Movies
+    // joined them gets it once; one that removed it later keeps it removed.
+    if (storage->setting(kDefaultsVersion, 1).toInt() < kDefaultAddonsVersion) {
+        if (m_preferences->privacyChosen() && m_preferences->useCatalogAddon())
+            addons->installDefaults({QString::fromLatin1(StremioAdapter::kPublicDomainId)});
+        storage->setSetting(kDefaultsVersion, kDefaultAddonsVersion);
+    }
     storage->saveAddons(addons->storedList());
     connect(addons, &StremioAdapter::addonsChanged, storage, [storage, addons] { storage->saveAddons(addons->storedList()); });
 
@@ -272,7 +280,7 @@ void AppCore::restoreSources()
     connect(storage, &Storage::addonsImported, addons, [this, storage, addons] {
         addons->restore(*storage->addons());
         retireCinemeta(true);
-        dropDefaultAddonUntilChosen();
+        matchDefaultAddonsUntilChosen();
     });
     connect(storage, &Storage::foldersImported, local, [storage, local] { local->restoreFolders(*storage->folders()); });
 }

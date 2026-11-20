@@ -25,7 +25,9 @@ const QString kMemoryCap = QStringLiteral("torrents/memoryCapMB");
 const QString kDiskCap = QStringLiteral("torrents/diskCacheGB");
 const QString kFolder = QStringLiteral("torrents/cacheFolder");
 const QString kPrivacyChosen = QStringLiteral("privacy/chosen");
-const QString kCatalogAddon = QStringLiteral("privacy/catalogAddon");  // WikiMaze; "privacy/cinemeta" was Stremio's server
+// The default add-ons, WikiMaze and Public Domain Movies; "privacy/cinemeta"
+// was Stremio's server.
+const QString kCatalogAddon = QStringLiteral("privacy/catalogAddon");
 const QString kDht = QStringLiteral("privacy/dht");
 const QString kTrackers = QStringLiteral("privacy/publicTrackers");
 const QString kPortMapping = QStringLiteral("privacy/portMapping");
@@ -110,7 +112,9 @@ Preferences::Preferences(Storage& storage, const QString& defaultCacheFolder, QO
         qCWarning(lcApp).noquote() << "Torrent cache folder" << m_cacheFolder << "is not usable; using the default";
         m_cacheFolder.clear();
     }
-    m_earlier = {{QStringLiteral("catalogAddon"), value(kCatalogAddon, false).toBool()},
+    // The default add-ons come installed: their switch starts on until the
+    // person answers. The other switches start off.
+    m_earlier = {{QStringLiteral("catalogAddon"), value(kCatalogAddon, true).toBool()},
                  {QStringLiteral("dht"), value(kDht, false).toBool()},
                  {QStringLiteral("trackers"), value(kTrackers, false).toBool()},
                  {QStringLiteral("portMapping"), value(kPortMapping, false).toBool()}};
@@ -230,7 +234,9 @@ void Preferences::setAllowUploads(bool on)
 void Preferences::choosePrivacy(bool catalogAddon, bool dht, bool publicTrackers, bool portMapping, bool torrents,
                                 bool uploads)
 {
-    const bool catalogBefore = m_catalogAddon;
+    // Before the first answer the built-in add-ons follow the screen's
+    // starting switch (AppCore installs them), so that is what changes.
+    const bool catalogBefore = m_privacyChosen ? m_catalogAddon : m_earlier.value(QStringLiteral("catalogAddon")).toBool();
     m_catalogAddon = catalogAddon;
     m_dht = dht;
     m_publicTrackers = publicTrackers;

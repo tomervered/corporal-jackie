@@ -20,7 +20,7 @@ Column {
     spacing: 12
     Muted {
         width: parent.width
-        text: "Add-ons give the lists, details and streams. Paste an add-on's install link (it ends in manifest.json). WikiMaze, if you allowed it on the first-run screen or in Settings, has lists and details, not streams. Add-ons higher up are asked first, and their lists come first on Home."
+        text: "Add-ons give the lists, details and streams. Paste an add-on's install link (it ends in manifest.json). Two come installed unless you turned them off on the first-run screen or in Settings: WikiMaze, with lists and details but no streams, and Public Domain Movies, with films whose copyright has run out and their torrents. Add-ons higher up are asked first, and their lists come first on Home."
     }
     Row {
         width: parent.width

@@ -15,10 +15,24 @@
 namespace cj {
 namespace {
 
-// Used only until the first refresh fetches the real manifest: enough for
-// the default add-on's lists to show on a first run. A copy of
+// Used only until the first refresh fetches the real manifests: enough for
+// the default add-ons' lists to show on a first run. A copy of
 // https://wikimaze-seven.vercel.app/manifest.json (2026-11-17).
 const char kDefaultManifest[] = R"json({"id":"community.wikimaze","version":"0.1.0","name":"WikiMaze","description":"Movie and series details from Wikidata (CC0) and TVmaze (CC BY-SA), titles in your language. TV data from TVmaze.com, licensed CC BY-SA 4.0.","resources":["catalog",{"name":"meta","types":["movie","series"],"idPrefixes":["tt"]}],"types":["movie","series"],"idPrefixes":["tt"],"catalogs":[{"type":"movie","id":"wikimaze-trending","name":"WikiMovies - Trending","extra":[{"name":"genre","options":["Action","Adventure","Animation","Biography","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Musical","Mystery","Romance","Sci-Fi","Sports","Superhero","Thriller","War","Western"]},{"name":"skip"}]},{"type":"series","id":"wikimaze-trending","name":"WikiSeries - Trending","extra":[{"name":"genre","options":["Action","Adventure","Animation","Anime","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Medical","Mystery","Romance","Sci-Fi","Sports","Thriller","War","Western"]},{"name":"skip"}]},{"type":"movie","id":"wikimaze-hot","name":"WikiMovies - Surging","extra":[{"name":"genre","options":["Action","Adventure","Animation","Biography","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Musical","Mystery","Romance","Sci-Fi","Sports","Superhero","Thriller","War","Western"]},{"name":"skip"}]},{"type":"series","id":"wikimaze-hot","name":"WikiSeries - Surging","extra":[{"name":"genre","options":["Action","Adventure","Anime","Children","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Legal","Medical","Mystery","Romance","Sci-Fi","Sports","Supernatural","Thriller","War","Western"]},{"name":"skip"}]},{"type":"movie","id":"wikimaze-popular","name":"WikiMovies - Classics","extra":[{"name":"search"},{"name":"genre","options":["Action","Adventure","Animation","Biography","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Musical","Mystery","Romance","Sci-Fi","Sports","Superhero","Thriller","War","Western"]},{"name":"skip"}]},{"type":"series","id":"wikimaze-classics","name":"WikiSeries - Classics","extra":[{"name":"search"},{"name":"genre","options":["Action","Adventure","Animation","Anime","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Medical","Mystery","Romance","Sci-Fi","Sports","Thriller","War","Western"]},{"name":"skip"}]},{"type":"series","id":"wikimaze-airing","name":"WikiSeries - Airing now","extra":[{"name":"genre","options":["Action","Adventure","Anime","Children","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Legal","Medical","Mystery","Romance","Sci-Fi","Sports","Supernatural","Thriller","War","Western"]},{"name":"skip"}]}],"behaviorHints":{"configurable":true}})json";
+
+// A copy of https://caching.stremio.net/publicdomainmovies.now.sh/manifest.json (2026-11-20).
+const char kPublicDomainManifest[] = R"json({"id":"org.stremio.pubdomainmovies","version":"1.0.0","name":"Public Domain Movies","description":"Torrents for public domain movies. Includes a collection of more then 500 public domain movies.","logo":"https://johnserv531.github.io/gh-images/1586344884.jpg","resources":["catalog","stream"],"types":["movie"],"catalogs":[{"type":"movie","id":"publicdomainmovies","extra":[{"name":"skip"},{"name":"search"}]}],"idPrefixes":["tt"]})json";
+
+struct DefaultAddon
+{
+    const char* id;
+    const char* url;
+    const char* manifest;
+};
+const DefaultAddon kDefaults[] = {
+    {StremioAdapter::kDefaultAddonId, StremioAdapter::kDefaultAddonUrl, kDefaultManifest},
+    {StremioAdapter::kPublicDomainId, StremioAdapter::kPublicDomainUrl, kPublicDomainManifest},
+};
 
 QString typeWord(const QString& type)
 {
@@ -59,15 +73,42 @@ void StremioAdapter::load(bool preinstall)
     restore(QJsonDocument::fromJson(file.read(16 * 1024 * 1024)).object().value("addons").toArray());
 }
 
-void StremioAdapter::installDefaults()
+QStringList StremioAdapter::defaultAddonIds()
 {
-    QString error;
-    const QJsonObject raw = QJsonDocument::fromJson(kDefaultManifest).object();
-    if (auto m = stremio::parseManifest(raw, &error))
-        setManifest(QUrl(QString::fromLatin1(kDefaultAddonUrl)), *m, raw);
+    QStringList ids;
+    for (const DefaultAddon& d : kDefaults)
+        ids << QString::fromLatin1(d.id);
+    return ids;
+}
+
+void StremioAdapter::installDefaults(const QStringList& only)
+{
+    bool added = false;
+    for (const DefaultAddon& d : kDefaults) {
+        const QString id = QString::fromLatin1(d.id);
+        if ((!only.isEmpty() && !only.contains(id)) || find(id) || m_addons.size() >= kMaxAddons)
+            continue;
+        QString error;
+        const QJsonObject raw = QJsonDocument::fromJson(d.manifest).object();
+        if (auto m = stremio::parseManifest(raw, &error)) {
+            setManifest(QUrl(QString::fromLatin1(d.url)), *m, raw);
+            added = true;
+        } else
+            qCWarning(lcSources).noquote() << "Built-in manifest for" << d.id << "is bad:" << error;
+    }
+    if (!added)
+        return;
     save();
     emit addonsChanged();
     emit catalogsChanged();
+}
+
+bool StremioAdapter::uninstallDefaults()
+{
+    bool removed = false;
+    for (const DefaultAddon& d : kDefaults)
+        removed = uninstall(QString::fromLatin1(d.id)) || removed;
+    return removed;
 }
 
 QJsonArray StremioAdapter::storedList() const

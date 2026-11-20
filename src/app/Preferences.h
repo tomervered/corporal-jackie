@@ -63,7 +63,8 @@ public:
     bool restartNeeded() const;
 
     bool privacyChosen() const { return m_privacyChosen; }
-    // The default catalog add-on, WikiMaze (its lists, details and search).
+    // The default add-ons: WikiMaze (lists, details and search) and Public
+    // Domain Movies (public-domain films and their torrents).
     bool useCatalogAddon() const { return m_catalogAddon; }
     // The DHT and discovery on the local network, to find more peers.
     bool useDht() const { return m_dht; }

@@ -97,8 +97,19 @@ int main(int argc, char* argv[])
     core.start(target.get(), torrents, torrents.registerWith(target->handle()));
     QObject::connect(&app, &QCoreApplication::aboutToQuit, &core, &cj::AppCore::shutDown);
     cj::Session& session = core.session();
-    if (!args.isSet(smokeTest))
-        QTimer::singleShot(3000, &core, [&core] { core.addons().refreshManifests(); });
+    // The add-ons' manifests are fetched again after the first-run answer,
+    // never before it.
+    if (!args.isSet(smokeTest)) {
+        if (core.preferences().privacyChosen()) {
+            QTimer::singleShot(3000, &core, [&core] { core.addons().refreshManifests(); });
+        } else {
+            auto* once = new QObject(&core);
+            QObject::connect(&core.preferences(), &cj::Preferences::privacyChanged, once, [&core, once] {
+                core.addons().refreshManifests();
+                once->deleteLater();
+            });
+        }
+    }
 
     cj::MpvVideoItem::useOpenGL();
     // The C++ types have a module of their own: sharing the QML files' URI
