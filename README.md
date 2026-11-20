@@ -6,7 +6,7 @@ Built with C++20, Qt 6/QML, libmpv, libtorrent-rasterbar and SQLite. Windows and
 
 **Status:** Step 6 (library and watch history) done. Browses Stremio add-on catalogs and your own folders, and plays local video files, web links, magnet links, torrent info hashes and .torrent files. The interface talks only to the Session, which sends commands to the mpv target; the contract between them is in [docs/TARGET_CONTRACT.md](docs/TARGET_CONTRACT.md). Torrents reach mpv through a `torrent://` stream protocol backed by the stream broker, with no local HTTP server; the broker's contract is in [docs/BROKER_CONTRACT.md](docs/BROKER_CONTRACT.md) and the protocol is described in [src/transports/README.md](src/transports/README.md). [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) maps the layers, the threads, and how a byte gets from a peer to the screen.
 
-When nothing plays, the window shows Home: Continue Watching, then a row for each list of your add-ons and folders. The side bar has Discover (one list at a time, by type and genre), Library, Add-ons (install, order, remove) and Your folders; the search box on Home searches every add-on at once. Pick a movie and press Find streams to list its ways to play, best first; for a series, pick an episode. The list can be sorted by seeders or size, and an add-on's results can be hidden. Press **Browse** while watching to open the same pages over the video. Everything works by keyboard: Tab moves between controls and rows, arrow keys move inside them, Enter opens and Escape goes back. WikiMaze (a catalog add-on with data from Wikidata and TVmaze) gives lists and details if you allow it on the first-run screen; streams need a stream add-on. Subtitle files next to a video load with it. How it works: [src/sources/README.md](src/sources/README.md).
+When nothing plays, the window shows Home: the video you were last watching with a Resume button, the rest of Continue Watching, then a row for each list of your add-ons and folders. The side bar has Discover (one list at a time, filtered by type, add-on, list and genre), Library, Add-ons (install, order, remove), Local (open a file or link, and your folders) and Settings. The search box at the top of every page searches every add-on at once. Pick a movie and press Find streams to list its ways to play, best first; for a series, pick an episode. The list can be sorted by seeders or size, and an add-on's results can be hidden. Press **Browse** (B) while watching to open the same pages over the video; the side bar then has a Back to video button. Everything works by keyboard: Tab moves between controls and rows, arrow keys move inside them, Enter opens and Escape goes back. WikiMaze (a catalog add-on with data from Wikidata and TVmaze) gives lists and details if you allow it on the first-run screen; streams need a stream add-on. Subtitle files next to a video load with it. How it works: [src/sources/README.md](src/sources/README.md).
 
 What the app sends and keeps is listed in [docs/PRIVACY.md](docs/PRIVACY.md), which also ships in the Windows and macOS packages.
 
@@ -22,9 +22,9 @@ To play a torrent, choose "Open a link…" (U on the pages) and paste a magnet l
 
 ## Using it
 
-Open a file with the **Open** button, by dropping it on the window, or by passing its path on the command line. Drop a subtitle file on a playing video to add it.
+Open a file from Local or the file icon at the top of the pages, by dropping it on the window, or by passing its path on the command line. Drop a subtitle file on a playing video to add it.
 
-Over the video, the keyboard is mpv's: every key goes to mpv and does what mpv's standard [input.conf](https://github.com/mpv-player/mpv/blob/master/etc/input.conf) says, so the app's keys and mpv's never clash. Options › "Keyboard keys (mpv's)" lists the common ones. Three keys differ from mpv, because in mpv they need a Lua script or end the player:
+Over the video, the keyboard is mpv's: every key goes to mpv and does what mpv's standard [input.conf](https://github.com/mpv-player/mpv/blob/master/etc/input.conf) says, so the app's keys and mpv's never clash. Options › Keyboard shortcuts lists the common ones. Three keys differ from mpv, because in mpv they need a Lua script or end the player:
 
 | Key | Action |
 | --- | --- |
@@ -32,9 +32,11 @@ Over the video, the keyboard is mpv's: every key goes to mpv and does what mpv's
 | I | The app's stats: decoder, codec, resolution, FPS, dropped frames |
 | Del, ` | Nothing (mpv's on-screen controller and console) |
 
-Browse, Settings and Open are buttons on the bar. On the pages (Home, Discover, Library...), P opens Settings, O opens a file, U a link, and B or Esc closes them over a playing video.
+The bar under the video is one row of icons, each with a tooltip: play, the time, the seek bar, the speaker (hover or click it for a volume slider up to 130%; its waves show the level, and it turns green above 100%), subtitles and audio tracks (with Load subtitle file), Browse, Options (speed, upscaling, picture, screenshot, playback diagnostics, Settings), full screen and close. On the pages (Home, Discover, Library...), P opens Settings, O opens a file, U a link, / goes to the search box, and B or Esc closes them over a playing video. Esc also closes Settings.
 
-When a video has chapters, the bar shows **⏭** (next track) and **Tracks**, a list of every chapter with its start time; pick one to jump there.
+When a video has chapters, the seek bar shows a small break at each chapter start and the chapter's name under the pointer, and the bar adds next chapter and a list of every chapter with its start time; pick one to jump there.
+
+Settings > Appearance has three looks: olive dark (the default), OLED black and bright. Each look's accent, background, panel and text colours can be changed, and restored.
 
 ## Layout
 

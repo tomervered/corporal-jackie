@@ -31,6 +31,7 @@ public:
     virtual void setAudioTrack(int id) = 0;
     virtual void setSubtitleTrack(int id) = 0;   // -1 = none
     virtual void addExternalSubtitle(const QUrl& url) = 0;  // added and shown
+    virtual void addExternalAudio(const QUrl& url) = 0;     // a local file; added and played
     // Added as a track the user can pick. May be called while the item is
     // still loading; the target keeps it until it can add it. Added during
     // loading, the target's usual rules may show it (as players show a
@@ -38,7 +39,10 @@ public:
     // switched on by itself.
     virtual void addSubtitleTrack(const SubtitleSource& subtitle) = 0;
     virtual void setSpeed(double factor) = 0;
-    virtual void setVolume(double volume) = 0;    // 0–100
+    // Volume in percent, 0 to kMaxVolume. Above 100 the target boosts the
+    // sound (mpv's own ceiling, volume-max, is 130).
+    static constexpr double kMaxVolume = 130;
+    virtual void setVolume(double volume) = 0;
     virtual void setMuted(bool muted) = 0;
 
     // --- Optional commands; only called when the capability is listed ------

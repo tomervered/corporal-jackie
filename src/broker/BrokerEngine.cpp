@@ -210,7 +210,7 @@ void Engine::applyNetwork(const BrokerSettings& s)
         if (!s.upload)
             uploadGuard->setAllowed(false);
         lt::settings_pack pack;
-        UploadGuard::apply(pack, s.upload);
+        UploadGuard::apply(pack, s.upload || uploadGuard->anySharing());
         m_session->apply_settings(std::move(pack));
         uploadGuard->setAllowed(s.upload);
     }
@@ -230,6 +230,20 @@ void Engine::applyNetwork(const BrokerSettings& s)
         if (t->hasMetadata)
             syncOpenTrackers(*t);
     }
+}
+
+void Engine::setSharing(const std::string& id, bool on)
+{
+    if (!on)
+        uploadGuard->setSharing(id, false);
+    if (m_session) {
+        lt::settings_pack pack;
+        UploadGuard::apply(pack, uploadGuard->allowed() || on || uploadGuard->anySharing());
+        m_session->apply_settings(std::move(pack));
+    }
+    if (on)
+        uploadGuard->setSharing(id, true);
+    qCInfo(lcBroker) << "Sharing one torrent:" << (on ? "on" : "off");
 }
 
 void Engine::dropExtraTrackers(lt::add_torrent_params& atp) const
@@ -344,6 +358,7 @@ std::shared_ptr<Torrent> Engine::addOrFind(const OpenRequest& req, BrokerError* 
     loadSaved(*t, atp);
 
     atp.save_path = QFile::encodeName(t->dir).toStdString();
+    atp.userdata = &t->id;  // UploadGuard: this torrent's own sharing choice
     atp.flags &= ~(lt::torrent_flags::auto_managed | lt::torrent_flags::paused);
     // In order: see Engine::schedule.
     atp.flags |= lt::torrent_flags::sequential_download;
@@ -805,6 +820,8 @@ void Engine::onReadPiece(Torrent& t, const lt::read_piece_alert& rp)
         return;
     const int p = static_cast<int>(rp.piece);
     t.readsPending.erase(p);
+    if (t.openHandles == 0)
+        return;  // a late alert must not refill a closed reader's cache
     const auto store = m_memory ? m_memory->find(t.id) : nullptr;
     if (rp.error && store && !store->has(p)) {
         // RAM only: the piece is gone from memory although libtorrent still

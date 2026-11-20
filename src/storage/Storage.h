@@ -70,7 +70,7 @@ class Storage : public QObject
     Q_OBJECT
 
 public:
-    static constexpr int kSchemaVersion = 1;
+    static constexpr int kSchemaVersion = 2;
     static constexpr int kMaxHistory = 2000;   // oldest entries go first
     static constexpr int kMaxLibrary = 5000;
     static constexpr double kMinResumeSeconds = 30;  // earlier than this starts from the beginning

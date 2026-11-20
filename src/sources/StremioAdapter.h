@@ -18,6 +18,7 @@ struct InstalledAddon
     stremio::Manifest manifest;
     QJsonObject rawManifest;  // kept on disk so catalogs show without network
     QString lastError;        // the last failed request, in words; empty when fine
+    bool disabled = false;    // switched off: kept, but never asked for anything
 };
 
 class StremioAdapter : public SourceAdapter
@@ -58,6 +59,8 @@ public:
     // Moves an add-on up (-1) or down (+1) in the list; earlier ones are
     // asked first and their lists come first.
     bool move(const QString& addonId, int delta);
+    // Switches an add-on off (kept in the list, never asked) or on again.
+    bool setEnabled(const QString& addonId, bool enabled);
     // Fetches every manifest again (add-ons change their catalogs).
     void refreshManifests();
 

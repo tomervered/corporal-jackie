@@ -60,6 +60,15 @@ target_link_libraries(tst_storage PRIVATE cj_storage cj::sqlite)
 cj_add_test(tst_app FakeTarget.h)
 target_link_libraries(tst_app PRIVATE cj_app)
 
+# Downloads to a chosen folder: torrents (in order, and the normal way) from
+# local seeders, web links from a fake server.
+cj_add_test(tst_downloads TorrentHarness.h FakeHttpServer.h)
+target_link_libraries(tst_downloads PRIVATE cj_app cj_broker cj::libtorrent Qt6::Network)
+if(WIN32)
+    target_compile_definitions(tst_downloads PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+endif()
+set_tests_properties(tst_downloads PROPERTIES TIMEOUT 300)
+
 # The window, loaded as the app loads it, against the fake target and a fake
 # add-on: every page opens, keys work, and QML gives no warnings.
 include(${PROJECT_SOURCE_DIR}/src/ui/QmlFiles.cmake)
@@ -88,6 +97,18 @@ set_tests_properties(tst_bench PROPERTIES TIMEOUT 600 LABELS bench)
 # while a magnet plays (also run, unlabelled, inside tst_torrentstream).
 add_test(NAME bench_mpv COMMAND tst_torrentstream magnetPlaysToTheEnd)
 set_tests_properties(bench_mpv PROPERTIES TIMEOUT 300 LABELS bench)
+
+# Download benchmark: a whole file with each download mode and with other
+# clients (aria2, Transmission, qBittorrent, WebTorrent) through
+# bench/download_competitor.cjs. Its own label, so the weekly "bench" runs
+# skip it: ctest -L download-bench -V.
+cj_add_test(tst_benchdownload TorrentHarness.h)
+target_link_libraries(tst_benchdownload PRIVATE cj_app cj_broker cj::libtorrent Qt6::Network)
+target_compile_definitions(tst_benchdownload PRIVATE CJ_BENCH_DIR="${CMAKE_CURRENT_SOURCE_DIR}/bench")
+if(WIN32)
+    target_compile_definitions(tst_benchdownload PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+endif()
+set_tests_properties(tst_benchdownload PROPERTIES TIMEOUT 3600 LABELS download-bench)
 
 # A diagnostic, not a test: Boost.Asio's Windows timers (see ci.yml).
 if(WIN32)

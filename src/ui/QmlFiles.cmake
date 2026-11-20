@@ -3,13 +3,17 @@
 set(CJ_QML_FILES
     Main.qml Pages.qml SettingsPanel.qml PrivacyScreen.qml ContinueWatching.qml
     # player
-    ControlBar.qml BarButton.qml PlainMenuItem.qml EpisodesPanel.qml LinkPopup.qml Toast.qml StatsOverlay.qml ShortcutsOverlay.qml Format.js Notices.js
+    ControlBar.qml PlayerPanel.qml PanelRow.qml
+    CornerMask.qml PanelChoices.qml BarButton.qml EpisodesPanel.qml LinkPopup.qml Toast.qml StatsOverlay.qml ShortcutsOverlay.qml Format.js Notices.js
     # pages
     HomePage.qml SearchPage.qml DiscoverPage.qml DetailPage.qml StreamsPage.qml StreamList.qml
-    LibraryPage.qml AddonsPage.qml FoldersPage.qml
+    LibraryPage.qml AddonsPage.qml FoldersPage.qml DownloadsPage.qml
     # pieces
     Theme.qml Muted.qml Heading.qml PageTitle.qml SectionLabel.qml RowItem.qml
-    PosterTile.qml PosterRow.qml NavButton.qml Chip.qml)
+    RoundedArtwork.qml PosterTile.qml PosterRow.qml NavButton.qml Chip.qml
+    Icon.qml Icons.js IconButton.qml AppButton.qml AppField.qml AppCombo.qml AppSwitch.qml)
+set(CJ_UI_RESOURCES images/logo.png images/subtitle-sample.jpg
+    shaders/rounded-clip.frag.qsb shaders/poster-glow.frag.qsb)
 
 # Adds the files to `target` as the CorporalJackie module, each served under
 # its own name (not ../ui/).
@@ -20,12 +24,19 @@ function(cj_add_ui_module target)
         set_source_files_properties(${path} PROPERTIES QT_RESOURCE_ALIAS ${file})
         list(APPEND paths ${path})
     endforeach()
+    set(resources "")
+    foreach(file IN LISTS CJ_UI_RESOURCES)
+        set(path "${CJ_UI_DIR}/${file}")
+        set_source_files_properties(${path} PROPERTIES QT_RESOURCE_ALIAS ${file})
+        list(APPEND resources ${path})
+    endforeach()
     set_source_files_properties(${CJ_UI_DIR}/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
     qt_add_qml_module(${target}
         URI CorporalJackie
         VERSION 1.0
         RESOURCE_PREFIX /
         QML_FILES ${paths}
+        RESOURCES ${resources}
         OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/qml/CorporalJackie"
     )
 endfunction()

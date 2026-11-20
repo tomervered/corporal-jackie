@@ -18,12 +18,15 @@ class MpvVideoItem : public QQuickFramebufferObject
 {
     Q_OBJECT
     Q_PROPERTY(cj::Session* playbackSession READ session WRITE setSession NOTIFY sessionChanged)
+    Q_PROPERTY(bool covered READ covered WRITE setCovered NOTIFY coveredChanged)
 
 public:
     explicit MpvVideoItem(QQuickItem* parent = nullptr);
 
     Session* session() const { return m_session; }
     void setSession(Session* session);
+    bool covered() const { return m_covered; }
+    void setCovered(bool covered);
     MpvTarget* target() const;
 
     Renderer* createRenderer() const override;
@@ -34,9 +37,13 @@ public:
 
 signals:
     void sessionChanged();
+    void coveredChanged();
 
 private:
     QPointer<Session> m_session;
+    QMetaObject::Connection m_loadRequested;
+    QMetaObject::Connection m_stateChanged;
+    bool m_covered = false;
 };
 
 } // namespace cj

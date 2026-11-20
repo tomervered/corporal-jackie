@@ -315,6 +315,9 @@ public:
     // port mapping, and the open trackers (added to or taken off the torrents
     // already here). The rest of `settings` is fixed at start.
     void applyNetwork(const BrokerSettings& s);
+    // One torrent shares with peers even while uploads are off (a download
+    // the person chose to share), or goes back to the global switch.
+    void setSharing(const std::string& id, bool on);
 
     BrokerSettings settings;
     std::vector<std::string> extraTrackers;  // for public torrents only

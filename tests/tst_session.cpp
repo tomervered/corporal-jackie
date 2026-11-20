@@ -116,6 +116,12 @@ private slots:
         QCOMPARE(s.audioTrack(), 1);
         QCOMPARE(s.subtitleTrack(), -1);
         QCOMPARE(s.audioTracks().at(0).toMap().value("label").toString(), QStringLiteral("Main (eng)"));
+        // The panels show the language in words, the title when it says
+        // more, and where the track comes from.
+        QCOMPARE(s.audioTracks().at(0).toMap().value("name").toString(), QStringLiteral("English · Main"));
+        QCOMPARE(s.audioTracks().at(1).toMap().value("name").toString(), QStringLiteral("Hebrew"));
+        QCOMPARE(s.audioTracks().at(1).toMap().value("detail").toString(), QStringLiteral("Embedded"));
+        QCOMPARE(s.subtitleTracks().at(0).toMap().value("name").toString(), QStringLiteral("Full"));
 
         emit t.bufferingChanged(true, 40);
         QVERIFY(s.buffering());
@@ -152,7 +158,8 @@ private slots:
         QCOMPARE(s.speed(), 4.0);
         QCOMPARE(t.last(), QStringLiteral("speed 4"));
         s.setVolume(150);
-        QCOMPARE(s.volume(), 100.0);
+        QCOMPARE(s.volume(), 130.0);
+        QCOMPARE(t.last(), QStringLiteral("volume 130"));
         s.setVolume(30);
         QCOMPARE(t.last(), QStringLiteral("volume 30"));
         s.setMuted(true);
@@ -196,6 +203,17 @@ private slots:
         QCOMPARE(t.last(), QStringLiteral("aspect 16:9"));
         s.cycleCrop();
         QCOMPARE(t.last(), QStringLiteral("crop 16:9"));
+        s.setAspectRatio(QStringLiteral("21:9"));
+        QCOMPARE(t.last(), QStringLiteral("aspect 21:9"));
+        s.setAspectRatio(QStringLiteral("7:3"));   // not one of the choices
+        QCOMPARE(s.aspectRatio(), QStringLiteral("21:9"));
+        s.setCrop(QStringLiteral("1.85:1"));
+        QCOMPARE(t.last(), QStringLiteral("crop 1.85:1"));
+        QVERIFY(s.aspectRatios().contains(QStringLiteral("2.39:1")) && s.crops().first().isEmpty());
+        s.addExternalAudio(QUrl(QStringLiteral("https://example.com/dub.mka")));   // only files on this computer
+        QVERIFY(!t.last().startsWith(QStringLiteral("addAudio")));
+        s.addExternalAudio(QUrl::fromLocalFile(QStringLiteral("/videos/dub.mka")));
+        QCOMPARE(t.last(), QStringLiteral("addAudio file:///videos/dub.mka"));
         s.setEqualizer(QStringLiteral("contrast"), 20);
         QCOMPARE(t.last(), QStringLiteral("equalizer 0 20 0 0 0"));
         s.setEqualizer(QStringLiteral("contrast"), 500);

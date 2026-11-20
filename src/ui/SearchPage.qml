@@ -6,7 +6,8 @@ import CorporalJackie.Player   // KeyedList
 Flickable {
     id: searchPage
     required property Item nav   // the Pages: go(), back(), openItem() and the picked types
-    function takeFocus() { searchField.forceActiveFocus() }
+    // The search box is the one at the top of every page.
+    function takeFocus() { if (searchRows.count > 0 && searchRows.itemAt(0).visible) searchRows.itemAt(0).takeFocus(); else searchType.children[0].forceActiveFocus() }
 
     contentHeight: searchColumn.implicitHeight + 24
     clip: true
@@ -14,20 +15,15 @@ Flickable {
     Column {
         id: searchColumn
         width: searchPage.width - 14
-        spacing: 18
-        Row {
+        spacing: 22
+        Muted {
             width: parent.width
-            spacing: 8
-            TextField {
-                id: searchField
-                width: Math.min(460, parent.width)
-                text: browser.searchAllText
-                placeholderText: "Search all your add-ons"
-                onAccepted: browser.searchAll(text, nav.searchType)
-            }
+            visible: browser.searchAllText !== ""
+            text: "Results for “" + browser.searchAllText + "” from every add-on that can search."
         }
-        Row {
+        Flow {
             id: searchType
+            width: parent.width
             spacing: 6
             Repeater {
                 model: ["", "movie", "series"]
@@ -35,7 +31,7 @@ Flickable {
                     required property string modelData
                     text: nav.typeWord(modelData)
                     selected: nav.searchType === modelData
-                    onClicked: { nav.searchType = modelData; browser.searchAll(searchField.text, modelData) }
+                    onClicked: { nav.searchType = modelData; browser.searchAll(browser.searchAllText, modelData) }
                 }
             }
         }
@@ -49,6 +45,7 @@ Flickable {
         }
         KeyedList { id: searchRowsModel; keyRole: "catalog"; values: browser.searchRows }
         Repeater {
+            id: searchRows
             model: searchRowsModel
             PosterRow {
                 id: searchRow
@@ -60,6 +57,8 @@ Flickable {
                 items: entry.items
                 loading: entry.loading
                 error: entry.error
+                near: y + height >= searchPage.contentY - searchPage.height / 2
+                      && y <= searchPage.contentY + searchPage.height * 1.5
                 onOpened: i => nav.openItem(() => browser.openRowItem(true, index, i))
                 onFocusedIn: nav.reveal(searchPage, searchRow)
             }

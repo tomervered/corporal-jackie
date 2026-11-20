@@ -4,6 +4,14 @@
 #include "Storage.h"
 
 #include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QSaveFile>
+#include <QUrl>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QRegularExpression>
 
 namespace cj {
 
@@ -27,6 +35,58 @@ const QString kUploads = QStringLiteral("privacy/uploads");
 // 2: playing torrents and uploading (2026-11-15).
 const QString kPrivacyVersion = QStringLiteral("privacy/version");
 constexpr int kPrivacyScreenVersion = 2;
+const QString kColorMode = QStringLiteral("ui/colorMode");
+const QString kUpscalerBadge = QStringLiteral("ui/showUpscalerBadge");
+const QString kPlayerHalo = QStringLiteral("ui/playerHalo");
+const QStringList kHaloLevels = {QStringLiteral("full"), QStringLiteral("half"), QStringLiteral("little"), QStringLiteral("off")};
+const QString kSavedPalettes = QStringLiteral("ui/savedPalettes");   // JSON text
+constexpr int kMaxPalettes = 50;
+constexpr int kMaxPaletteName = 40;
+const QString kColorEdits = QStringLiteral("ui/colorEdits");   // JSON text
+
+bool knownMode(const QString& mode)
+{
+    return mode == QLatin1String("dark") || mode == QLatin1String("oled") || mode == QLatin1String("bright")
+        || mode == QLatin1String("custom");
+}
+
+// A colour file: {"corporalJackieColors": 1, "accent": "#rrggbb", ...}.
+const QLatin1String kColorFileMark("corporalJackieColors");
+constexpr qint64 kColorFileMaxBytes = 16 * 1024;
+
+// Only #rrggbb values for the four colours of a known mode are kept.
+QVariantMap cleanEdits(const QVariantMap& edits)
+{
+    static const QRegularExpression hex(QStringLiteral("^#[0-9a-fA-F]{6}$"));
+    QVariantMap out;
+    for (auto mode = edits.begin(); mode != edits.end(); ++mode) {
+        if (!knownMode(mode.key()))
+            continue;
+        QVariantMap colors;
+        const QVariantMap given = mode.value().toMap();
+        for (const char* key : {"accent", "canvas", "panel", "text"}) {
+            const QString value = given.value(QLatin1String(key)).toString();
+            if (hex.match(value).hasMatch())
+                colors.insert(QLatin1String(key), value.toLower());
+        }
+        if (!colors.isEmpty())
+            out.insert(mode.key(), colors);
+    }
+    return out;
+}
+// Four valid colours, or an empty map.
+QVariantMap cleanColors(const QVariantMap& colors)
+{
+    const QVariantMap clean = cleanEdits({{QStringLiteral("custom"), colors}}).value(QStringLiteral("custom")).toMap();
+    return clean.size() == 4 ? clean : QVariantMap();
+}
+QString cleanName(const QString& name)
+{
+    QString out = name.simplified();
+    out.remove(QRegularExpression(QStringLiteral("[\\x00-\\x1f]")));
+    return out.left(kMaxPaletteName);
+}
+
 } // namespace
 
 Preferences::Preferences(Storage& storage, const QString& defaultCacheFolder, QObject* parent)
@@ -63,6 +123,23 @@ Preferences::Preferences(Storage& storage, const QString& defaultCacheFolder, QO
     m_portMapping = m_privacyChosen && value(kPortMapping, false).toBool();
     m_torrents = m_privacyChosen && value(kTorrents, false).toBool();
     m_uploads = m_privacyChosen && value(kUploads, false).toBool();
+    const QString mode = value(kColorMode, QStringLiteral("dark")).toString();
+    m_colorMode = knownMode(mode) ? mode : QStringLiteral("dark");
+    m_upscalerBadge = value(kUpscalerBadge, true).toBool();
+    {
+        const QString halo = value(kPlayerHalo, QStringLiteral("full")).toString();
+        m_playerHalo = kHaloLevels.contains(halo) ? halo : QStringLiteral("full");
+    }
+    for (const QJsonValue& v : QJsonDocument::fromJson(value(kSavedPalettes, QString()).toString().toUtf8()).array()) {
+        const QVariantMap given = v.toObject().toVariantMap();
+        QVariantMap colors = cleanColors(given);
+        const QString name = cleanName(given.value(QStringLiteral("name")).toString());
+        if (colors.isEmpty() || name.isEmpty() || m_savedPalettes.size() >= kMaxPalettes)
+            continue;
+        colors.insert(QStringLiteral("name"), name);
+        m_savedPalettes.append(colors);
+    }
+    m_colorEdits = cleanEdits(QJsonDocument::fromJson(value(kColorEdits, QString()).toString().toUtf8()).object().toVariantMap());
     m_started = {m_inMemory, m_memoryCapMB, m_diskCacheGB, effectiveFolder()};
 }
 
@@ -219,6 +296,140 @@ void Preferences::save()
                             << m_diskCacheGB << "GB disk, folder" << effectiveFolder()
                             << (restartNeeded() ? "(applies after a restart)" : "");
     emit changed();
+}
+
+void Preferences::setColorMode(const QString& mode)
+{
+    setTheme(mode, m_colorEdits);
+}
+
+void Preferences::setShowUpscalerBadge(bool on)
+{
+    if (on == m_upscalerBadge)
+        return;
+    m_upscalerBadge = on;
+    m_storage.setSetting(kUpscalerBadge, on);
+    emit upscalerBadgeChanged();
+    emit appearanceChanged();
+}
+
+void Preferences::setColorEdits(const QVariantMap& edits)
+{
+    setTheme(m_colorMode, edits);
+}
+
+void Preferences::setTheme(const QString& mode, const QVariantMap& edits)
+{
+    if (!knownMode(mode))
+        return;
+    const QVariantMap clean = cleanEdits(edits);
+    if (mode == m_colorMode && clean == m_colorEdits)
+        return;
+    if (clean != m_colorEdits) {
+        m_colorEdits = clean;
+        m_storage.setSetting(kColorEdits, QString::fromUtf8(QJsonDocument(QJsonObject::fromVariantMap(clean)).toJson(QJsonDocument::Compact)));
+    }
+    if (mode != m_colorMode) {
+        m_colorMode = mode;
+        m_storage.setSetting(kColorMode, mode);
+    }
+    emit themeChanged();
+    emit appearanceChanged();
+}
+
+void Preferences::setPlayerHalo(const QString& level)
+{
+    if (!kHaloLevels.contains(level) || level == m_playerHalo)
+        return;
+    m_playerHalo = level;
+    m_storage.setSetting(kPlayerHalo, level);
+    emit playerHaloChanged();
+    emit appearanceChanged();
+}
+
+void Preferences::storePalettes()
+{
+    m_storage.setSetting(kSavedPalettes, QString::fromUtf8(QJsonDocument(QJsonArray::fromVariantList(m_savedPalettes)).toJson(QJsonDocument::Compact)));
+    emit savedPalettesChanged();
+    emit appearanceChanged();
+}
+
+QString Preferences::savePalette(const QString& name, const QVariantMap& colors)
+{
+    const QString clean = cleanName(name);
+    if (clean.isEmpty())
+        return QStringLiteral("Give the palette a name.");
+    QVariantMap palette = cleanColors(colors);
+    if (palette.isEmpty())
+        return QStringLiteral("These colors could not be saved.");
+    palette.insert(QStringLiteral("name"), clean);
+    for (int i = 0; i < m_savedPalettes.size(); ++i) {
+        if (m_savedPalettes[i].toMap().value(QStringLiteral("name")).toString().compare(clean, Qt::CaseInsensitive) == 0) {
+            m_savedPalettes[i] = palette;
+            storePalettes();
+            return {};
+        }
+    }
+    if (m_savedPalettes.size() >= kMaxPalettes)
+        return QStringLiteral("There are already %1 saved palettes. Remove one first.").arg(kMaxPalettes);
+    m_savedPalettes.append(palette);
+    storePalettes();
+    return {};
+}
+
+void Preferences::removePalette(const QString& name)
+{
+    for (int i = 0; i < m_savedPalettes.size(); ++i) {
+        if (m_savedPalettes[i].toMap().value(QStringLiteral("name")).toString() == name) {
+            m_savedPalettes.removeAt(i);
+            storePalettes();
+            return;
+        }
+    }
+}
+
+QString Preferences::exportColors(const QUrl& file, const QString& name, const QVariantMap& colors) const
+{
+    const QVariantMap clean = cleanColors(colors);
+    if (clean.isEmpty())
+        return QStringLiteral("These colors could not be saved.");
+    if (!file.isLocalFile())
+        return QStringLiteral("Pick a file on this computer.");
+    QJsonObject out = QJsonObject::fromVariantMap(clean);
+    out.insert(kColorFileMark, 1);
+    const QString cleanedName = cleanName(name);
+    if (!cleanedName.isEmpty())
+        out.insert(QStringLiteral("name"), cleanedName);
+    QSaveFile f(file.toLocalFile());
+    if (!f.open(QIODevice::WriteOnly) || f.write(QJsonDocument(out).toJson()) < 0 || !f.commit())
+        return QStringLiteral("Could not write ") + file.fileName() + QStringLiteral(".");
+    return {};
+}
+
+QString Preferences::importColors(const QUrl& file)
+{
+    if (!file.isLocalFile())
+        return QStringLiteral("Pick a file on this computer.");
+    QFile f(file.toLocalFile());
+    if (!f.open(QIODevice::ReadOnly))
+        return QStringLiteral("Could not open ") + file.fileName() + QStringLiteral(".");
+    if (f.size() > kColorFileMaxBytes)
+        return QStringLiteral("That is not a colors file.");
+    const QJsonObject in = QJsonDocument::fromJson(f.read(kColorFileMaxBytes)).object();
+    if (!in.contains(kColorFileMark))
+        return QStringLiteral("That is not a colors file.");
+    const QVariantMap clean = cleanColors(in.toVariantMap());
+    if (clean.isEmpty())
+        return QStringLiteral("That colors file is missing some colors.");
+    QString name = cleanName(in.value(QStringLiteral("name")).toString());
+    if (name.isEmpty())
+        name = cleanName(QFileInfo(file.toLocalFile()).completeBaseName());
+    if (!name.isEmpty())
+        savePalette(name, clean);   // a full list just skips this
+    QVariantMap edits = m_colorEdits;
+    edits.insert(QStringLiteral("custom"), clean);
+    setTheme(QStringLiteral("custom"), edits);
+    return {};
 }
 
 } // namespace cj

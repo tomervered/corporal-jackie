@@ -42,6 +42,10 @@ const char* const kMigrations[] = {
         key TEXT PRIMARY KEY, adapter TEXT, provider TEXT, item_id TEXT, type TEXT, name TEXT,
         poster TEXT, release_info TEXT, added_at INTEGER);
     )sql",
+    // 2: an add-on can be switched off without removing it
+    R"sql(
+    ALTER TABLE addons ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0;
+    )sql",
 };
 static_assert(std::size(kMigrations) == Storage::kSchemaVersion, "one migration per schema version");
 
@@ -388,10 +392,11 @@ bool writeAddons(sqlite3* db, const QJsonArray& addons)
     int position = 0;
     for (const QJsonValue& v : addons) {
         const QJsonObject o = v.toObject();
-        if (!Statement(db, "INSERT OR REPLACE INTO addons(position, transport_url, manifest) VALUES(?1, ?2, ?3)")
+        if (!Statement(db, "INSERT OR REPLACE INTO addons(position, transport_url, manifest, disabled) VALUES(?1, ?2, ?3, ?4)")
                  .bind(1, position++)
                  .bind(2, o.value("transportUrl").toString())
                  .bind(3, QString::fromUtf8(QJsonDocument(o.value("manifest").toObject()).toJson(QJsonDocument::Compact)))
+                 .bind(4, o.value("disabled").toBool() ? 1 : 0)
                  .run())
             return false;
     }
@@ -546,10 +551,14 @@ Storage::Storage(const QString& file, QObject* parent)
         }
         if (stored.contains(QStringLiteral("stored.addons"))) {
             QJsonArray list;
-            Statement s(db, "SELECT transport_url, manifest FROM addons ORDER BY position");
-            while (s.step())
-                list.append(QJsonObject{{"transportUrl", text(s.get(), 0)},
-                                        {"manifest", QJsonDocument::fromJson(text(s.get(), 1).toUtf8()).object()}});
+            Statement s(db, "SELECT transport_url, manifest, disabled FROM addons ORDER BY position");
+            while (s.step()) {
+                QJsonObject entry{{"transportUrl", text(s.get(), 0)},
+                                  {"manifest", QJsonDocument::fromJson(text(s.get(), 1).toUtf8()).object()}};
+                if (sqlite3_column_int(s.get(), 2) != 0)
+                    entry.insert("disabled", true);
+                list.append(entry);
+            }
             m_addons = list;
         }
         if (stored.contains(QStringLiteral("stored.folders"))) {

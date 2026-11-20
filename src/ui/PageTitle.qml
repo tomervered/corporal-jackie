@@ -5,7 +5,8 @@ import QtQuick.Controls.Basic
 Text {
     textFormat: Text.PlainText
     color: Theme.text
-    font.pixelSize: 26
-    font.weight: Font.DemiBold
+    font.pixelSize: Theme.pageTitleSize
+    font.weight: Font.Bold
+    font.letterSpacing: -0.6
     elide: Text.ElideRight
 }

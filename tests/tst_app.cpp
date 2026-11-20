@@ -171,6 +171,74 @@ private slots:
         QVERIFY(run.core.preferences().useTorrents() && run.core.preferences().allowUploads());
     }
 
+    // The look (Settings > Appearance) is kept, and only known modes and
+    // #rrggbb colours are taken.
+    void theLookIsKept()
+    {
+        {
+            Run run(m_root->path());
+            Preferences& p = run.core.preferences();
+            QCOMPARE(p.colorMode(), QStringLiteral("dark"));
+            QSignalSpy changed(&p, &Preferences::appearanceChanged);
+            p.setColorMode(QStringLiteral("bright"));
+            p.setColorMode(QStringLiteral("neon"));   // not a mode
+            QCOMPARE(p.colorMode(), QStringLiteral("bright"));
+            p.setColorEdits({{QStringLiteral("bright"), QVariantMap{{QStringLiteral("accent"), QStringLiteral("#AA3300")},
+                                                                     {QStringLiteral("text"), QStringLiteral("red")}}},
+                             {QStringLiteral("neon"), QVariantMap{{QStringLiteral("accent"), QStringLiteral("#000000")}}}});
+            QCOMPARE(changed.count(), 2);
+            QVERIFY(p.showUpscalerBadge());
+            p.setShowUpscalerBadge(false);
+        }
+        Run run(m_root->path());
+        const Preferences& p = run.core.preferences();
+        QCOMPARE(p.colorMode(), QStringLiteral("bright"));
+        const QVariantMap expected{{QStringLiteral("bright"), QVariantMap{{QStringLiteral("accent"), QStringLiteral("#aa3300")}}}};
+        QCOMPARE(p.colorEdits(), expected);
+        QVERIFY(!p.showUpscalerBadge());
+    }
+
+    // The Custom colors go to a file and come back; a file that is not one
+    // (or lacks a color) changes nothing.
+    void colorsFileRoundTrip()
+    {
+        Run run(m_root->path());
+        Preferences& p = run.core.preferences();
+        QTemporaryDir dir;
+        const QUrl file = QUrl::fromLocalFile(dir.filePath(QStringLiteral("mine.json")));
+        const QVariantMap colors{{QStringLiteral("accent"), QStringLiteral("#7aa2f7")}, {QStringLiteral("canvas"), QStringLiteral("#11151d")},
+                                 {QStringLiteral("panel"), QStringLiteral("#1a2030")}, {QStringLiteral("text"), QStringLiteral("#E4E9F2")}};
+        QCOMPARE(p.exportColors(file, QStringLiteral("Night owl"), colors), QString());
+        QVERIFY(!p.exportColors(file, QString(), {{QStringLiteral("accent"), QStringLiteral("#ffffff")}}).isEmpty());
+        QVERIFY(!p.exportColors(QUrl(QStringLiteral("https://example.com/x.json")), QString(), colors).isEmpty());
+        p.setColorMode(QStringLiteral("dark"));
+        QCOMPARE(p.importColors(file), QString());
+        QCOMPARE(p.colorMode(), QStringLiteral("custom"));
+        QCOMPARE(p.colorEdits().value(QStringLiteral("custom")).toMap().value(QStringLiteral("text")).toString(), QStringLiteral("#e4e9f2"));
+        // The import is saved under the name in the file.
+        QCOMPARE(p.savedPalettes().size(), 1);
+        QCOMPARE(p.savedPalettes().value(0).toMap().value(QStringLiteral("name")).toString(), QStringLiteral("Night owl"));
+        // Saving by the same name replaces it; a blank name is refused.
+        QCOMPARE(p.savePalette(QStringLiteral(" night  OWL "), colors), QString());
+        QCOMPARE(p.savedPalettes().size(), 1);
+        QVERIFY(!p.savePalette(QStringLiteral("   "), colors).isEmpty());
+        QCOMPARE(p.savePalette(QStringLiteral("Second"), colors), QString());
+        p.removePalette(QStringLiteral("Second"));
+        QCOMPARE(p.savedPalettes().size(), 1);
+        QCOMPARE(p.playerHalo(), QStringLiteral("full"));
+        p.setPlayerHalo(QStringLiteral("half"));
+        QCOMPARE(p.playerHalo(), QStringLiteral("half"));
+        p.setPlayerHalo(QStringLiteral("loud"));   // not a level
+        QCOMPARE(p.playerHalo(), QStringLiteral("half"));
+
+        QFile other(dir.filePath(QStringLiteral("other.json")));
+        QVERIFY(other.open(QIODevice::WriteOnly));
+        other.write("{\"accent\": \"#000000\", \"canvas\": \"#000000\", \"panel\": \"#000000\", \"text\": \"#000000\"}");
+        other.close();
+        QVERIFY(!p.importColors(QUrl::fromLocalFile(other.fileName())).isEmpty());
+        QCOMPARE(p.colorEdits().value(QStringLiteral("custom")).toMap().value(QStringLiteral("accent")).toString(), QStringLiteral("#7aa2f7"));
+    }
+
     // A torrent while torrents are off never reaches the player.
     void torrentsOffAreRefusedBeforeThePlayer()
     {

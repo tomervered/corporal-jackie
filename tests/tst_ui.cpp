@@ -1,12 +1,13 @@
 // The window as the app shows it, against the fake player and a fake add-on:
 // every page opens, the keys do what the shortcut list says, and nothing in
 // QML warns along the way (a warning is a broken binding or a missing name).
-// Over the video, every key goes to the player's own bindings.
+// Over the video, playback keys go to the player's own bindings.
 //
 // Set CJ_UI_SHOTS to a folder to save a picture of each page there.
 
 #include "AppCore.h"
 #include "Browser.h"
+#include "Downloads.h"
 #include "FakeHttpServer.h"
 #include "FakeTarget.h"
 #include "KeyedListModel.h"
@@ -20,14 +21,17 @@
 #include <QGuiApplication>
 #include <QImageReader>
 #include <QLocale>
+#include <QColor>
 #include <QDir>
 #include <QJSValue>
+#include <QPointer>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlError>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QTemporaryDir>
+#include <QPainter>
 #include <QTest>
 
 #include <memory>
@@ -37,16 +41,18 @@ using test::FakeHttpServer;
 
 namespace {
 
-// Stands in for the mpv video item: the window only sets its session.
+// Stands in for the mpv video item.
 class FakeVideoSurface : public QQuickItem
 {
     Q_OBJECT
     Q_PROPERTY(cj::Session* playbackSession MEMBER m_session NOTIFY sessionChanged)
+    Q_PROPERTY(bool covered MEMBER m_covered)
 signals:
     void sessionChanged();
 
 private:
     Session* m_session = nullptr;
+    bool m_covered = false;
 };
 
 QByteArray manifest()
@@ -280,6 +286,8 @@ private slots:
         };
         QCOMPARE(shownFiles(), (QStringList{"first.mkv", "small.mkv"}));   // best first: 1080p
         shot("detail");
+        // Each way to play that can be saved has a download button.
+        QTRY_VERIFY(countItems(list, "downloadButton") == 2);
 
         // Sorted by size, the one with a known size comes first.
         m_pages->setProperty("streamSort", QStringLiteral("largest"));
@@ -312,11 +320,29 @@ private slots:
         e.duration = 6000;
         e.updatedAt = QDateTime::currentMSecsSinceEpoch();
         e.source = PlayableSource::fromUrl(QUrl(QStringLiteral("http://127.0.0.1:1/first.mkv")), QStringLiteral("First Film"));
+        // A poster with no wide art: Home blurs it behind the whole poster.
+        QImage art(200, 300, QImage::Format_RGB32);
+        {
+            QPainter paint(&art);
+            QLinearGradient g(0, 0, 200, 300);
+            g.setColorAt(0, QColor(QStringLiteral("#d9822b")));
+            g.setColorAt(1, QColor(QStringLiteral("#2b4f8a")));
+            paint.fillRect(art.rect(), g);
+            paint.setBrush(QColor(QStringLiteral("#f2e6c9")));
+            paint.drawEllipse(QPoint(100, 120), 50, 50);
+        }
+        const QString posterFile = m_root.filePath(QStringLiteral("poster.png"));
+        QVERIFY(art.save(posterFile));
+        e.poster = QUrl::fromLocalFile(posterFile).toString();
         m_core->storage().record(e);
         QTRY_COMPARE(m_core->library().continueWatching().size(), 1);
         call("goTop", "library");
         shot("library");
         call("goTop", "home");
+        QQuickItem* heroPoster = m_window->findChild<QQuickItem*>(QStringLiteral("heroPoster"));
+        QVERIFY(heroPoster);
+        QTRY_COMPARE(heroPoster->property("status").toInt(), 1);   // Image.Ready
+        QVERIFY(m_window->findChild<QQuickItem*>(QStringLiteral("heroBlur"))->isVisible());
         shot("home-continue");
     }
 
@@ -351,6 +377,45 @@ private slots:
         shot("folders");
     }
 
+    // Downloads in the side bar, and its settings group.
+    void downloadsPage()
+    {
+        QQuickItem* nav = m_window->findChild<QQuickItem*>(QStringLiteral("downloadsNav"));
+        QVERIFY(nav && nav->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(nav, "clicked"));
+        QCOMPARE(page(), QStringLiteral("downloads"));
+        const auto downloadList = [this] { return m_window->findChild<QQuickItem*>(QStringLiteral("downloadList")); };
+        QTRY_VERIFY(downloadList() && downloadList()->isVisible());
+        QQuickItem* list = downloadList();
+        QCOMPARE(list->property("count").toInt(), 0);
+        shot("downloads-empty");
+
+        // One web download, slow enough to show its progress.
+        Downloads& downloads = m_core->downloads();
+        downloads.setFolder(QUrl::fromLocalFile(m_root.filePath(QStringLiteral("saved"))));
+        FakeHttpServer::Answer slow;
+        slow.body = QByteArray(600, 'x');
+        slow.contentType = "video/mp4";
+        slow.trickleMs = 1;
+        m_server.set(QStringLiteral("/slow.mp4"), slow);
+        QCOMPARE(downloads.start(PlayableSource::fromUrl(QUrl(m_server.base() + QStringLiteral("/slow.mp4")), "Slow")), QString());
+        QTRY_COMPARE(list->property("count").toInt(), 1);
+        QTRY_VERIFY(downloads.items().value(0).toMap().value("percent").toInt() > 20);
+        QTest::qWait(600);   // the page updates twice a second
+        shot("downloads");
+        QTRY_COMPARE_WITH_TIMEOUT(downloads.items().value(0).toMap().value("state").toString(), QStringLiteral("done"), 20000);
+        shot("downloads-done");
+        downloads.clearFinished();
+        call("openSettingsAt", "Downloads");
+        QTRY_VERIFY(m_window->findChild<QQuickItem*>(QStringLiteral("downloadsGroup")));
+        QQuickItem* group = m_window->findChild<QQuickItem*>(QStringLiteral("downloadsGroup"));
+        QTRY_VERIFY(group->property("expanded").toBool());
+        QVERIFY(m_window->findChild<QQuickItem*>(QStringLiteral("normalTorrentsToggle")));
+        shot("settings-downloads");
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        call("goTop", "home");
+    }
+
     void settingsAndShortcuts()
     {
         // From a page whose keyboard is not in a text field (there, P is a letter).
@@ -358,16 +423,106 @@ private slots:
         QTest::keyClick(m_window, Qt::Key_P);
         QVERIFY(m_window->property("settingsVisible").toBool());
         shot("settings");
+        // A ready-made palette switches to Custom.
+        // (Repeater delegates are not QObject children: walk the items.)
+        QQuickItem* plum = nullptr;
+        QList<QQuickItem*> todo{m_window->contentItem()};
+        while (!todo.isEmpty() && !plum) {
+            QQuickItem* i = todo.takeLast();
+            if (i->objectName() == QLatin1String("palette-Plum"))
+                plum = i;
+            todo += i->childItems();
+        }
+        QVERIFY(plum);
+        const QPointer<QQuickItem> paletteTile(plum);
+        QVERIFY(QMetaObject::invokeMethod(plum, "clicked"));
+        QCOMPARE(m_core->preferences().colorMode(), QStringLiteral("custom"));
+        QTest::qWait(200);
+        shot("settings-custom");
+        // Customize: a swatch opens named colors; a chosen one is shown by name, not hex.
+        {
+            auto find = [this](const char* name) {
+                QQuickItem* hit = nullptr;
+                QList<QQuickItem*> todo2{m_window->contentItem()};
+                while (!todo2.isEmpty() && !hit) {
+                    QQuickItem* i = todo2.takeLast();
+                    if (i->objectName() == QLatin1String(name))
+                        hit = i;
+                    todo2 += i->childItems();
+                }
+                return hit;
+            };
+            QQuickItem* swatch = find("swatch-accent");
+            QVERIFY(swatch);
+            QVERIFY(QMetaObject::invokeMethod(swatch, "clicked"));
+            QTest::qWait(200);
+            shot("settings-colors");
+            QQuickItem* gold = find("colorPreset-Gold");
+            QVERIFY(gold);
+            QVERIFY(QMetaObject::invokeMethod(gold, "clicked"));
+            QTest::qWait(100);
+            QCOMPARE(m_core->preferences().colorEdits().value(QStringLiteral("custom")).toMap().value(QStringLiteral("accent")).toString().toLower(), QStringLiteral("#e5b95c"));
+            QCOMPARE(find("palette-Plum"), paletteTile.data());
+            QVERIFY(paletteTile);
+        }
+        m_core->preferences().setColorMode(QStringLiteral("dark"));
+        QQuickItem* panel = m_window->findChild<QQuickItem*>(QStringLiteral("settingsPanel"));
+        QVERIFY(panel);
+        for (const char* group : {"Picture", "Subtitles"}) {
+            QVERIFY(QMetaObject::invokeMethod(panel, "openGroup", Q_ARG(QVariant, QString::fromLatin1(group))));
+            QTest::qWait(300);
+            shot(QStringLiteral("settings-") + QString::fromLatin1(group).toLower());
+        }
+        QQuickItem* badge = m_window->findChild<QQuickItem*>(QStringLiteral("upscalerBadgeToggle"));
+        QVERIFY(badge && badge->isVisible());
+        QQuickItem* sample = m_window->findChild<QQuickItem*>(QStringLiteral("subtitleSample"));
+        QVERIFY(sample && sample->isVisible());
         QTest::keyClick(m_window, Qt::Key_Escape);
         QVERIFY(!m_window->property("settingsVisible").toBool());
-        m_window->setProperty("helpVisible", true);
-        shot("shortcuts");
-        m_window->setProperty("helpVisible", false);
+    }
+
+    // Settings opens over any page and Escape closes it from any of its
+    // controls (the audit found Tab, then Escape, left it open). The other
+    // looks restyle the pages.
+    void settingsEscapeAndLooks()
+    {
+        call("goTop", "home");
+        QVERIFY(QMetaObject::invokeMethod(m_window, "toggleSettings"));
+        QTRY_VERIFY(m_window->property("settingsVisible").toBool());
+        QCOMPARE(m_pages->property("shownPage").toString(), QStringLiteral("settings"));
+        for (int i = 0; i < 6; ++i)
+            QTest::keyClick(m_window, Qt::Key_Tab);
+        QQuickItem* focused = m_window->activeFocusItem();
+        QVERIFY(focused);
+        QQuickItem* panel = m_window->findChild<QQuickItem*>(QStringLiteral("settingsPanel"));
+        QVERIFY(panel);
+        QVERIFY2(panel->isAncestorOf(focused) || m_pages->isAncestorOf(focused), focused->metaObject()->className());
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTRY_VERIFY(!m_window->property("settingsVisible").toBool());
+        QCOMPARE(page(), QStringLiteral("home"));
+
+        Preferences& p = m_core->preferences();
+        for (const char* mode : {"bright", "oled", "dark"}) {
+            p.setColorMode(QString::fromLatin1(mode));
+            QCOMPARE(m_pages->property("color").value<QColor>().name(),
+                     QString::fromLatin1(qstrcmp(mode, "bright") == 0 ? "#f7f8f3" : qstrcmp(mode, "oled") == 0 ? "#000000" : "#171b16"));
+            shot(QStringLiteral("home-") + QString::fromLatin1(mode));
+            // Words on the accent stay readable: white on bright's dark olive.
+            QQuickItem* resume = m_window->findChild<QQuickItem*>(QStringLiteral("resumeButton"));
+            QVERIFY(resume);
+            QColor words;
+            for (QQuickItem* c : resume->property("contentItem").value<QQuickItem*>()->childItems())
+                if (c->inherits("QQuickText"))
+                    words = c->property("color").value<QColor>();
+            QCOMPARE(words.name(), QString::fromLatin1(qstrcmp(mode, "bright") == 0 ? "#ffffff" : "#000000"));
+        }
     }
 
     void playerKeys()
     {
         Session& session = m_core->session();
+        QQuickItem* video = m_window->findChild<QQuickItem*>(QStringLiteral("videoSurface"));
+        QVERIFY(video);
         session.openPath(QStringLiteral("http://127.0.0.1:1/clip.mkv"));
         m_target.startPlaying(600);
         QTRY_VERIFY(session.hasMedia());
@@ -405,6 +560,157 @@ private slots:
         QTest::mouseClick(m_window, Qt::LeftButton, {}, next->mapToScene(QPointF(next->width() / 2, next->height() / 2)).toPoint());
         QTRY_COMPARE(m_target.last(), QStringLiteral("chapter 1"));
         shot("player");
+        auto click = [this](const char* name) {
+            QQuickItem* item = m_window->findChild<QQuickItem*>(QString::fromLatin1(name));
+            QVERIFY2(item && item->isVisible(), name);
+            QTest::mouseClick(m_window, Qt::LeftButton, {}, item->mapToScene(QPointF(item->width() / 2, item->height() / 2)).toPoint());
+        };
+        auto visible = [this](const char* name) {
+            QQuickItem* item = m_window->findChild<QQuickItem*>(QString::fromLatin1(name));
+            return item && item->isVisible();
+        };
+
+        m_window->setProperty("controlsVisible", true);
+        QTest::qWait(250);  // the bar fades in
+        // Each button opens its panel above the bar; the same button closes
+        // it, another switches. Esc and a click on the picture close it too,
+        // without reaching the player.
+        click("trackList");
+        QTRY_VERIFY(visible("chaptersPanel"));
+        shot("player-chapters");
+        click("trackList");
+        QTRY_VERIFY(!visible("chaptersPanel"));
+
+        Track english{Track::Type::Subtitle, 3, QStringLiteral("SDH"), QStringLiteral("en"), QStringLiteral("subrip")};
+        Track audio{Track::Type::Audio, 1, QString(), QStringLiteral("en"), QStringLiteral("eac3")};
+        audio.selected = true;
+        emit m_target.tracksChanged({english, audio});
+        click("captionsButton");
+        QTRY_VERIFY(visible("tracksPanel"));
+        QTRY_VERIFY(visible("subtitleDelayValue"));
+        shot("player-tracks");
+        // Style: how subtitles look, changed from the player.
+        click("styleTab");
+        QTRY_VERIFY(visible("choice-subOutline"));
+        QVERIFY(!visible("loadSubtitle") && !visible("subtitleDelayValue"));
+        QTest::qWait(100);   // the panel grows and moves up first
+        click("choice-subOutline");
+        QCOMPARE(m_window->findChild<QQuickItem*>(QStringLiteral("controlBar"))->property("openChoice").toString(), QStringLiteral("subOutline"));
+        QTest::qWait(150);
+        shot("player-tracks-style");
+        click("choice-subOutline");
+        click("audioTab");
+        QTRY_VERIFY(visible("loadAudio"));
+        QVERIFY(!visible("subtitleDelayValue"));
+        shot("player-tracks-audio");
+
+        click("optionsButton");
+        QTRY_VERIFY(visible("settingsPopup"));
+        QVERIFY(!visible("tracksPanel"));
+        click("choice-crop");
+        QTest::qWait(50);
+        shot("player-settings");
+        // White panels: the player's controls turn charcoal (the pages keep white).
+        {
+            Preferences& prefs = m_core->preferences();
+            prefs.setColorEdits({{QStringLiteral("custom"), QVariantMap{{QStringLiteral("accent"), QStringLiteral("#8a5a2b")}, {QStringLiteral("canvas"), QStringLiteral("#f6f4ef")},
+                                                                         {QStringLiteral("panel"), QStringLiteral("#ffffff")}, {QStringLiteral("text"), QStringLiteral("#2a2723")}}}});
+            prefs.setColorMode(QStringLiteral("custom"));
+            QQuickItem* gearPanel = m_window->findChild<QQuickItem*>(QStringLiteral("settingsPopup"));
+            QVERIFY(gearPanel);
+            QTRY_COMPARE(gearPanel->property("color").value<QColor>().name(), QStringLiteral("#24262a"));
+            shot("player-settings-charcoal");
+            prefs.setPlayerHalo(QStringLiteral("off"));
+            QTRY_COMPARE(gearPanel->property("color").value<QColor>().name(), QStringLiteral("#24262a"));   // charcoal stays; only the fade goes
+            prefs.setPlayerHalo(QStringLiteral("full"));
+            prefs.setColorEdits({});
+            prefs.setColorMode(QStringLiteral("dark"));
+        }
+        session.setCrop(QStringLiteral("21:9"));
+        QCOMPARE(m_target.last(), QStringLiteral("crop 21:9"));
+        session.setCrop(QStringLiteral("5:4"));   // not offered
+        QCOMPARE(session.crop(), QStringLiteral("21:9"));
+        m_target.commands.clear();
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTRY_VERIFY(!visible("settingsPopup"));
+        QVERIFY(!m_target.sent(QStringLiteral("keydown %1").arg(int(Qt::Key_Escape))));
+        click("optionsButton");
+        QTRY_VERIFY(visible("settingsPopup"));
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, QPoint(300, 200));
+        QTRY_VERIFY(!visible("settingsPopup"));
+        QVERIFY(!m_target.sent(QStringLiteral("pause")));
+
+        // The speaker opens the volume slider on a click only (not under the
+        // pointer); a second click closes it. Above 100% it takes the accent.
+        QQuickItem* speaker = m_window->findChild<QQuickItem*>(QStringLiteral("volumeButton"));
+        QVERIFY(speaker);
+        m_window->setProperty("controlsVisible", true);
+        QTest::qWait(250);  // the bar fades in
+        const QPoint onSpeaker = speaker->mapToScene(QPointF(speaker->width() / 2, speaker->height() / 2)).toPoint();
+        QTest::mouseMove(m_window, onSpeaker);
+        QTest::qWait(100);
+        QVERIFY(!visible("volumePanel"));
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, onSpeaker);
+        QTRY_VERIFY(visible("volumePanel"));
+        session.setVolume(120);
+        QCOMPARE(session.volume(), 120.0);
+        QCOMPARE(speaker->property("iconName").toString(), QStringLiteral("volume3"));
+        QCOMPARE(speaker->property("iconColor").value<QColor>().name(), QStringLiteral("#a0b583"));   // dark look's accent
+        shot("player-volume");
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, onSpeaker);
+        QTRY_VERIFY(!visible("volumePanel"));
+        session.setVolume(20);
+        QCOMPARE(speaker->property("iconName").toString(), QStringLiteral("volume1"));
+        QCOMPARE(speaker->property("iconColor").value<QColor>().name(), QStringLiteral("#eaeee5"));
+        session.setVolume(100);
+
+        // Back and Close sit at the top right.
+        QVERIFY(visible("backToPages") && visible("closeVideo"));
+
+        // Keyboard shortcuts replaces the settings panel and fits the window.
+        QQuickItem* sheet = m_window->findChild<QQuickItem*>(QStringLiteral("shortcutsSheet"));
+        QVERIFY(sheet);
+        click("optionsButton");
+        QTRY_VERIFY(visible("settingsPopup"));
+        click("shortcutsItem");
+        QVERIFY(sheet->isVisible());
+        QVERIFY(!visible("settingsPopup"));
+        QVERIFY(sheet->width() <= 680);
+        QVERIFY(qAbs(sheet->mapToScene(QPointF(sheet->width() / 2, 0)).x() - m_window->width() / 2.0) <= 1);
+        shot("player-shortcuts");
+        QQuickItem* closeKeys = m_window->findChild<QQuickItem*>(QStringLiteral("closeShortcuts"));
+        QVERIFY(closeKeys);
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, closeKeys->mapToScene(QPointF(closeKeys->width() / 2, closeKeys->height() / 2)).toPoint());
+        QTRY_VERIFY(!sheet->isVisible());
+        click("optionsButton");
+        click("shortcutsItem");
+        QVERIFY(sheet->isVisible());
+        click("optionsButton");
+        QVERIFY(!sheet->isVisible());
+        QVERIFY(visible("settingsPopup"));
+        click("shortcutsItem");
+        m_target.commands.clear();
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QVERIFY(!sheet->isVisible());
+        QVERIFY(!m_target.sent(QStringLiteral("keydown %1").arg(int(Qt::Key_Escape))));
+        const auto originalVisibility = m_window->visibility();
+        QTest::keyClick(m_window, Qt::Key_F);
+        QVERIFY(session.fullScreen());
+        QTRY_COMPARE(m_window->visibility(), QWindow::FullScreen);
+        QVERIFY(!m_target.sent(QStringLiteral("keydown %1").arg(int(Qt::Key_F))));
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QVERIFY(!session.fullScreen());
+        QTRY_COMPARE(m_window->visibility(), originalVisibility);
+        // The diagnostics stay over the video, not over the pages.
+        QQuickItem* stats = nullptr;
+        for (QQuickItem* item : m_window->contentItem()->childItems())
+            if (QByteArray(item->metaObject()->className()).startsWith("StatsOverlay"))
+                stats = item;
+        QVERIFY(stats && stats->isVisible());
+        m_window->setProperty("browseVisible", true);
+        QVERIFY(!stats->isVisible());
+        m_window->setProperty("browseVisible", false);
+        QVERIFY(stats->isVisible());
         m_target.requestAppAction(QStringLiteral("stats"));
         emit m_target.chaptersChanged({});
         QTRY_VERIFY(!next->isVisible());
@@ -412,9 +718,14 @@ private slots:
         // The pages still open over the video (from the Browse button).
         m_window->setProperty("browseVisible", true);
         QVERIFY(m_pages->isVisible());
+        QVERIFY(video->property("covered").toBool());
         shot("pages-over-video");
         m_window->setProperty("browseVisible", false);
         QVERIFY(!m_pages->isVisible());
+        QVERIFY(!video->property("covered").toBool());
+        session.stop();
+        m_target.setState(PlaybackState::Idle);
+        QTRY_COMPARE(video->size(), QSizeF(1, 1));
     }
 
     // While an episode plays, the Episodes button lists the show's episodes
@@ -442,6 +753,17 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(m_window, "toggleEpisodes"));
         QTRY_VERIFY(panel->isVisible());
         shot("episodes");
+        // One panel at a time: a bar panel closes the episodes list, and the
+        // list sits under Back and Close.
+        QQuickItem* bar = m_window->findChild<QQuickItem*>(QStringLiteral("controlBar"));
+        QQuickItem* corner = m_window->findChild<QQuickItem*>(QStringLiteral("playerCorner"));
+        QVERIFY(bar && corner);
+        QVERIFY(panel->mapToScene(QPointF(0, 0)).y() >= corner->mapToScene(QPointF(0, corner->height())).y());
+        QVERIFY(QMetaObject::invokeMethod(bar, "togglePanel", Q_ARG(QVariant, QStringLiteral("settings"))));
+        QTRY_VERIFY(!panel->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(m_window, "toggleEpisodes"));
+        QTRY_VERIFY(panel->isVisible());
+        QCOMPARE(bar->property("openPanel").toString(), QString());
 
         QVERIFY(QMetaObject::invokeMethod(panel, "pick", Q_ARG(QVariant, 1)));
         QTRY_COMPARE(browser.streamsTitle(), QStringLiteral("A Show 1x02"));
@@ -460,6 +782,15 @@ private slots:
 
 private:
     QString page() const { return m_pages->property("page").toString(); }
+    // Visible items of that name under `item`, delegates included (a view
+    // parents those to its content item, not as QObject children).
+    static int countItems(QQuickItem* item, const char* name)
+    {
+        int n = item->objectName() == QLatin1String(name) && item->isVisible() ? 1 : 0;
+        for (QQuickItem* child : item->childItems())
+            n += countItems(child, name);
+        return n;
+    }
     QVariantList rows(const char* name) const { return m_core->browser().property(name).toList(); }
 
     void call(const char* function, const char* arg)
@@ -472,7 +803,7 @@ private:
     // markup from a file or an add-on, and load its <img> links (src/ui/README).
     // Qt Quick Controls' own labels (button and switch labels, placeholder
     // text: QQuickMnemonicLabel, QQuickCheckLabel...) show only the app's
-    // fixed words, and are left out; Chip and PlainMenuItem replace theirs.
+    // fixed words, and are left out; Chip replaces its own.
     void allTextIsPlain()
     {
         QStringList rich;

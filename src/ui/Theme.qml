@@ -1,15 +1,112 @@
 pragma Singleton
 import QtQuick
 
-// The app's colours and the poster size, in one place.
+// The app's colours, type sizes and spacing, in one place. Four looks:
+// olive dark (the default), OLED black, bright and custom (the person's
+// own palette, which can go to a file and come back). Each starts from four
+// colours (accent, canvas, panel, text) that Settings > Appearance can
+// change; the rest are mixed from those four. Main.qml supplies the saved
+// selection as one value so a preset switch applies both parts together.
 QtObject {
-    readonly property color background: "#101014"
-    readonly property color panel: "#141418"
-    readonly property color text: "#f2f2f5"
-    readonly property color muted: "#9a9aa6"
-    readonly property color faint: "#5c5c66"
-    readonly property color accent: "#e8b04b"
-    readonly property color error: "#e09080"
-    readonly property color overlay: "#e01a1a20"   // pop-ups over the video
-    readonly property int posterWidth: 132
+    id: theme
+
+    property var selection: ({ mode: "dark", edits: {} })
+    readonly property string mode: selection.mode
+
+    readonly property var presets: ({
+        dark:   { canvas: "#171b16", panel: "#20251e", text: "#eaeee5", accent: "#a0b583" },
+        oled:   { canvas: "#000000", panel: "#000000", text: "#e1e6dc", accent: "#96ad78" },
+        bright: { canvas: "#f7f8f3", panel: "#ffffff", text: "#222a20", accent: "#526b3d" },
+        custom: { canvas: "#171b16", panel: "#20251e", text: "#eaeee5", accent: "#a0b583" }
+    })
+    // Color Palettes in Settings: [name, {canvas, panel, text, accent}, mode].
+    // The first two are modes of their own; the rest set the Custom mode.
+    readonly property var palettes: [
+        ["Commando Jackie", presets.dark, "dark"],
+        ["OLED black", { canvas: "#000000", panel: "#000000", text: "#e1e6dc", accent: "#96ad78" }, "oled"],
+        ["Midnight",  { canvas: "#11151d", panel: "#1a2030", text: "#e4e9f2", accent: "#7aa2f7" }, "custom"],
+        ["Graphite",  { canvas: "#161616", panel: "#212121", text: "#ececec", accent: "#b0b0b0" }, "custom"],
+        ["Teal",      { canvas: "#0e1b1b", panel: "#162627", text: "#e1f0ee", accent: "#52d2bf" }, "custom"],
+        ["Plum",      { canvas: "#1a1321", panel: "#251a2f", text: "#efe5f4", accent: "#c695e6" }, "custom"],
+        ["Ember",     { canvas: "#1c1411", panel: "#281c18", text: "#f3e8e1", accent: "#f58e4d" }, "custom"],
+        ["Rose",      { canvas: "#1d1317", panel: "#2a1c22", text: "#f5e6eb", accent: "#f082a3" }, "custom"],
+        ["Paper",     { canvas: "#f6f4ef", panel: "#ffffff", text: "#2a2723", accent: "#8a5a2b" }, "custom"],
+        ["Sky",       { canvas: "#f2f6fa", panel: "#ffffff", text: "#1f2a36", accent: "#2f6db3" }, "custom"],
+        ["Mint",      { canvas: "#f0f7f3", panel: "#ffffff", text: "#1e2d26", accent: "#2b8c68" }, "custom"],
+        ["Blush",     { canvas: "#fbf2f4", panel: "#ffffff", text: "#2d2226", accent: "#c0436a" }, "custom"]
+    ]
+    // The four colours of the current look, with the person's changes.
+    function base(key) {
+        const selected = selection
+        const own = (selected.edits || {})[selected.mode] || {}
+        if (selected.mode === "oled" && (key === "canvas" || key === "panel")) return "#000000"
+        return own[key] || (presets[selected.mode] || presets.dark)[key]
+    }
+    // `amount` of a, the rest b.
+    function mix(a, b, amount) {
+        return Qt.rgba(a.r * amount + b.r * (1 - amount), a.g * amount + b.g * (1 - amount),
+                       a.b * amount + b.b * (1 - amount), 1)
+    }
+
+    // Light looks get darker error text. Custom is light when its background is.
+    readonly property bool light: mode === "bright"
+        || (mode === "custom" && 0.2126 * canvas.r + 0.7152 * canvas.g + 0.0722 * canvas.b > 0.5)
+    readonly property color canvas: base("canvas")
+    readonly property color panel: base("panel")
+    readonly property color text: base("text")
+    readonly property color accent: base("accent")
+    // Black or white, whichever reads better on the accent. (Not named
+    // "onAccent": QML takes on<Name> for a handler of a change of <name>.)
+    readonly property real accentLuminance: 0.2126 * Math.pow((accent.r + 0.055) / 1.055, 2.4)
+                                          + 0.7152 * Math.pow((accent.g + 0.055) / 1.055, 2.4)
+                                          + 0.0722 * Math.pow((accent.b + 0.055) / 1.055, 2.4)
+    readonly property color accentText: accentLuminance > 0.179 ? "#000000" : "#ffffff"
+    readonly property color line: mix(text, panel, 0.41)
+    readonly property color muted: mix(text, panel, 0.78)
+    readonly property color faint: mix(text, panel, 0.5)
+    readonly property color raised: mix(accent, panel, 0.15)
+    readonly property color hover: mix(text, panel, 0.08)
+    readonly property color pressed: mix(text, panel, 0.16)
+    readonly property color divider: mix(text, panel, 0.16)
+    readonly property color error: light ? "#a12d22" : "#e09080"
+    // Boxes over the video (pop-ups, the episodes list, messages).
+    readonly property color overlay: Qt.rgba(panel.r, panel.g, panel.b, 0.94)
+    readonly property color scrim: "#a0000000"
+    // The player's controls. With white or near-white panels they turn
+    // charcoal with light words and icons (bright controls over a video look
+    // washed out). Other panel colours are used as they are.
+    readonly property real panelLuminance: 0.2126 * panel.r + 0.7152 * panel.g + 0.0722 * panel.b
+    readonly property bool playerCharcoal: panelLuminance > 0.82
+    // How strong the fade behind the bar's controls is, in any colour
+    // (Settings: full, half, little, off). Main.qml sets playerHalo.
+    property string playerHalo: "full"
+    readonly property real haloStrength: ({ full: 1, half: 0.5, little: 0.25, off: 0 })[playerHalo] ?? 1
+    readonly property color pPanel: playerCharcoal ? "#24262a" : panel
+    readonly property color pText: playerCharcoal ? "#eceeea" : text
+    readonly property color pCanvas: playerCharcoal ? "#18191c" : canvas
+    readonly property color pLine: mix(pText, pPanel, 0.41)
+    readonly property color pMuted: mix(pText, pPanel, 0.78)
+    readonly property color pRaised: mix(accent, pPanel, 0.15)
+    readonly property color pHover: mix(pText, pPanel, 0.08)
+    readonly property color pPressed: mix(pText, pPanel, 0.16)
+    readonly property color pDivider: mix(pText, pPanel, 0.16)
+    readonly property color pOverlay: Qt.rgba(pPanel.r, pPanel.g, pPanel.b, 0.94)
+
+    // Old names, kept for the pieces that use them.
+    readonly property color background: canvas
+
+    // Type
+    readonly property int pageTitleSize: 30
+    readonly property int headingSize: 19
+    readonly property int bodySize: 15
+    readonly property int smallSize: 13
+    // Shapes and spacing (a 4 px grid)
+    readonly property int radius: 6
+    readonly property int posterRadius: 10
+    readonly property int posterGlowSpread: 14
+    readonly property int posterGlowGutter: posterGlowSpread + 2
+    readonly property int controlHeight: 38
+    readonly property int sideBarWidth: 184
+    readonly property int posterWidth: 150
+    readonly property int posterGap: 15
 }

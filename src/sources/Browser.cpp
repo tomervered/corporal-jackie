@@ -108,7 +108,8 @@ QVariantList Browser::addons() const
                            {"description", a.manifest.description},
                            {"url", logging::redactUrl(a.manifestUrl)},  // its path can hold a login
                            {"offers", offers.join(QStringLiteral(", "))},
-                           {"error", a.lastError}};
+                           {"error", a.lastError},
+                           {"enabled", !a.disabled}};
     }
     return out;
 }
@@ -130,6 +131,12 @@ void Browser::moveAddon(const QString& addonId, int delta)
 {
     if (m_stremio)
         m_stremio->move(addonId, delta);
+}
+
+void Browser::setAddonEnabled(const QString& addonId, bool enabled)
+{
+    if (m_stremio && m_stremio->setEnabled(addonId, enabled))
+        emit notice(enabled ? QStringLiteral("Add-on switched on") : QStringLiteral("Add-on switched off"), false);
 }
 
 void Browser::removeAddon(const QString& addonId)
@@ -212,7 +219,7 @@ QVariantList Browser::catalogs() const
 {
     QVariantList out;
     for (const CatalogRef& c : m_catalogs)
-        out << QVariantMap{{"name", c.name}, {"type", c.type}, {"adapter", c.adapter},
+        out << QVariantMap{{"name", c.name}, {"type", c.type}, {"adapter", c.adapter}, {"provider", c.provider},
                            {"searchable", c.searchable}, {"searchOnly", c.searchOnly},
                            {"genres", c.genres}, {"genreRequired", c.genreRequired}};
     return out;

@@ -39,6 +39,17 @@ class Preferences : public QObject
     // The answers saved before the screen was last changed, to start it from
     // when it asks again: {catalogAddon, dht, trackers, portMapping}.
     Q_PROPERTY(QVariantMap earlierChoices READ earlierChoices CONSTANT)
+    // The look: "dark" (olive), "oled" or "bright", and the colours the
+    // person changed in each, as {mode: {accent, canvas, panel, text}}.
+    Q_PROPERTY(QString colorMode READ colorMode WRITE setColorMode NOTIFY themeChanged)
+    Q_PROPERTY(QVariantMap colorEdits READ colorEdits WRITE setColorEdits NOTIFY themeChanged)
+    // The upscaler badge over the video (top left).
+    Q_PROPERTY(bool showUpscalerBadge READ showUpscalerBadge WRITE setShowUpscalerBadge NOTIFY upscalerBadgeChanged)
+    // With white or near-white panels the player's controls turn charcoal,
+    // unless this is on.
+    Q_PROPERTY(QString playerHalo READ playerHalo WRITE setPlayerHalo NOTIFY playerHaloChanged)
+    // Palettes the person named and saved: [{name, accent, canvas, panel, text}].
+    Q_PROPERTY(QVariantList savedPalettes READ savedPalettes NOTIFY savedPalettesChanged)
 
 public:
     // defaultCacheFolder: the torrent cache under the app's cache folder.
@@ -74,6 +85,27 @@ public:
     Q_INVOKABLE void choosePrivacy(bool catalogAddon, bool dht, bool publicTrackers, bool portMapping,
                                    bool torrents = false, bool uploads = false);
 
+    QString colorMode() const { return m_colorMode; }
+    bool showUpscalerBadge() const { return m_upscalerBadge; }
+    void setShowUpscalerBadge(bool on);
+    // How strong the fade behind the player's controls is: full, half, little or off.
+    QString playerHalo() const { return m_playerHalo; }
+    void setPlayerHalo(const QString& level);
+    QVariantList savedPalettes() const { return m_savedPalettes; }
+    // Adds a palette under `name` (one of the same name is replaced). ""
+    // or what went wrong.
+    Q_INVOKABLE QString savePalette(const QString& name, const QVariantMap& colors);
+    Q_INVOKABLE void removePalette(const QString& name);
+    void setColorMode(const QString& mode);
+    QVariantMap colorEdits() const { return m_colorEdits; }
+    void setColorEdits(const QVariantMap& edits);
+    Q_INVOKABLE void setTheme(const QString& mode, const QVariantMap& edits);
+    // The four colours (accent, canvas, panel, text) to a small JSON file,
+    // and back: an import is saved under its name and becomes the Custom
+    // mode. "" or what went wrong.
+    Q_INVOKABLE QString exportColors(const QUrl& file, const QString& name, const QVariantMap& colors) const;
+    Q_INVOKABLE QString importColors(const QUrl& file);
+
     void setTorrentsInMemory(bool on);
     void setMemoryCapMB(int mb);
     void setDiskCacheGB(int gb);
@@ -92,6 +124,11 @@ signals:
     void privacyChanged();
     // The catalog add-on went from off to on or back: install or remove it.
     void catalogAddonChoiceChanged(bool on);
+    void appearanceChanged();
+    void themeChanged();
+    void upscalerBadgeChanged();
+    void playerHaloChanged();
+    void savedPalettesChanged();
 
 private:
     void save();
@@ -112,6 +149,12 @@ private:
     bool m_torrents = false;
     bool m_uploads = false;
     QVariantMap m_earlier;
+    QString m_colorMode = QStringLiteral("dark");
+    QVariantMap m_colorEdits;
+    bool m_upscalerBadge = true;
+    QString m_playerHalo = QStringLiteral("full");
+    QVariantList m_savedPalettes;
+    void storePalettes();
     struct Started { bool inMemory; int memoryCapMB; int diskCacheGB; QString folder; } m_started;
 };
 

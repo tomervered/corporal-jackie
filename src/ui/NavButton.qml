@@ -1,23 +1,49 @@
 import QtQuick
 import QtQuick.Controls.Basic
 
-// An entry in the side bar.
+// An entry in the side bar: an icon and a name. The page that shows has a
+// raised background and a short accent bar inside its left edge (straight,
+// not following the rounded corner).
 ItemDelegate {
     id: nav
-    property string target
+    property string iconName
     property bool selected: false
     width: parent ? parent.width : 160
-    font.pixelSize: 15
-    contentItem: Text {
-        textFormat: Text.PlainText
-        text: nav.text
-        color: nav.selected ? Theme.accent : Theme.text
-        font: nav.font
-        elide: Text.ElideRight
+    height: 44
+    leftPadding: 14
+    font.pixelSize: Theme.bodySize
+    Accessible.name: text
+    contentItem: Row {
+        spacing: 12
+        Icon {
+            anchors.verticalCenter: parent.verticalCenter
+            name: nav.iconName
+            size: 19
+            color: nav.selected || nav.hovered ? Theme.text : Theme.muted
+        }
+        Text {
+            textFormat: Text.PlainText
+            anchors.verticalCenter: parent.verticalCenter
+            width: nav.availableWidth - 31
+            text: nav.text
+            color: nav.selected || nav.hovered ? Theme.text : Theme.muted
+            font: nav.font
+            elide: Text.ElideRight
+        }
     }
     background: Rectangle {
-        radius: 8
-        color: nav.selected ? "#1fe8b04b" : nav.down ? "#40ffffff" : nav.hovered ? "#14ffffff" : "transparent"
-        border.color: nav.activeFocus ? Theme.accent : "transparent"
+        radius: Theme.radius
+        color: nav.selected ? Theme.raised : nav.down ? Theme.pressed : nav.hovered ? Theme.hover : "transparent"
+        border.width: nav.visualFocus ? 2 : 0
+        border.color: Theme.accent
+        Rectangle {
+            visible: nav.selected
+            x: 5
+            anchors.verticalCenter: parent.verticalCenter
+            width: 3
+            height: 18
+            radius: 1.5
+            color: Theme.accent
+        }
     }
 }

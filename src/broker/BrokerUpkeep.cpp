@@ -53,6 +53,7 @@ void Engine::reload(const std::shared_ptr<Torrent>& tp)
     } catch (const std::exception&) {
     }
     atp.save_path = QFile::encodeName(t.dir).toStdString();
+    atp.userdata = &t.id;  // UploadGuard: this torrent's own sharing choice
     atp.flags &= ~(lt::torrent_flags::auto_managed | lt::torrent_flags::paused);
     // In order: see Engine::schedule.
     atp.flags |= lt::torrent_flags::sequential_download;
@@ -153,6 +154,14 @@ void Engine::releaseHandle(Torrent& t)
         if (t.openHandles > 0)
             --t.openHandles;
         last = t.openHandles == 0;
+        if (last) {
+            // These are reader copies. The verified data stays in the
+            // underlying disk or RAM store for the next open.
+            t.pieces.clear();
+            t.pieceOrder.clear();
+            t.pieceBytes = 0;
+            t.readErrors.clear();
+        }
         if (!t.inUse())
             t.idleSince = Clock::now();
         schedule(t, true);

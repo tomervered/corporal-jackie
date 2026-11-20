@@ -7,7 +7,6 @@ Column {
     function takeFocus() { streamList.takeFocus() }
 
     spacing: 8
-    PageTitle { width: parent.width; text: browser.streamsTitle }
     StreamList {
         id: streamList
         nav: streamsPage.nav

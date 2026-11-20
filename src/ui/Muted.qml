@@ -5,6 +5,7 @@ import QtQuick.Controls.Basic
 Text {
     textFormat: Text.PlainText
     color: Theme.muted
-    font.pixelSize: 13
+    font.pixelSize: Theme.smallSize + 1
     wrapMode: Text.WordWrap
+    lineHeight: 1.1
 }

@@ -36,7 +36,7 @@ Posters, logos and backgrounds come from add-on servers and from export files. `
 
 ## Text from files and add-ons
 
-Track names, chapter names, titles and descriptions come from files and add-ons. A Qt Quick `Text` guesses whether text is rich text, and rich text can load images from any link. Every `Text` in `src/ui` sets `textFormat: Text.PlainText`. Menu items use `PlainMenuItem.qml` and chips draw a plain `Text`. `tst_ui` fails if any visible text in the window is not plain (`allTextIsPlain`). `src/ui/README.md` has the rule for new QML.
+Track names, chapter names, titles and descriptions come from files and add-ons. A Qt Quick `Text` guesses whether text is rich text, and rich text can load images from any link. Every `Text` in `src/ui` sets `textFormat: Text.PlainText`. The player's panel rows (`PanelRow.qml`) and chips draw a plain `Text`. `tst_ui` fails if any visible text in the window is not plain (`allTextIsPlain`). `src/ui/README.md` has the rule for new QML.
 
 ## Import
 

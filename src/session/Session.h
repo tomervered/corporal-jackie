@@ -34,6 +34,7 @@ class Session : public QObject
     Q_PROPERTY(int bufferPercent READ bufferPercent NOTIFY bufferingChanged)
     Q_PROPERTY(double volume READ volume WRITE setVolume NOTIFY volumeChanged)
     Q_PROPERTY(bool muted READ muted WRITE setMuted NOTIFY volumeChanged)
+    Q_PROPERTY(double maxVolume READ maxVolume CONSTANT)
     Q_PROPERTY(double speed READ speed WRITE setSpeed NOTIFY speedChanged)
     Q_PROPERTY(QVariantList audioTracks READ audioTracks NOTIFY tracksChanged)
     Q_PROPERTY(QVariantList subtitleTracks READ subtitleTracks NOTIFY tracksChanged)
@@ -49,6 +50,8 @@ class Session : public QObject
     Q_PROPERTY(double abLoopB READ abLoopB NOTIFY abLoopChanged)
     Q_PROPERTY(QString aspectRatio READ aspectRatio NOTIFY aspectRatioChanged)
     Q_PROPERTY(QString crop READ crop NOTIFY cropChanged)
+    Q_PROPERTY(QStringList aspectRatios READ aspectRatios CONSTANT)   // "" = automatic
+    Q_PROPERTY(QStringList crops READ crops CONSTANT)                 // "" = none
     Q_PROPERTY(int brightness READ brightness NOTIFY equalizerChanged)
     Q_PROPERTY(int contrast READ contrast NOTIFY equalizerChanged)
     Q_PROPERTY(int saturation READ saturation NOTIFY equalizerChanged)
@@ -91,6 +94,7 @@ public:
     bool buffering() const { return m_buffering; }
     int bufferPercent() const { return m_bufferPercent; }
     double volume() const { return m_volume; }
+    double maxVolume() const { return PlaybackTarget::kMaxVolume; }
     bool muted() const { return m_muted; }
     double speed() const { return m_speed; }
     QVariantList audioTracks() const { return tracksOf(Track::Type::Audio); }
@@ -108,6 +112,8 @@ public:
     double abLoopB() const { return m_abB; }
     QString aspectRatio() const { return m_aspect; }
     QString crop() const { return m_crop; }
+    QStringList aspectRatios() const;
+    QStringList crops() const;
     int brightness() const { return m_eq.brightness; }
     int contrast() const { return m_eq.contrast; }
     int saturation() const { return m_eq.saturation; }
@@ -181,6 +187,7 @@ public:
     Q_INVOKABLE void setAudioTrack(int id);
     Q_INVOKABLE void setSubtitleTrack(int id);
     Q_INVOKABLE void addExternalSubtitle(const QUrl& url);
+    Q_INVOKABLE void addExternalAudio(const QUrl& url);   // a file on this computer
     void setVolume(double volume);
     void setMuted(bool muted);
     void setSpeed(double factor);
@@ -197,6 +204,8 @@ public:
     Q_INVOKABLE void toggleAbLoop();
     Q_INVOKABLE void cycleAspectRatio();
     Q_INVOKABLE void cycleCrop();
+    Q_INVOKABLE void setAspectRatio(const QString& ratio);  // one of aspectRatios
+    Q_INVOKABLE void setCrop(const QString& ratio);         // one of crops
     // name: brightness, contrast, saturation, gamma or hue; value -100…100.
     Q_INVOKABLE void setEqualizer(const QString& name, int value);
     Q_INVOKABLE void resetEqualizer();

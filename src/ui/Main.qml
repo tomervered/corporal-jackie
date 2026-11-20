@@ -16,16 +16,44 @@ Window {
     minimumHeight: 360
     visible: true
     color: "black"
+
+    // The look: Theme follows the saved choice, and Qt's own controls (menus,
+    // tooltips, scroll bars, dialogs' parts) take their colours from it.
+    Binding {
+        target: Theme
+        property: "selection"
+        value: ({ mode: preferences.colorMode, edits: preferences.colorEdits })
+    }
+    Binding { target: Theme; property: "playerHalo"; value: preferences.playerHalo }
+    palette {
+        window: Theme.panel
+        windowText: Theme.text
+        base: Theme.panel
+        text: Theme.text
+        button: Theme.panel
+        buttonText: Theme.text
+        brightText: Theme.text
+        highlight: Theme.accent
+        highlightedText: Theme.accentText
+        light: Theme.raised
+        midlight: Theme.pressed
+        mid: Theme.line
+        dark: Theme.line
+        shadow: "#000000"
+        placeholderText: Theme.muted
+        toolTipBase: Theme.panel
+        toolTipText: Theme.text
+    }
     title: (session.hasMedia || session.loading) && session.title !== "" ? session.title + " — Corporal Jackie" : "Corporal Jackie"
 
     property bool controlsVisible: true
     property bool statsVisible: false
-    property bool helpVisible: false
     property bool browseVisible: false
     // The pages fill the window when nothing plays, and cover the video on B.
-    readonly property bool pagesVisible: browseVisible || (!session.hasMedia && !session.loading)
+    readonly property bool pagesVisible: browseVisible || settingsVisible || (!session.hasMedia && !session.loading)
     property bool settingsVisible: false
     property bool episodesVisible: false
+    property int windowedVisibility: Window.Windowed
     property string errorText: ""
     property string osdText: ""
     // When the pages close by themselves (a video started from them), the
@@ -71,26 +99,29 @@ Window {
         if (!root.browseVisible) inputLayer.forceActiveFocus()
     }
 
+    // Settings is a page: over a video it shows the pages, and closing it
+    // goes back to where it was opened from.
     function toggleSettings() {
         root.settingsVisible = !root.settingsVisible
-        if (root.settingsVisible) settingsPanel.forceActiveFocus()
-        else if (root.pagesVisible) pagesView.show()
+        if (root.pagesVisible) pagesView.focusPage()
         else inputLayer.forceActiveFocus()
     }
 
     function toggleEpisodes() {
         root.episodesVisible = !root.episodesVisible && browser.playingEpisodes.length > 0
-        if (root.episodesVisible) root.browseVisible = false
+        if (root.episodesVisible) { root.browseVisible = false; controlBar.closePanel() }
         else inputLayer.forceActiveFocus()
     }
 
-    // Full screen lives in the Session, so mpv's F and Esc keys and the
-    // window agree on it.
+    // Use the same window transition for keyboard, pointer and session events.
     function toggleFullscreen() { session.fullScreen = !session.fullScreen }
     onVisibilityChanged: {
-        if (root.visibility === Window.FullScreen || root.visibility === Window.Windowed
-                || root.visibility === Window.Maximized)
-            session.fullScreen = root.visibility === Window.FullScreen
+        if (root.visibility === Window.Windowed || root.visibility === Window.Maximized) {
+            root.windowedVisibility = root.visibility
+            session.fullScreen = false
+        } else if (root.visibility === Window.FullScreen) {
+            session.fullScreen = true
+        }
     }
 
     function showControls() {
@@ -122,7 +153,7 @@ Window {
         function onScreenshotSaved(path) { root.osd("Screenshot saved to Pictures › Corporal Jackie") }
         function onFullScreenChanged() {
             if ((root.visibility === Window.FullScreen) !== session.fullScreen)
-                root.visibility = session.fullScreen ? Window.FullScreen : Window.Windowed
+                root.visibility = session.fullScreen ? Window.FullScreen : root.windowedVisibility
         }
         // mpv's I key: mpv's own stats need a script, so the app shows its own.
         function onAppActionRequested(action) { if (action === "stats") root.statsVisible = !root.statsVisible }
@@ -133,13 +164,18 @@ Window {
     Timer {
         id: hideTimer
         interval: 2500
-        onTriggered: if (session.hasMedia && !session.paused && !controlBar.inUse && !root.episodesVisible) root.controlsVisible = false
+        onTriggered: if (session.hasMedia && !session.paused && !controlBar.inUse && !cornerHover.hovered && !root.episodesVisible) root.controlsVisible = false
     }
 
     // --- Video --------------------------------------------------------------
 
     VideoSurface {
-        anchors.fill: parent
+        objectName: "videoSurface"
+        // Keep the render bridge alive after playback, but release the
+        // window-sized framebuffer while browsing with no video loaded.
+        width: session.loading || session.hasMedia ? root.width : 1
+        height: session.loading || session.hasMedia ? root.height : 1
+        covered: root.pagesVisible
         playbackSession: session  // not "session:", which would bind to itself
     }
 
@@ -159,6 +195,13 @@ Window {
     }
 
     FileDialog {
+        id: audioDialog
+        title: "Load an audio track"
+        nameFilters: ["Audio (*.mka *.m4a *.aac *.ac3 *.eac3 *.dts *.flac *.mp3 *.ogg *.opus *.wav)", "All files (*)"]
+        onAccepted: session.addExternalAudio(selectedFile)
+    }
+
+    FileDialog {
         id: subtitleDialog
         title: "Load a subtitle file"
         nameFilters: ["Subtitles (*.srt *.ass *.ssa *.vtt *.sub *.sup)", "All files (*)"]
@@ -171,19 +214,35 @@ Window {
         id: inputLayer
         anchors.fill: parent
         focus: true
+        property bool escapeHandled: false
 
-        // Every key goes to mpv, which runs its own bindings (its standard
-        // input.conf: Space, arrows, F, M, J...). The app adds none here.
-        // mpv repeats a held key itself, so Qt's repeats are dropped.
+        // Handle window commands immediately. mpv handles playback keys and
+        // repeats held keys itself, so Qt's repeats are dropped.
         Keys.onPressed: event => {
-            if (!event.isAutoRepeat)
-                session.keyEvent(event.key, event.modifiers, event.text, true)
             event.accepted = true
+            if (event.isAutoRepeat) return
+            // Shift+F belongs to mpv (subtitle size).
+            if (event.key === Qt.Key_F && event.modifiers === Qt.NoModifier) {
+                root.toggleFullscreen()
+                return
+            }
+            // Esc closes the open panel before it leaves full screen.
+            if (event.key === Qt.Key_Escape) {
+                inputLayer.escapeHandled = controlBar.openPanel !== "" || session.fullScreen
+                if (controlBar.openPanel !== "") controlBar.closePanel()
+                else if (session.fullScreen) session.fullScreen = false
+                if (inputLayer.escapeHandled) return
+            }
+            session.keyEvent(event.key, event.modifiers, event.text, true)
         }
         Keys.onReleased: event => {
-            if (!event.isAutoRepeat)
-                session.keyEvent(event.key, event.modifiers, event.text, false)
             event.accepted = true
+            if (event.isAutoRepeat) return
+            if (event.key === Qt.Key_Escape && inputLayer.escapeHandled) {
+                inputLayer.escapeHandled = false
+                return
+            }
+            session.keyEvent(event.key, event.modifiers, event.text, false)
         }
         // A key held while a panel opens is never released here: stop mpv
         // repeating it.
@@ -194,7 +253,12 @@ Window {
             hoverEnabled: true
             cursorShape: root.controlsVisible || !session.hasMedia ? Qt.ArrowCursor : Qt.BlankCursor
             onPositionChanged: root.showControls()
-            onClicked: { inputLayer.forceActiveFocus(); if (session.hasMedia) session.togglePause() }
+            // With a panel open, a click on the picture closes it instead.
+            onClicked: {
+                inputLayer.forceActiveFocus()
+                if (controlBar.openPanel !== "") controlBar.closePanel()
+                else if (session.hasMedia) session.togglePause()
+            }
             onDoubleClicked: root.toggleFullscreen()
         }
 
@@ -234,26 +298,16 @@ Window {
         id: pagesView
         objectName: "pages"
         visible: root.pagesVisible
-        anchors.fill: parent
-        // Above the control bar, which stays usable while they are open.
-        anchors.bottomMargin: session.hasMedia ? 64 : 0
-        onCloseRequested: { root.browseVisible = false; inputLayer.forceActiveFocus() }
+        // Keep the library state while watching without relaying out its
+        // hidden pages at every step of a native window resize.
+        Binding on width { when: root.pagesVisible; value: root.width; restoreMode: Binding.RestoreNone }
+        Binding on height { when: root.pagesVisible; value: root.height; restoreMode: Binding.RestoreNone }
+        settingsOpen: root.settingsVisible
+        onCloseRequested: { root.browseVisible = false; root.settingsVisible = false; inputLayer.forceActiveFocus() }
         onSettingsRequested: root.toggleSettings()
         onOpenFileRequested: openDialog.open()
         onOpenLinkRequested: linkPopup.open()
         onMessage: (text, isError) => { if (isError) { root.errorText = text; errorTimer.restart() } else root.osd(text) }
-    }
-
-    // --- Settings (press P) ----------------------------------------------------
-
-    SettingsPanel {
-        id: settingsPanel
-        visible: root.settingsVisible
-        anchors { top: parent.top; bottom: parent.bottom; right: parent.right; margins: 16 }
-        // Above the control bar, which stays usable while it is open.
-        anchors.bottomMargin: session.hasMedia ? 72 : 16
-        width: Math.min(520, parent.width - 32)
-        onCloseRequested: { root.settingsVisible = false; inputLayer.forceActiveFocus() }
     }
 
     // --- Episodes of the series that is playing ---------------------------------
@@ -263,6 +317,8 @@ Window {
         objectName: "episodesPanel"
         visible: root.episodesVisible && !root.pagesVisible && session.hasMedia
         anchors { top: parent.top; bottom: parent.bottom; right: parent.right; margins: 16 }
+        // Under Back and Close, so they never cover its own ×.
+        anchors.topMargin: corner.y + corner.height + 10
         // Above the control bar, which stays usable while it is open.
         anchors.bottomMargin: 72
         width: Math.min(440, parent.width - 32)
@@ -292,7 +348,7 @@ Window {
         id: upscalerBadge
         objectName: "upscalerBadge"
         anchors { top: parent.top; left: parent.left; margins: 16 }
-        visible: session.hasMedia && session.upscalerStatus !== "" && !root.pagesVisible
+        visible: preferences.showUpscalerBadge && session.hasMedia && session.upscalerStatus !== "" && !root.pagesVisible
                  && (upscalerBadgeTimer.running || root.controlsVisible)
         width: badgeRow.implicitWidth + 24
         height: badgeRow.implicitHeight + 12
@@ -311,7 +367,7 @@ Window {
             Text {
                 textFormat: Text.PlainText
                 text: session.upscalerStatus
-                color: Theme.text
+                color: Theme.pText
                 font.pixelSize: 14
             }
         }
@@ -352,35 +408,81 @@ Window {
         }
     }
 
+    // Over the video only: the pages hide it, and it comes back with the video.
     StatsOverlay {
         anchors { top: parent.top; left: parent.left; margins: 12 }
-        visible: root.statsVisible
+        visible: root.statsVisible && !root.pagesVisible
         streaming: root.streaming
     }
 
-    // mpv's keys, from the Options menu. A click anywhere closes it.
-    MouseArea {
-        anchors.fill: parent
-        visible: root.helpVisible
-        onClicked: { root.helpVisible = false; inputLayer.forceActiveFocus() }
-        ShortcutsOverlay { anchors.centerIn: parent }
+    // Keyboard help replaces the playback settings panel and stays centered.
+    ShortcutsOverlay {
+        objectName: "shortcutsSheet"
+        anchors.centerIn: parent
+        anchors.verticalCenterOffset: -20
+        visible: controlBar.openPanel === "shortcuts" && !root.pagesVisible
+        onCloseRequested: { controlBar.closePanel(); inputLayer.forceActiveFocus() }
+    }
+
+    // --- Back and Close, top right ---------------------------------------------
+
+    // Back shows the pages (the video keeps its place to come back to);
+    // Close stops the video and lets go of it (Q does the same).
+    Rectangle {
+        id: corner
+        objectName: "playerCorner"
+        anchors { top: parent.top; right: parent.right; topMargin: 16; rightMargin: 16 }
+        visible: session.hasMedia && !root.pagesVisible
+        opacity: root.controlsVisible ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 200 } }
+        width: cornerRow.implicitWidth + 8
+        height: cornerRow.implicitHeight + 8
+        radius: height / 2
+        color: Qt.rgba(Theme.pPanel.r, Theme.pPanel.g, Theme.pPanel.b, 0.86)
+        border.color: Qt.rgba(Theme.pText.r, Theme.pText.g, Theme.pText.b, 0.14)
+        HoverHandler { id: cornerHover }
+        MouseArea { anchors.fill: parent; enabled: root.controlsVisible }
+        Row {
+            id: cornerRow
+            anchors.centerIn: parent
+            spacing: 2
+            IconButton {
+                onPlayer: true
+                objectName: "backToPages"
+                enabled: root.controlsVisible
+                iconName: "arrowLeft"
+                tip: "Back to browsing (B)"
+                onClicked: { controlBar.closePanel(); root.toggleBrowse() }
+            }
+            IconButton {
+                onPlayer: true
+                objectName: "closeVideo"
+                enabled: root.controlsVisible
+                iconName: "close"
+                tip: "Close video (Q)"
+                onClicked: { controlBar.closePanel(); session.stop() }
+            }
+        }
     }
 
     // --- Controls bar ---------------------------------------------------------
 
     ControlBar {
         id: controlBar
+        objectName: "controlBar"
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-        visible: session.hasMedia
+        // The pages have their own way back to the video.
+        visible: session.hasMedia && !root.pagesVisible
         shown: root.controlsVisible
         fullScreen: root.visibility === Window.FullScreen
-        onOpenRequested: openDialog.open()
+        statsShown: root.statsVisible
+        onStatsRequested: root.statsVisible = !root.statsVisible
         onSubtitleFileRequested: subtitleDialog.open()
-        onBrowseRequested: root.toggleBrowse()
+        onAudioFileRequested: audioDialog.open()
         onSettingsRequested: root.toggleSettings()
-        onShortcutsRequested: root.helpVisible = true
         onFullScreenRequested: root.toggleFullscreen()
         onEpisodesRequested: root.toggleEpisodes()
+        onOpenPanelChanged: if (openPanel !== "") root.episodesVisible = false
     }
 
     // --- First run: what may be contacted -----------------------------------
@@ -389,7 +491,7 @@ Window {
         id: privacyScreen
         anchors.fill: parent
         visible: !preferences.privacyChosen
-        onVisibleChanged: if (visible) forceActiveFocus(); else inputLayer.forceActiveFocus()
+        onVisibleChanged: if (visible) forceActiveFocus(); else if (root.pagesVisible) pagesView.focusPage(); else inputLayer.forceActiveFocus()
         Component.onCompleted: if (visible) forceActiveFocus()
     }
 }

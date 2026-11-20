@@ -19,7 +19,6 @@ class KeyedListModel : public QAbstractListModel
     Q_OBJECT
     Q_PROPERTY(QVariantList values READ values WRITE setValues NOTIFY valuesChanged)
     Q_PROPERTY(QString keyRole READ keyRole WRITE setKeyRole NOTIFY keyRoleChanged)
-    Q_PROPERTY(int count READ rowCount NOTIFY valuesChanged)
 
 public:
     using QAbstractListModel::QAbstractListModel;
