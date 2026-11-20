@@ -294,15 +294,12 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
     // app's own screenshots: "<title> 01-02-03.png".
     setOption(m_mpv, "screenshot-dir", Session::screenshotFolder().toUtf8().constData());  // mpv takes UTF-8
     setOption(m_mpv, "screenshot-template", "%{media-title} %wH-%wM-%wS");
-    // Read ahead for every source, not only for what mpv sees as network
-    // streams (torrent:// is not one): a torrent that slows down for a few
-    // seconds then plays on from memory instead of freezing. How far ahead
-    // depends on the source, see startLoad().
-    setOption(m_mpv, "cache", "yes");
     // CJ_MPV_OPTS="name=value,name=value" sets extra mpv options, for troubleshooting.
     for (const QByteArray& pair : qgetenv("CJ_MPV_OPTS").split(',')) {
         if (const qsizetype eq = pair.indexOf('='); eq > 0) {
             setOption(m_mpv, pair.left(eq).constData(), pair.mid(eq + 1).constData());
+            if (pair.startsWith("cache="))
+                m_cacheModeFromEnv = true;
             if (pair.startsWith("demuxer-max-"))
                 m_cacheSizeFromEnv = true;
         }
@@ -607,7 +604,7 @@ void MpvTarget::startLoad(const QByteArray& target, const QString& shown, double
         mpv_set_property_string(m_mpv, "demuxer-max-bytes", web ? "256MiB" : "32MiB");
         mpv_set_property_string(m_mpv, "demuxer-max-back-bytes", web ? "64MiB" : "0");
     }
-    applyReferencePolicy(target);
+    applyLoadPolicy(target);
     ++m_loadsInFlight;
     command({"loadfile", target.constData(), "replace"});
 }
@@ -626,7 +623,7 @@ void MpvTarget::startLoad(const QByteArray& target, const QString& shown, double
 //    references on, as in any player.
 //  - Web links: references on, since HLS needs them; onLoadHook() keeps every
 //    entry a web link, and ScopedHttp refuses EDL and CUE answers.
-void MpvTarget::applyReferencePolicy(const QByteArray& target)
+void MpvTarget::applyLoadPolicy(const QByteArray& target)
 {
     static const QList<QByteArray> kListSuffixes = {".m3u", ".m3u8", ".pls", ".cue", ".edl"};
     const QByteArray lower = target.toLower();
@@ -635,6 +632,13 @@ void MpvTarget::applyReferencePolicy(const QByteArray& target)
     const bool localList = !lower.contains("://")
         && std::any_of(kListSuffixes.begin(), kListSuffixes.end(), [&](const QByteArray& s) { return lower.endsWith(s); });
     mpv_set_property_string(m_mpv, "access-references", m_webLoad || localList ? "yes" : "no");
+    // Plain files can read ahead directly from disk. Keep the memory cache
+    // for streamed sources, including the app's custom torrent protocol,
+    // and for playlists that can contain streams.
+    if (!m_cacheModeFromEnv) {
+        const bool stream = lower.contains("://");
+        mpv_set_property_string(m_mpv, "cache", stream || localList ? "yes" : "no");
+    }
 }
 
 // mpv's on_load hook: runs before each file opens, playlist entries
