@@ -45,3 +45,7 @@ CI adds three things to each package: `THIRD_PARTY_NOTICES.txt` (from `packaging
 The Windows mpv, FFmpeg and libplacebo versions are fixed in `packaging/windows/build-mpv.sh`. Everything else takes the package manager's current version, which keeps CI simple while nothing depends on exact versions. The app logs the version of each library it actually loaded at startup, and CI prints them, so any change shows up in the logs.
 
 Before the first public release (Step 9), pin the rest: a fixed Qt, fixed libmpv builds on macOS, and fixed libtorrent and SQLite versions.
+
+## Playback benchmark
+
+`tests/bench/bench_decode.cpp` runs libmpv headless on three 1080p clips in `tests/data/bench` (H.264, HEVC 10-bit, AV1) and reports decode speed, CPU time, peak memory and seek time. The Windows CI job runs it on every build and compares it with the latest main run (`compare_decode.sh`, tolerance 25 %, reported in the job summary but not failing the job, because shared runners are noisy). To measure a change to mpv, FFmpeg or their build flags exactly, start the CI workflow by hand with `bench_baseline` set to a ref such as `main`: it builds that ref's libraries (cached) and benchmarks both on the same machine in the same run.
