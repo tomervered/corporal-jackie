@@ -547,7 +547,7 @@ jobs:
         run: |
           # mpv and FFmpeg are built by packaging/macos/build-mpv.sh (LGPL,
           # playback only): Homebrew's are GPL builds. These are its dependencies.
-          brew install qt boost openssl@3 ninja pkgconf ccache meson nasm dav1d libass lcms2 uchardet zimg libdovi
+          brew install qt boost openssl@3 ninja pkgconf ccache meson nasm dav1d libass lcms2 uchardet zimg
           echo "PKG_CONFIG_PATH=$GITHUB_WORKSPACE/.deps/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
 
       - name: Restore the mpv build

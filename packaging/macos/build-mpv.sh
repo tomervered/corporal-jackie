@@ -5,7 +5,7 @@
 # so the package uses these instead.
 #
 # Needs from Homebrew: meson ninja nasm pkgconf dav1d libass lcms2 uchardet
-# zimg libdovi (libdovi: Dolby Vision metadata, a libplacebo option).
+# zimg. (Homebrew has no libdovi, so Dolby Vision metadata handling is left out on macOS.)
 #
 # Usage: build-mpv.sh <prefix>   (installs into <prefix>; skips if done)
 set -euo pipefail
@@ -60,7 +60,7 @@ cd "$SRC/libplacebo"
 meson setup build --prefix="$PREFIX" --buildtype=release \
     -Dvulkan=disabled -Dshaderc=disabled -Dglslang=disabled \
     -Dopengl=enabled -Dd3d11=disabled \
-    -Dlcms=enabled -Dlibdovi=enabled \
+    -Dlcms=enabled -Dlibdovi=auto \
     -Ddemos=false -Dtests=false
 meson compile -C build
 meson install -C build
