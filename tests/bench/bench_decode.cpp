@@ -45,7 +45,12 @@ double cpuSeconds()
     FILETIME c, e, k, u;
     if (!GetProcessTimes(GetCurrentProcess(), &c, &e, &k, &u))
         return -1;
-    auto v = [](FILETIME f) { return double((unsigned long long(f.dwHighDateTime) << 32) | f.dwLowDateTime) / 1e7; };
+    auto v = [](FILETIME f) {
+        ULARGE_INTEGER u;
+        u.LowPart = f.dwLowDateTime;
+        u.HighPart = f.dwHighDateTime;
+        return double(u.QuadPart) / 1e7;
+    };
     return v(k) + v(u);
 #else
     rusage r{};
