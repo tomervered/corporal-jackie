@@ -47,9 +47,9 @@ LIBTORRENT_VERSION=v$(sed -n 's/^VERSION=//p' "$ROOT/third_party/libtorrent/buil
 mkdir -p "$LIC/libtorrent"
 cp "$TORRENT/share/corporal-jackie/libtorrent-COPYING" "$LIC/libtorrent/COPYING"
 cp "$TORRENT"/share/corporal-jackie/0*.patch "$LIC/libtorrent/"
-fetch ffmpeg FFmpeg/FFmpeg "$FFMPEG_VERSION" LICENSE.md COPYING.GPLv3
+fetch ffmpeg FFmpeg/FFmpeg "$FFMPEG_VERSION" LICENSE.md COPYING.LGPLv2.1
 fetch libplacebo haasn/libplacebo "$LIBPLACEBO_VERSION" LICENSE
-fetch mpv mpv-player/mpv "$MPV_VERSION" Copyright LICENSE.GPL LICENSE.LGPL
+fetch mpv mpv-player/mpv "$MPV_VERSION" Copyright LICENSE.LGPL
 
 # --- MSYS2 packages: whichever package owns each shipped DLL. Qt's plugins
 # and QML modules come from qt6-base and qt6-declarative.

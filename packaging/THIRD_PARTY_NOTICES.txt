@@ -12,9 +12,9 @@ the source code of this program and of every library in this package.
 Library                      License
 ---------------------------  ------------------------------------------------
 Qt 6                         LGPL-3.0
-mpv (libmpv)                 GPL-2.0-or-later
-FFmpeg                       GPL-3.0-or-later (built with --enable-gpl
-                             --enable-version3)
+mpv (libmpv)                 LGPL-2.1-or-later (built with -Dgpl=false)
+FFmpeg                       LGPL-2.1-or-later (built without
+                             --enable-gpl)
 libplacebo                   LGPL-2.1-or-later
 libtorrent-rasterbar         BSD-3-Clause (with one patch of ours, linked in)
 OpenSSL 3                    Apache-2.0
