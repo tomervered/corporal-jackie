@@ -6,6 +6,10 @@
 # decoder, demuxer and parser, the image encoders screenshots use, Direct3D
 # 11 hardware decoding, HTTPS through Windows' own TLS (schannel), and nothing for encoding video.
 #
+# Both FFmpeg and mpv are built as LGPL (FFmpeg without --enable-gpl, mpv with
+# -Dgpl=false), so the app ships no GPL code. The build stops if either one
+# ends up GPL anyway (see the checks after each build).
+#
 # Usage: build-mpv.sh <prefix>   (installs into <prefix>; skips if done)
 set -euo pipefail
 
@@ -14,7 +18,7 @@ FFMPEG_VERSION=n7.1.5
 LIBPLACEBO_VERSION=v7.349.0
 MPV_VERSION=v0.41.0
 PATCHES="$(cd "$(dirname "$0")" && pwd)/mpv-patches"
-STAMP="$PREFIX/.built-$FFMPEG_VERSION-$LIBPLACEBO_VERSION-$MPV_VERSION-5"
+STAMP="$PREFIX/.built-$FFMPEG_VERSION-$LIBPLACEBO_VERSION-$MPV_VERSION-6"
 
 if [ -f "$STAMP" ]; then
     echo "Using cached build in $PREFIX"
@@ -44,7 +48,6 @@ sed -i "s/$DVBSUB_OLD/$DVBSUB_NEW/" libavcodec/dvbsub_parser.c
 grep -qF "$DVBSUB_NEW" libavcodec/dvbsub_parser.c
 ./configure --prefix="$PREFIX" \
     --enable-shared --disable-static \
-    --enable-gpl --enable-version3 \
     --disable-programs --disable-doc --disable-debug \
     --disable-avdevice --disable-postproc \
     --disable-encoders --enable-encoder=png,mjpeg,bmp \
@@ -54,6 +57,9 @@ grep -qF "$DVBSUB_NEW" libavcodec/dvbsub_parser.c
     --enable-zlib --enable-libdav1d --enable-schannel
 make -j"$JOBS"
 make install
+# The LGPL build: no GPL-only filters or libraries, no version 3 upgrade.
+grep -q '^#define CONFIG_GPL 0$' config.h && grep -q '^#define CONFIG_VERSION3 0$' config.h \
+    || { echo "FFmpeg was configured as GPL; the package must be LGPL" >&2; exit 1; }
 echo "::endgroup::"
 
 echo "::group::libplacebo $LIBPLACEBO_VERSION"
@@ -78,7 +84,7 @@ for patch in "$PATCHES"/*.patch; do
     git apply --verbose "$patch"
 done
 meson setup build --prefix="$PREFIX" --buildtype=release \
-    -Dlibmpv=true -Dcplayer=false -Dtests=false \
+    -Dlibmpv=true -Dcplayer=false -Dtests=false -Dgpl=false \
     -Dlua=disabled -Djavascript=disabled -Dlibarchive=disabled \
     -Drubberband=disabled -Dlibbluray=disabled -Ddvdnav=disabled -Dcdda=disabled \
     -Dvulkan=disabled -Dshaderc=disabled -Dspirv-cross=disabled \
@@ -90,6 +96,9 @@ meson setup build --prefix="$PREFIX" --buildtype=release \
     -Dwasapi=enabled -Dlcms2=enabled -Duchardet=enabled -Dzimg=enabled -Diconv=enabled
 meson compile -C build
 meson install -C build
+# LGPL mode leaves HAVE_GPL at 0 in mpv's generated config.
+grep -q '^#define HAVE_GPL 0$' build/config.h \
+    || { echo "mpv was built as GPL; the package must be LGPL" >&2; exit 1; }
 echo "::endgroup::"
 
 touch "$STAMP"
