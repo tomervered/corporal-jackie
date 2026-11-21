@@ -545,12 +545,28 @@ jobs:
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
           HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
         run: |
-          brew install qt mpv boost openssl@3 ninja pkgconf ccache
-          # mpv's .pc file asks for keg-only libraries (libarchive) that
-          # pkg-config does not look in; without them mpv/client.h is not found.
-          # Only that one: other keg-only paths (an old openssl@1.1) would
-          # take over the link line.
-          echo "PKG_CONFIG_PATH=$(brew --prefix libarchive)/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
+          # mpv and FFmpeg are built by packaging/macos/build-mpv.sh (LGPL,
+          # playback only): Homebrew's are GPL builds. These are its dependencies.
+          brew install qt boost openssl@3 ninja pkgconf ccache meson nasm dav1d libass lcms2 uchardet zimg libdovi
+          echo "PKG_CONFIG_PATH=$GITHUB_WORKSPACE/.deps/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
+
+      - name: Restore the mpv build
+        id: mpv-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: .deps
+          key: mpv-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packaging/macos/build-mpv.sh') }}
+
+      - name: Build FFmpeg, libplacebo and mpv (LGPL, playback only)
+        timeout-minutes: 40
+        run: packaging/macos/build-mpv.sh "$GITHUB_WORKSPACE/.deps"
+
+      - name: Save the mpv build
+        if: steps.mpv-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: .deps
+          key: mpv-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packaging/macos/build-mpv.sh') }}
 
       - uses: ./.github/actions/ccache
         with:

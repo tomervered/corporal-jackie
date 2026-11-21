@@ -39,6 +39,25 @@ mkdir -p "$LIC/libtorrent"
 cp "$TORRENT/share/corporal-jackie/libtorrent-COPYING" "$LIC/libtorrent/COPYING"
 cp "$TORRENT"/share/corporal-jackie/0*.patch "$LIC/libtorrent/"
 
+# mpv, FFmpeg and libplacebo are built by packaging/macos/build-mpv.sh, not
+# Homebrew: license files from their sources at the same tags.
+version() { sed -n "s/^$1=//p" "$HERE/build-mpv.sh"; }
+FFMPEG_VERSION=$(version FFMPEG_VERSION)
+LIBPLACEBO_VERSION=$(version LIBPLACEBO_VERSION)
+MPV_VERSION=$(version MPV_VERSION)
+fetch() {  # fetch <folder> <github owner/repo> <tag> <file>...
+    local dir="$LIC/$1" repo=$2 tag=$3
+    shift 3
+    mkdir -p "$dir"
+    for f in "$@"; do
+        local url="https://raw.githubusercontent.com/$repo/$tag/$f"
+        curl -fsSL --retry 3 -o "$dir/$f" "$url" || { echo "Could not fetch $url" >&2; exit 1; }
+    done
+}
+fetch ffmpeg FFmpeg/FFmpeg "$FFMPEG_VERSION" LICENSE.md COPYING.LGPLv2.1
+fetch libplacebo haasn/libplacebo "$LIBPLACEBO_VERSION" LICENSE
+fetch mpv mpv-player/mpv "$MPV_VERSION" Copyright LICENSE.LGPL
+
 missing=""
 for f in $formulae; do
     keg="$BREW/opt/$f"
@@ -71,6 +90,12 @@ done
     echo "libtorrent $LIBTORRENT_VERSION (BSD-3-Clause), linked into the app, with one patch of ours:"
     echo "  https://github.com/arvidn/libtorrent/tree/$LIBTORRENT_VERSION"
     echo "  $REPO_URL/tree/$COMMIT/third_party/libtorrent (build script and patch)"
+    echo
+    echo "mpv $MPV_VERSION, FFmpeg $FFMPEG_VERSION and libplacebo $LIBPLACEBO_VERSION (LGPL-2.1-or-later), built by us:"
+    echo "  https://github.com/mpv-player/mpv/tree/$MPV_VERSION"
+    echo "  https://github.com/FFmpeg/FFmpeg/tree/$FFMPEG_VERSION"
+    echo "  https://github.com/haasn/libplacebo/tree/$LIBPLACEBO_VERSION"
+    echo "  $REPO_URL/tree/$COMMIT/packaging/macos/build-mpv.sh (build script, including one security fix to FFmpeg)"
     echo
     echo "Unmodified Homebrew packages. Each formula page links the upstream"
     echo "source archive for its version: https://formulae.brew.sh/formula/<name>"

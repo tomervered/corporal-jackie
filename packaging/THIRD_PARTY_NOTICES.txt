@@ -12,12 +12,9 @@ the source code of this program and of every library in this package.
 Library                      License
 ---------------------------  ------------------------------------------------
 Qt 6                         LGPL-3.0
-mpv (libmpv)                 LGPL-2.1-or-later (Windows, built with
-                             -Dgpl=false); GPL-2.0-or-later in the
-                             macOS package until it moves to our own build
-FFmpeg                       LGPL-2.1-or-later (Windows, built
-                             without --enable-gpl); GPL-3.0-or-later
-                             in the macOS package for now
+mpv (libmpv)                 LGPL-2.1-or-later (built with -Dgpl=false)
+FFmpeg                       LGPL-2.1-or-later (built without
+                             --enable-gpl)
 libplacebo                   LGPL-2.1-or-later
 libtorrent-rasterbar         BSD-3-Clause (with one patch of ours, linked in)
 OpenSSL 3                    Apache-2.0

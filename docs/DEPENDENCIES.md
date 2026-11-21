@@ -9,7 +9,7 @@ The app is licensed **GPL-3.0-or-later**, so every dependency must be GPL-3.0 co
 | Name | Version | License | How it's linked | How it arrives | Used by |
 | --- | --- | --- | --- | --- | --- |
 | Qt 6 (Core, Gui, Network, Qml, Quick, QuickControls2, OpenGL) | 6.4 or newer; Windows CI has 6.12 | LGPL-3.0 | Dynamic | MSYS2 / Homebrew / apt | ui, app, all layers (QtCore); sources (Network, HTTPS through Qt's TLS plugin) |
-| libmpv | Windows: mpv 0.41.0 built by us; elsewhere 0.37 or newer from the package manager | LGPL-2.1-or-later on Windows (`-Dgpl=false`); GPL-2.0-or-later from Homebrew / apt | Dynamic | Windows: `packaging/windows/build-mpv.sh`; Homebrew / apt | targets, transports (stream callback API) |
+| libmpv | Windows: mpv 0.41.0 built by us; elsewhere 0.37 or newer from the package manager | LGPL-2.1-or-later in the Windows and macOS packages (`-Dgpl=false`); apt's GPL build in the Linux CI jobs | Dynamic | Windows: `packaging/windows/build-mpv.sh`; macOS: `packaging/macos/build-mpv.sh`; apt on Linux | targets, transports (stream callback API) |
 | libtorrent-rasterbar | 2.1.2 built by us with one patch; any 2.x works unpatched | BSD-3-Clause | Static | `third_party/libtorrent/build.sh` | broker only |
 | SQLite | 3.x | Public domain | Dynamic | MSYS2 / macOS SDK / apt | storage (Step 6) |
 
@@ -19,7 +19,7 @@ On Windows the package holds exactly what `ldd` finds; each CI run prints the fu
 
 | Name | Comes with | License |
 | --- | --- | --- |
-| FFmpeg 7.1.5 (avcodec, avformat, avfilter, avutil, swscale), decoders only, built by us on Windows with the upstream fix for CVE-2026-70628 applied (`build-mpv.sh`, `docs/SECURITY.md`) | mpv | LGPL-2.1-or-later on Windows (built without `--enable-gpl`; `build-mpv.sh` stops if it is GPL); Homebrew's FFmpeg is GPL-3.0 until macOS gets our own build |
+| FFmpeg 7.1.5 (avcodec, avformat, avfilter, avutil, swscale), decoders only, built by us on Windows and macOS with the upstream fix for CVE-2026-70628 applied (`build-mpv.sh`, `docs/SECURITY.md`) | mpv | LGPL-2.1-or-later (built without `--enable-gpl`; both `build-mpv.sh` scripts stop if it is GPL) |
 | libplacebo 7.349, built by us on Windows | mpv | LGPL-2.1-or-later |
 | dav1d (AV1 decoder) | FFmpeg | BSD-2-Clause |
 | libass, fribidi, HarfBuzz, graphite2, FreeType, Fontconfig, expat | mpv (subtitles) | ISC, LGPL-2.1+, MIT, LGPL-2.1+ or MPL, FreeType License, MIT-style, MIT |
