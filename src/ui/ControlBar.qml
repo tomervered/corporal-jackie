@@ -128,6 +128,7 @@ Item {
                 Accessible.role: Accessible.StaticText
                 Accessible.name: "Played " + Format.time(session.position) + " of " + Format.time(session.duration)
                 Text {
+                    id: playedText
                     textFormat: Text.PlainText
                     text: Format.time(seek.pressed ? seek.value : session.position)
                     color: Theme.pText
@@ -144,7 +145,9 @@ Item {
             Toast {
                 objectName: "jumpCue"
                 visible: controlBar.jumpCue !== ""
-                anchors { bottom: parent.top; bottomMargin: 8; left: parent.left; leftMargin: 4 }
+                // Centered over the time played.
+                x: timeRow.leftPadding + playedText.width / 2 - width / 2
+                anchors { bottom: parent.top; bottomMargin: 2 }
                 text: controlBar.jumpCue
                 fontSize: 15
                 bold: true
@@ -284,7 +287,7 @@ Item {
             Toast {
                 objectName: "volumeCue"
                 visible: volumeCueTimer.running && controlBar.openPanel !== "volume"
-                anchors { bottom: parent.top; bottomMargin: 8; horizontalCenter: parent.horizontalCenter }
+                anchors { bottom: parent.top; bottomMargin: -4; horizontalCenter: parent.horizontalCenter }
                 text: (session.muted ? 0 : Math.round(session.volume)) + "%"
                 fontSize: 15
                 bold: true
