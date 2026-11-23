@@ -51,7 +51,7 @@ A download shares pieces with other peers only if its "Share with peers" switch 
 
 A web download sends the stream's headers only to the server its link names: a redirect to another server is refused (`tst_downloads headersNeverFollowARedirectElsewhere`).
 
-The app stores the download folder and the normal-torrent choice. The list of downloads is kept in memory for the current run only. The log says that download number N started or ended, without its name or link; a streamable torrent download goes through the stream broker, which logs the torrent's info hash as it does for playback.
+The app stores the download folder and the normal-torrent choice, and the list of downloads (each one's name, size, state and where the file is) in the local database, so the list is there after a restart; one still running when the app closes comes back as interrupted. The list is kept only while "Remember what I watch" is on, and "Clear finished" removes the finished entries (`tst_downloads theListSurvivesARestart`). The log says that download number N started or ended, without its name or link; a streamable torrent download goes through the stream broker, which logs the torrent's info hash as it does for playback.
 
 ## What stays on this computer
 
