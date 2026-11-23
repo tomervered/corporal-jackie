@@ -14,6 +14,8 @@ import "Format.js" as Format
 Item {
     id: controlBar
     property bool shown: true
+    // How far the last jump in the video went ("+0:05"); set by Main.
+    property string jumpCue: ""
     property bool fullScreen: false
     property bool statsShown: false
     // "", "chapters", "volume", "tracks", "settings" or "shortcuts".
@@ -27,6 +29,9 @@ Item {
     signal audioFileRequested()
     signal settingsRequested()
     signal statsRequested()
+    // A key press changed the volume with the slider closed, or the video jumped:
+    // the window shows the bar for a moment so the cue can be seen.
+    signal cueShown()
     signal fullScreenRequested()
     signal episodesRequested()
 
@@ -43,6 +48,22 @@ Item {
         session.volume = Math.max(0, Math.min(session.maxVolume, Math.round(session.volume + (delta > 0 ? 5 : -5))))
         if (session.muted) session.muted = false
     }
+
+    // The volume above the speaker, for a second after it changes while the
+    // slider is closed (the Up and Down keys, the wheel).
+    property real lastVolume: -1
+    Connections {
+        target: session
+        function onVolumeChanged() {
+            const v = Math.round(session.muted ? 0 : session.volume)
+            if (controlBar.lastVolume >= 0 && v !== controlBar.lastVolume && controlBar.openPanel !== "volume") {
+                volumeCueTimer.restart()
+                controlBar.cueShown()
+            }
+            controlBar.lastVolume = v
+        }
+    }
+    Timer { id: volumeCueTimer; interval: 1200 }
 
     height: 84
     opacity: shown ? 1 : 0
@@ -95,24 +116,38 @@ Item {
             active: controlBar.openPanel === "chapters"
             onClicked: controlBar.togglePanel("chapters")
         }
-        // Where it is, bright; how long it is, muted.
-        Row {
+        // Where it is, bright; how long it is, muted. A jump shows its size
+        // above it ("+0:05"), the way a key press on the volume shows above the speaker.
+        Item {
             anchors.verticalCenter: parent.verticalCenter
-            leftPadding: 8
-            Accessible.role: Accessible.StaticText
-            Accessible.name: "Played " + Format.time(session.position) + " of " + Format.time(session.duration)
-            Text {
-                textFormat: Text.PlainText
-                text: Format.time(seek.pressed ? seek.value : session.position)
-                color: Theme.pText
-                font.pixelSize: Theme.smallSize + 1
+            width: timeRow.width
+            height: timeRow.height
+            Row {
+                id: timeRow
+                leftPadding: 8
+                Accessible.role: Accessible.StaticText
+                Accessible.name: "Played " + Format.time(session.position) + " of " + Format.time(session.duration)
+                Text {
+                    textFormat: Text.PlainText
+                    text: Format.time(seek.pressed ? seek.value : session.position)
+                    color: Theme.pText
+                    font.pixelSize: Theme.smallSize + 1
+                }
+                Text {
+                    textFormat: Text.PlainText
+                    visible: controlBar.width > 640
+                    text: " / " + Format.time(session.duration)
+                    color: Theme.pMuted
+                    font.pixelSize: Theme.smallSize + 1
+                }
             }
-            Text {
-                textFormat: Text.PlainText
-                visible: controlBar.width > 640
-                text: " / " + Format.time(session.duration)
-                color: Theme.pMuted
-                font.pixelSize: Theme.smallSize + 1
+            Toast {
+                objectName: "jumpCue"
+                visible: controlBar.jumpCue !== ""
+                anchors { bottom: parent.top; bottomMargin: 8; left: parent.left; leftMargin: 4 }
+                text: controlBar.jumpCue
+                fontSize: 15
+                bold: true
             }
         }
     }
@@ -246,6 +281,14 @@ Item {
             Accessible.name: "Volume " + Math.round(session.volume) + "%" + (session.muted ? ", muted" : "")
             onClicked: controlBar.togglePanel("volume")
             WheelHandler { onWheel: event => controlBar.nudgeVolume(event.angleDelta.y) }
+            Toast {
+                objectName: "volumeCue"
+                visible: volumeCueTimer.running && controlBar.openPanel !== "volume"
+                anchors { bottom: parent.top; bottomMargin: 8; horizontalCenter: parent.horizontalCenter }
+                text: (session.muted ? 0 : Math.round(session.volume)) + "%"
+                fontSize: 15
+                bold: true
+            }
         }
         IconButton {
             onPlayer: true

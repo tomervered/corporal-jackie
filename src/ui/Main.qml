@@ -69,6 +69,7 @@ Window {
         jumpText = (jumpTotal < 0 ? "-" : "+") + (h > 0 ? h + ":" + String(m).padStart(2, "0") : m)
                    + ":" + String(sec).padStart(2, "0")
         jumpTimer.restart()
+        showControls()
     }
     // When the pages close by themselves (a video started from them), the
     // keys go to the player again.
@@ -373,19 +374,6 @@ Window {
         fontSize: 16
     }
 
-    // How far a jump went, above the time on the bottom left.
-    Text {
-        objectName: "jumpIndicator"
-        visible: root.jumpText !== "" && session.hasMedia && !root.pagesVisible
-        anchors { left: parent.left; bottom: parent.bottom; leftMargin: 28; bottomMargin: 110 }
-        text: root.jumpText
-        textFormat: Text.PlainText
-        color: Theme.accent
-        font { pixelSize: 34; bold: true }
-        style: Text.Outline
-        styleColor: "#cc000000"
-    }
-
     // What the upscaler is doing ("NVIDIA VSR on · 720p → 1440p"), top left:
     // for a few seconds each time that changes, and whenever the controls
     // show. Green: running; grey: idle or starting; amber: it could not run.
@@ -521,6 +509,8 @@ Window {
         shown: root.controlsVisible
         fullScreen: root.visibility === Window.FullScreen
         statsShown: root.statsVisible
+        jumpCue: root.jumpText
+        onCueShown: root.showControls()
         onStatsRequested: root.statsVisible = !root.statsVisible
         onSubtitleFileRequested: subtitleDialog.open()
         onAudioFileRequested: audioDialog.open()
