@@ -15,9 +15,11 @@
 // A web link is fetched with Qt's network stack; its headers go only to the
 // server it names.
 //
-// Privacy: only the folder and the normal-torrent choice are kept. The list
-// of downloads lives in memory for this run, and the log says that a download
-// started or ended with a number, never what it was or where it came from.
+// Privacy: the folder, the normal-torrent choice and the list of downloads
+// (name, size, state, where the file is) are kept in the local database; the
+// list only while "Remember what I watch" is on, and "Clear finished" empties
+// it. The log says that a download started or ended with a number, never what
+// it was or where it came from.
 
 #include "BrokerTypes.h"
 #include "PlaybackTypes.h"
@@ -63,6 +65,7 @@ public:
     // The database key of the chosen folder; nothing else is stored.
     static constexpr auto kFolderKey = "downloads/folder";
     static constexpr auto kNormalKey = "downloads/normalTorrents";
+    // (The list of downloads is kept under "downloads/list"; see save().)
 
     // defaultFolder: used until the person picks one (a "Corporal Jackie"
     // folder in their Downloads). `torrents` may be null (no torrent support).
@@ -133,6 +136,8 @@ private:
     QString startWeb(const PlayableSource& source);
     void finish(const std::shared_ptr<Job>& job);
     void refresh();
+    void save();   // the list, to the database
+    void load();   // and back, as the app starts
 
     Storage& m_storage;
     Preferences& m_preferences;

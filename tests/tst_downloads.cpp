@@ -134,6 +134,39 @@ private slots:
         QVERIFY(!rig.downloads.customFolder());
     }
 
+    // The list comes back after a restart: a finished file with its place, a
+    // download that was running as interrupted; nothing is kept with the
+    // history switched off.
+    void theListSurvivesARestart()
+    {
+        QTemporaryDir dir;
+        FakeHttpServer server;
+        FakeHttpServer::Answer a;
+        a.body = QByteArray(200 * 1024, 'x');
+        a.contentType = "video/mp4";
+        server.set("/a.mp4", a);
+        {
+            Rig rig(dir.path());
+            QCOMPARE(rig.downloads.start(webSource(QUrl(server.base() + "/a.mp4"), "Kept")), QString());
+            QVERIFY(rig.waitFor("done", 10000));
+        }
+        {
+            Rig rig(dir.path());
+            QCOMPARE(rig.downloads.items().size(), 1);
+            QCOMPARE(rig.item().value("state").toString(), QStringLiteral("done"));
+            QVERIFY(QFile::exists(rig.item().value("path").toString()));
+            QFile::remove(rig.item().value("path").toString());
+        }
+        {
+            Rig rig(dir.path());
+            QCOMPARE(rig.item().value("state").toString(), QStringLiteral("failed"));   // the file is gone
+            rig.storage.setKeepsHistory(false);
+            rig.downloads.clearFinished();
+        }
+        Rig rig(dir.path());
+        QCOMPARE(rig.downloads.items().size(), 0);
+    }
+
     void streamableTorrentIsSavedWhole()
     {
         QTemporaryDir dir;

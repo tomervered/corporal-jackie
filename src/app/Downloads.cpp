@@ -16,6 +16,9 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -33,6 +36,8 @@ namespace {
 enum class State { Starting, Running, Seeding, Done, Failed, Cancelled };
 enum class Mode { Stream, Normal, Web };
 
+constexpr auto kListKey = "downloads/list";
+constexpr int kMaxSavedDownloads = 200;
 constexpr qint64 kChunk = 1024 * 1024;
 constexpr int kMaxNameLength = 180;
 
@@ -47,6 +52,16 @@ QString stateName(State s)
     case State::Cancelled: return QStringLiteral("cancelled");
     }
     return {};
+}
+
+QString modeName(Mode m)
+{
+    return m == Mode::Stream ? QStringLiteral("stream") : m == Mode::Normal ? QStringLiteral("normal") : QStringLiteral("web");
+}
+
+Mode modeFromName(const QString& name)
+{
+    return name == QLatin1String("stream") ? Mode::Stream : name == QLatin1String("normal") ? Mode::Normal : Mode::Web;
 }
 
 // Names Windows keeps for devices, with or without an extension.
@@ -195,9 +210,70 @@ Downloads::Downloads(Storage& storage, Preferences& preferences, TorrentTranspor
     m_normal = storage.setting(QString::fromLatin1(kNormalKey), false).toBool();
     m_refresh.setInterval(500);
     connect(&m_refresh, &QTimer::timeout, this, &Downloads::refresh);
+    load();
 }
 
 Downloads::~Downloads() { stop(); }
+
+// The list of downloads is kept between runs (names, sizes, where the files
+// are), unless "Remember what I watch" is off. One that was still running
+// when the app closed comes back as interrupted: it is not resumed.
+void Downloads::save()
+{
+    QJsonArray list;
+    if (m_storage.keepsHistory()) {
+        const size_t first = m_jobs.size() > size_t(kMaxSavedDownloads) ? m_jobs.size() - kMaxSavedDownloads : 0;
+        for (size_t i = first; i < m_jobs.size(); ++i) {
+            const Job& j = *m_jobs[i];
+            const State s = j.state;
+            const bool unfinished = s == State::Starting || s == State::Running;
+            list.append(QJsonObject{{QStringLiteral("name"), j.text(&Job::name)},
+                                    {QStringLiteral("state"), unfinished ? QStringLiteral("interrupted")
+                                                              : s == State::Seeding ? stateName(State::Done) : stateName(s)},
+                                    {QStringLiteral("path"), j.text(&Job::path)},
+                                    {QStringLiteral("error"), j.text(&Job::error)},
+                                    {QStringLiteral("size"), qint64(j.size)},
+                                    {QStringLiteral("torrent"), j.torrent},
+                                    {QStringLiteral("mode"), modeName(j.mode)}});
+        }
+    }
+    m_storage.setSetting(QString::fromLatin1(kListKey),
+                         list.isEmpty() ? QString() : QString::fromUtf8(QJsonDocument(list).toJson(QJsonDocument::Compact)));
+}
+
+void Downloads::load()
+{
+    if (!m_storage.keepsHistory())
+        return;
+    const QJsonArray list = QJsonDocument::fromJson(m_storage.setting(QString::fromLatin1(kListKey)).toString().toUtf8()).array();
+    for (const QJsonValue& value : list) {
+        const QJsonObject o = value.toObject();
+        auto job = std::make_shared<Job>();
+        job->id = m_nextId++;
+        job->torrent = o.value(QStringLiteral("torrent")).toBool();
+        job->mode = modeFromName(o.value(QStringLiteral("mode")).toString());
+        job->size = qint64(o.value(QStringLiteral("size")).toDouble(-1));
+        job->set(&Job::name, o.value(QStringLiteral("name")).toString());
+        const QString path = o.value(QStringLiteral("path")).toString();
+        const QString state = o.value(QStringLiteral("state")).toString();
+        if (state == QLatin1String("done") && QFileInfo::exists(path)) {
+            job->set(&Job::path, path);
+            job->done = job->size.load();
+            job->state = State::Done;
+        } else if (state == QLatin1String("done")) {
+            job->set(&Job::error, tr("The file is no longer there."));
+            job->state = State::Failed;
+        } else if (state == QLatin1String("cancelled")) {
+            job->state = State::Cancelled;
+        } else {
+            job->set(&Job::error, state == QLatin1String("interrupted")
+                                      ? tr("Interrupted: the app was closed before it finished.")
+                                      : o.value(QStringLiteral("error")).toString());
+            job->state = State::Failed;
+        }
+        m_jobs.push_back(job);
+    }
+}
 
 QString Downloads::effectiveFolder() const { return m_folder.isEmpty() ? m_defaultFolder : m_folder; }
 
@@ -622,6 +698,7 @@ void Downloads::finish(const std::shared_ptr<Job>& job)
         m_torrents->broker().setSharing(job->hash, false);
     if (m_stopped)
         return;
+    save();
     const State s = job->state;
     qCInfo(lcApp).noquote() << "Download" << job->id << stateName(s);
     if (s == State::Done || s == State::Seeding)
@@ -735,9 +812,7 @@ QVariantList Downloads::items() const
                            {QStringLiteral("detail"), detail},
                            {QStringLiteral("path"), j.text(&Job::path)},
                            {QStringLiteral("torrent"), j.torrent},
-                           {QStringLiteral("mode"), j.mode == Mode::Stream ? QStringLiteral("stream")
-                                                    : j.mode == Mode::Normal ? QStringLiteral("normal")
-                                                                             : QStringLiteral("web")},
+                           {QStringLiteral("mode"), modeName(j.mode)},
                            {QStringLiteral("sharing"), j.sharing.load()},
                            // A streamable download shares only while it runs.
                            {QStringLiteral("canShare"), j.torrent && (s == State::Starting || s == State::Running
@@ -765,6 +840,7 @@ void Downloads::cancel(int id)
             m_normalEngine->remove(j->engineId, true);
             j->state = State::Cancelled;
             qCInfo(lcApp) << "Download" << j->id << "cancelled";
+            save();
             emit itemsChanged();
         }
     }
@@ -794,6 +870,7 @@ void Downloads::clearFinished()
     std::erase_if(m_jobs, [](const std::shared_ptr<Job>& j) {
         return j->state == State::Done || j->state == State::Failed || j->state == State::Cancelled;
     });
+    save();
     emit itemsChanged();
 }
 
@@ -803,8 +880,10 @@ void Downloads::stop()
         return;
     m_stopped = true;
     m_refresh.stop();
+    save();   // before the cancelling below: what is running is kept as interrupted
     // Unfinished downloads are dropped with what they wrote: nothing picks
-    // them up again next time. Finished files stay.
+    // them up again next time (they stay on the list as interrupted).
+    // Finished files stay.
     for (const auto& j : m_jobs)
         cancel(j->id);
     for (const auto& j : m_jobs)
