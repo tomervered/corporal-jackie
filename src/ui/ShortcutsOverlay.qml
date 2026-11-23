@@ -11,7 +11,7 @@ Rectangle {
         ["Playback", [
             ["Play / pause", "Space · P"],
             ["Seek 5 seconds", "← / →"],
-            ["Seek 1 minute", "↑ / ↓"],
+            ["Volume", "↑ / ↓"],
             ["Fine seek", "Shift + arrows"],
             ["Previous / next chapter", "PgDn / PgUp"],
             ["Slower / faster", "[ / ]"],

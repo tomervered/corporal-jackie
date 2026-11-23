@@ -417,6 +417,9 @@ void MpvTarget::bindAppKeys()
         bind(key, "script-message cj-app stop");
     for (const char* key : {"i", "I"})
         bind(key, "script-message cj-app stats");
+    // Up and Down change the volume (mpv's defaults seek a minute).
+    bind("UP", "add volume 5");
+    bind("DOWN", "add volume -5");
     // Lua-only bindings (the on-screen controller and the console): nothing
     // to run, so nothing should be tried.
     for (const char* key : {"DEL", "`"})

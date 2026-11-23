@@ -666,6 +666,7 @@ Item {
             onClicked: controlBar.statsRequested()
         }
         PanelRow {
+            visible: preferences.screenshots
             label: "Take screenshot"
             value: "S"
             enabled: session.supports("Screenshot")

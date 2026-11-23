@@ -781,6 +781,19 @@ Item {
                 Note { visible: panel.result !== ""; text: panel.result }
                 Note { visible: library.storageError !== ""; text: library.storageError }
             }
+
+            // --- Misc ----------------------------------------------------------------
+            Group {
+                id: miscGroup
+                title: "Misc"
+                Toggle {
+                    objectName: "screenshotsToggle"
+                    title: "Screenshots"
+                    detail: "The S key and the Take screenshot item save the current frame to Pictures › Corporal Jackie. Off removes both."
+                    checked: preferences.screenshots
+                    onToggled: on => preferences.screenshots = on
+                }
+            }
         }
     }
 

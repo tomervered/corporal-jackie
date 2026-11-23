@@ -56,6 +56,20 @@ Window {
     property int windowedVisibility: Window.Windowed
     property string errorText: ""
     property string osdText: ""
+    // How far the last jump in the video went ("+0:05", "-1:00"): jumps
+    // within a second of each other add up. -1 = no position seen yet.
+    property real lastPosition: -1
+    property real jumpTotal: 0
+    property string jumpText: ""
+    function noteJump(delta) {
+        jumpTotal = jumpTimer.running ? jumpTotal + delta : delta
+        const s = Math.round(Math.abs(jumpTotal))
+        if (s === 0) { jumpText = ""; return }
+        const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, sec = s % 60
+        jumpText = (jumpTotal < 0 ? "-" : "+") + (h > 0 ? h + ":" + String(m).padStart(2, "0") : m)
+                   + ":" + String(sec).padStart(2, "0")
+        jumpTimer.restart()
+    }
     // When the pages close by themselves (a video started from them), the
     // keys go to the player again.
     onPagesVisibleChanged: if (!pagesVisible && !settingsVisible) inputLayer.forceActiveFocus()
@@ -149,7 +163,21 @@ Window {
                         : "Something went wrong inside the player (" + message + "). The log has details."
             errorTimer.restart()
         }
-        function onStateChanged() { if (session.hasMedia) root.errorText = "" }
+        function onStateChanged() {
+            if (session.hasMedia) root.errorText = ""
+            else { root.lastPosition = -1; root.jumpText = "" }
+        }
+        // Playing moves the position by about the speed, once or twice a
+        // second; anything bigger is a jump, and the person sees by how much.
+        function onPositionChanged() {
+            const now = session.position
+            if (root.lastPosition >= 0) {
+                const delta = now - root.lastPosition
+                if (Math.abs(delta) > 1.5 * Math.max(1, session.speed) + 0.5)
+                    root.noteJump(delta)
+            }
+            root.lastPosition = now
+        }
         function onScreenshotSaved(path) { root.osd("Screenshot saved to Pictures › Corporal Jackie") }
         function onFullScreenChanged() {
             if ((root.visibility === Window.FullScreen) !== session.fullScreen)
@@ -160,6 +188,7 @@ Window {
     }
 
     Timer { id: errorTimer; interval: 8000; onTriggered: root.errorText = "" }
+    Timer { id: jumpTimer; interval: 1200; onTriggered: root.jumpText = "" }
     Timer { id: osdTimer; interval: 1600; onTriggered: root.osdText = "" }
     Timer {
         id: hideTimer
@@ -233,6 +262,9 @@ Window {
                 else if (session.fullScreen) session.fullScreen = false
                 if (inputLayer.escapeHandled) return
             }
+            // mpv's own screenshot keys, when the Misc switch has them off.
+            if (!preferences.screenshots && event.key === Qt.Key_S)
+                return
             session.keyEvent(event.key, event.modifiers, event.text, true)
         }
         Keys.onReleased: event => {
@@ -339,6 +371,19 @@ Window {
         visible: root.osdText !== "" && root.errorText === ""
         text: root.osdText
         fontSize: 16
+    }
+
+    // How far a jump went, above the time on the bottom left.
+    Text {
+        objectName: "jumpIndicator"
+        visible: root.jumpText !== "" && session.hasMedia && !root.pagesVisible
+        anchors { left: parent.left; bottom: parent.bottom; leftMargin: 28; bottomMargin: 110 }
+        text: root.jumpText
+        textFormat: Text.PlainText
+        color: Theme.accent
+        font { pixelSize: 34; bold: true }
+        style: Text.Outline
+        styleColor: "#cc000000"
     }
 
     // What the upscaler is doing ("NVIDIA VSR on · 720p → 1440p"), top left:

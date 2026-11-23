@@ -39,6 +39,7 @@ const QString kPrivacyVersion = QStringLiteral("privacy/version");
 constexpr int kPrivacyScreenVersion = 2;
 const QString kColorMode = QStringLiteral("ui/colorMode");
 const QString kUpscalerBadge = QStringLiteral("ui/showUpscalerBadge");
+const QString kScreenshots = QStringLiteral("ui/screenshots");
 const QString kPlayerHalo = QStringLiteral("ui/playerHalo");
 const QStringList kHaloLevels = {QStringLiteral("full"), QStringLiteral("half"), QStringLiteral("little"), QStringLiteral("off")};
 const QString kSavedPalettes = QStringLiteral("ui/savedPalettes");   // JSON text
@@ -130,6 +131,7 @@ Preferences::Preferences(Storage& storage, const QString& defaultCacheFolder, QO
     const QString mode = value(kColorMode, QStringLiteral("dark")).toString();
     m_colorMode = knownMode(mode) ? mode : QStringLiteral("dark");
     m_upscalerBadge = value(kUpscalerBadge, true).toBool();
+    m_screenshots = value(kScreenshots, true).toBool();
     {
         const QString halo = value(kPlayerHalo, QStringLiteral("full")).toString();
         m_playerHalo = kHaloLevels.contains(halo) ? halo : QStringLiteral("full");
@@ -307,6 +309,15 @@ void Preferences::save()
 void Preferences::setColorMode(const QString& mode)
 {
     setTheme(mode, m_colorEdits);
+}
+
+void Preferences::setScreenshots(bool on)
+{
+    if (on == m_screenshots)
+        return;
+    m_screenshots = on;
+    m_storage.setSetting(kScreenshots, on);
+    emit screenshotsChanged();
 }
 
 void Preferences::setShowUpscalerBadge(bool on)
