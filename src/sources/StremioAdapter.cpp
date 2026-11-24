@@ -169,7 +169,7 @@ void StremioAdapter::setManifest(const QUrl& url, const stremio::Manifest& manif
             return;
         }
     }
-    m_addons.append({url, manifest, raw, {}});
+    m_addons.append({url, manifest, raw, {}, false, {}});
 }
 
 const InstalledAddon* StremioAdapter::find(const QString& addonId) const
