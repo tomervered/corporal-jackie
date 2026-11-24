@@ -43,6 +43,11 @@ JsonFetcher::~JsonFetcher()
 
 void JsonFetcher::get(const QUrl& url, Done done)
 {
+    fetch(url, std::move(done), kAttempts);
+}
+
+void JsonFetcher::fetch(const QUrl& url, Done done, int attemptsLeft)
+{
     if (m_inFlight >= kMaxInFlight) {
         qCWarning(lcSources).noquote() << "GET" << logging::redactUrl(url) << "refused:" << m_inFlight << "requests waiting";
         QMetaObject::invokeMethod(this, [done = std::move(done)] { done({}, QStringLiteral("too many requests")); },
@@ -92,7 +97,7 @@ void JsonFetcher::get(const QUrl& url, Done done)
     connect(deadline, &QTimer::timeout, reply, [stop] { stop(QStringLiteral("timed out")); });
     deadline->start(m_deadlineMs);
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply, body, failure, url, maxBytes, done = std::move(done)]() mutable {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, body, failure, url, maxBytes, attemptsLeft, done = std::move(done)]() mutable {
         reply->deleteLater();
         --m_inFlight;
         if (failure->isEmpty() && reply->isReadable())
@@ -100,6 +105,14 @@ void JsonFetcher::get(const QUrl& url, Done done)
         if (failure->isEmpty() && body->size() > maxBytes)
             *failure = QStringLiteral("the answer was too large");
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        // Nothing arrived for the whole transfer timeout: the network may have
+        // stalled for a moment (a wake from sleep, a VPN coming up), so ask once more.
+        if (failure->isEmpty() && attemptsLeft > 1 && !reply->property("cjAborted").toBool()
+            && (reply->error() == QNetworkReply::OperationCanceledError || reply->error() == QNetworkReply::TimeoutError)) {
+            qCInfo(lcSources).noquote() << "GET" << logging::redactUrl(url) << "timed out; trying once more";
+            fetch(url, std::move(done), attemptsLeft - 1);
+            return;
+        }
         QString error = *failure;  // ours: too large, or past the deadline
         if (error.isEmpty()) {
             if (reply->property("cjAborted").toBool())

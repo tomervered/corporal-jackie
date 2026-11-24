@@ -25,6 +25,7 @@ public:
     static constexpr qint64 kDefaultMaxBytes = 8 * 1024 * 1024;  // after decompression
     static constexpr int kMaxInFlight = 64;                // more fail at once
     static constexpr int kMaxRedirects = 5;
+    static constexpr int kAttempts = 2;                    // a request that timed out is sent once more
 
     explicit JsonFetcher(QObject* parent = nullptr);
     ~JsonFetcher() override;
@@ -45,6 +46,8 @@ public:
     int inFlight() const { return m_inFlight; }
 
 private:
+    void fetch(const QUrl& url, Done done, int attemptsLeft);
+
     QNetworkAccessManager* m_net;
     Mailbox m_mailbox;
     int m_timeoutMs = kDefaultTimeoutMs;
