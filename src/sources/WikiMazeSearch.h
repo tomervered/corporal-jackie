@@ -96,6 +96,7 @@ private:
     bool m_unsupported = false;
     bool m_loading = false;
     bool m_filtersAsked = false;
+    bool m_filtersWanted = false;   // a page asked; asked again whenever the address changes
     QString m_error;
     QString m_source;
     int m_total = 0;

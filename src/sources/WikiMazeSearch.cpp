@@ -66,6 +66,8 @@ void WikiMazeSearch::setBase(const QString& base)
     emit baseChanged();
     emit filtersChanged();
     emit changed();
+    if (m_filtersWanted)
+        loadFilters();   // the page asked before the address was known, or for the old address
 }
 
 QVariantList WikiMazeSearch::results() const
@@ -177,6 +179,7 @@ void WikiMazeSearch::run()
 
 void WikiMazeSearch::loadFilters()
 {
+    m_filtersWanted = true;
     if (!available() || m_filtersAsked)
         return;
     m_filtersAsked = true;

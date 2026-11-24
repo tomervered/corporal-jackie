@@ -950,6 +950,18 @@ private slots:
         QCOMPARE(server.requests.size(), 2);
     }
 
+    void wikimazeFilterNamesFollowALateAddress()
+    {
+        FakeHttpServer server;
+        server.setJson("/api/genres", R"({"genres":[{"key":"drama","label":"Drama"}]})");
+        server.setJson("/api/lists", R"({"lists":[]})");
+        WikiMazeSearch search;
+        search.loadFilters();   // the page opens before the add-on's address is known
+        QVERIFY(server.requests.isEmpty());
+        search.setBase(server.base());
+        QTRY_VERIFY_WITH_TIMEOUT(!search.genres().isEmpty(), 5000);
+    }
+
     void listsOfAnAddonCanBeHidden()
     {
         FakeHttpServer server;
