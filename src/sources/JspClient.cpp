@@ -97,7 +97,7 @@ void JspClient::start(const std::shared_ptr<Attempt>& attempt)
                 start(attempt);
         });
 
-    auto finish = [this, attempt](const QJsonObject& data, const QString& error, bool stale) {
+    auto finish = [attempt](const QJsonObject& data, const QString& error, bool stale) {
         if (attempt->finished)
             return;
         attempt->finished = true;
