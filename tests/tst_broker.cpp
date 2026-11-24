@@ -253,6 +253,24 @@ private slots:
         QVERIFY(!QFileInfo::exists(QDir(cache).filePath(harness::infoHash(t) + "/movie.mkv")));
     }
 
+    // RAM only: a torrent whose pieces are too big for the cap is refused, and
+    // nothing is allocated for them.
+    void memoryOnlyRefusesPiecesTooBigForTheCap()
+    {
+        QTemporaryDir dir;
+        const TestTorrent t = harness::makeTorrent(dir.filePath("seed"), "movie.mkv", {24 * MiB}, 8 * MiB, 23);
+        Seeder seeder(t, t.root);
+        BrokerSettings settings = testSettings(dir.filePath("cache"));
+        settings.memoryOnly = true;
+        settings.memoryCapBytes = 16 * MiB;   // pieces over 4 MiB are not held
+        StreamBroker broker(settings);
+        BrokerError error = BrokerError::None;
+        auto h = broker.open({harness::magnet(t, {seeder.port()})}, &error);
+        QVERIFY(!h);
+        QCOMPARE(error, BrokerError::TorrentError);
+        QVERIFY(broker.memoryUsed() < 8 * MiB);
+    }
+
     // RAM only, with a cap smaller than the file: memory stays near the cap
     // while playing through, and seeking back to a dropped part downloads it
     // again (the torrent reloads) with the right bytes.
