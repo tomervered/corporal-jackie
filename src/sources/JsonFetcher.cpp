@@ -263,7 +263,7 @@ quint64 JsonFetcher::getReply(const QUrl& url, int budgetMs, UrlCheck allowed, R
 
 void JsonFetcher::cancel(quint64 id)
 {
-    if (QNetworkReply* reply = m_byId.value(id)) {
+    if (auto* reply = qobject_cast<QNetworkReply*>(m_byId.value(id).data())) {
         if (reply->isRunning()) {
             reply->setProperty("cjAborted", true);
             reply->abort();

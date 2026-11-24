@@ -78,7 +78,7 @@ private:
     qint64 m_maxBytes = kDefaultMaxBytes;
     int m_inFlight = 0;
     quint64 m_nextId = 0;
-    QHash<quint64, QPointer<QNetworkReply>> m_byId;
+    QHash<quint64, QPointer<QObject>> m_byId;   // the QNetworkReply of each request in flight
 };
 
 } // namespace cj
