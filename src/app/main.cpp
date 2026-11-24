@@ -17,6 +17,7 @@
 #include <QCommandLineParser>
 #include <QDir>
 #include <QGuiApplication>
+#include <QIcon>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlError>
@@ -37,6 +38,8 @@ int main(int argc, char* argv[])
     QGuiApplication::setApplicationName(QString::fromLatin1(cj::app::kName));
     QGuiApplication::setApplicationDisplayName(QString::fromLatin1(cj::app::kName));
     QGuiApplication::setApplicationVersion(QString::fromLatin1(cj::app::kVersion));
+    // The taskbar, title bar and Alt+Tab show this (the same badge as the side bar).
+    QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/CorporalJackie/images/logo.png")));
     // No organization name on purpose: it would add a second "Corporal Jackie"
     // folder level to every path (see AppPaths.h).
     QGuiApplication::setOrganizationDomain(QString::fromLatin1(cj::app::kOrgDomain));
