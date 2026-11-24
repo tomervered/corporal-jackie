@@ -1,4 +1,5 @@
 #include "StremioAdapter.h"
+#include "JspProtocol.h"
 
 #include "Logging.h"
 
