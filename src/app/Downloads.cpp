@@ -243,8 +243,10 @@ void Downloads::save()
 
 void Downloads::load()
 {
-    if (!m_storage.keepsHistory())
+    if (!m_storage.keepsHistory()) {
+        qCInfo(lcApp) << "Downloads: the list is not kept (\"Remember what I watch\" is off)";
         return;
+    }
     const QJsonArray list = QJsonDocument::fromJson(m_storage.setting(QString::fromLatin1(kListKey)).toString().toUtf8()).array();
     for (const QJsonValue& value : list) {
         const QJsonObject o = value.toObject();
@@ -273,6 +275,7 @@ void Downloads::load()
         }
         m_jobs.push_back(job);
     }
+    qCInfo(lcApp) << "Downloads: list restored with" << m_jobs.size() << "entries";
 }
 
 QString Downloads::effectiveFolder() const { return m_folder.isEmpty() ? m_defaultFolder : m_folder; }
