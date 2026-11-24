@@ -5,6 +5,7 @@
 #include "Session.h"
 #include "StreamRanking.h"
 #include "StremioAdapter.h"
+#include "WikiMazeSearch.h"
 
 #include <QLocale>
 #include <QPointer>
@@ -35,7 +36,13 @@ QVariantMap previewMap(const MetaPreview& m)
 Browser::Browser(Session* session, QObject* parent)
     : QObject(parent)
     , m_session(session)
+    , m_wikimaze(new WikiMazeSearch(this))
 {
+    // An older WikiMaze answers 404: the add-ons' own search rows come back.
+    connect(m_wikimaze, &WikiMazeSearch::changed, this, [this] {
+        if (m_wikimaze->unsupported() && !m_searchAllText.isEmpty() && !m_wikimazeRowsKept)
+            searchAll(m_searchAllText, m_searchType);
+    });
     if (m_session)
         connect(m_session, &Session::sourceChanged, this, [this] {
             if (m_playingShow && m_session->source() != m_playingShowUrl) {
@@ -57,6 +64,8 @@ void Browser::setStremio(StremioAdapter* stremio)
 {
     m_stremio = stremio;
     connect(stremio, &StremioAdapter::addonsChanged, this, &Browser::addonsChanged);
+    connect(stremio, &StremioAdapter::addonsChanged, this, [this] { m_wikimaze->setBase(m_stremio->wikimazeBase()); });
+    m_wikimaze->setBase(stremio->wikimazeBase());
     addAdapter(stremio);
 }
 
@@ -99,6 +108,10 @@ QVariantList Browser::addons() const
     if (!m_stremio)
         return out;
     for (const InstalledAddon& a : m_stremio->addons()) {
+        QVariantList catalogs;
+        for (const stremio::Catalog& c : a.manifest.catalogs)
+            catalogs << QVariantMap{{"type", c.type}, {"id", c.id}, {"name", c.name},
+                                    {"enabled", !a.hiddenCatalogs.contains(c.type + QLatin1Char('/') + c.id)}};
         QStringList offers;
         for (const stremio::Resource& r : a.manifest.resources)
             offers << r.name;
@@ -109,7 +122,8 @@ QVariantList Browser::addons() const
                            {"url", logging::redactUrl(a.manifestUrl)},  // its path can hold a login
                            {"offers", offers.join(QStringLiteral(", "))},
                            {"error", a.lastError},
-                           {"enabled", !a.disabled}};
+                           {"enabled", !a.disabled},
+                           {"catalogs", catalogs}};
     }
     return out;
 }
@@ -131,6 +145,12 @@ void Browser::moveAddon(const QString& addonId, int delta)
 {
     if (m_stremio)
         m_stremio->move(addonId, delta);
+}
+
+void Browser::setCatalogEnabled(const QString& addonId, const QString& type, const QString& catalogId, bool enabled)
+{
+    if (m_stremio)
+        m_stremio->setCatalogEnabled(addonId, type, catalogId, enabled);
 }
 
 void Browser::setAddonEnabled(const QString& addonId, bool enabled)
@@ -221,7 +241,7 @@ QVariantList Browser::catalogs() const
     for (const CatalogRef& c : m_catalogs)
         out << QVariantMap{{"name", c.name}, {"type", c.type}, {"adapter", c.adapter}, {"provider", c.provider},
                            {"searchable", c.searchable}, {"searchOnly", c.searchOnly},
-                           {"genres", c.genres}, {"genreRequired", c.genreRequired}};
+                           {"genres", c.genres}, {"genreRequired", c.genreRequired}, {"years", c.years}};
     return out;
 }
 
@@ -233,13 +253,14 @@ QVariantList Browser::items() const
     return out;
 }
 
-void Browser::openCatalog(int index, const QString& search, const QString& genre)
+void Browser::openCatalog(int index, const QString& search, const QString& genre, const QString& year)
 {
     if (index < 0 || index >= m_catalogs.size())
         return;
     m_catalogIndex = index;
     m_search = m_catalogs[index].searchable ? search.trimmed() : QString();
     m_genre = m_catalogs[index].genres.contains(genre) ? genre : QString();
+    m_year = m_catalogs[index].years.contains(year) ? year : QString();
     fetchItems(false);
 }
 
@@ -307,10 +328,17 @@ void Browser::searchAll(const QString& text, const QString& type)
 {
     m_searchRows.clear();
     m_searchAllText = text.trimmed();
+    m_searchType = type;
+    // While WikiMaze's own search answers, its per-list search rows would
+    // show the same titles again.
+    const bool wikimazeRow = m_wikimaze->available() && !m_wikimaze->unsupported();
+    m_wikimazeRowsKept = !wikimazeRow;
     if (!m_searchAllText.isEmpty()) {
         for (int i = 0; i < m_catalogs.size(); ++i) {
             const CatalogRef& c = m_catalogs[i];
             if (!c.searchable || (!type.isEmpty() && c.type != type))
+                continue;
+            if (wikimazeRow && c.provider.startsWith(QLatin1String("community.wikimaze")))
                 continue;
             Row row;
             row.catalog = i;
@@ -330,6 +358,15 @@ void Browser::openRowItem(bool searchRow, int row, int index)
     openPreview(rows[row].items[index]);
 }
 
+void Browser::openWikimazeItem(int index)
+{
+    const QList<MetaPreview> items = m_wikimaze->items();
+    if (index >= 0 && index < items.size())
+        openPreview(items[index]);
+}
+
+QObject* Browser::wikimaze() const { return m_wikimaze; }
+
 void Browser::loadMore()
 {
     if (m_canLoadMore && !m_itemsLoading)
@@ -340,6 +377,7 @@ void Browser::fetchItems(bool append)
 {
     CatalogRef catalog = m_catalogs.value(m_catalogIndex);
     catalog.genre = m_genre;
+    catalog.year = m_year;
     SourceAdapter* adapter = adapterFor(catalog.adapter);
     const quint64 gen = ++m_itemsGen;
     if (!append)

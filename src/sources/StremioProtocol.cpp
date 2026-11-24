@@ -107,6 +107,8 @@ std::optional<Manifest> parseManifest(const QJsonObject& json, QString* error)
             } else if (eo.value("name").toString() == QLatin1String("genre")) {
                 cat.genres = stringList(eo.value("options"));
                 cat.genreRequired = eo.value("isRequired").toBool() && !cat.genres.isEmpty();
+            } else if (eo.value("name").toString() == QLatin1String("year")) {
+                cat.years = stringList(eo.value("options"));
             }
         }
         // Older form: "extraSupported" / "extraRequired" lists of names.

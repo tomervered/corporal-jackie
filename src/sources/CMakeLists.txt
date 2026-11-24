@@ -8,6 +8,7 @@ add_library(cj_sources STATIC
     StremioAdapter.cpp StremioAdapter.h
     LocalNames.cpp LocalNames.h
     LocalLibrary.cpp LocalLibrary.h
+    WikiMazeSearch.cpp WikiMazeSearch.h
     Browser.cpp Browser.h
 )
 target_include_directories(cj_sources PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")

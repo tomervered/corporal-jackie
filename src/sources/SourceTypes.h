@@ -24,6 +24,8 @@ struct CatalogRef
     QStringList genres;       // what it can be filtered by; empty = no filter
     bool genreRequired = false;
     QString genre;            // the filter to fetch with: one of genres, or empty
+    QStringList years;        // the same for a "year" filter (a year, a decade or Older)
+    QString year;
 };
 
 struct MetaPreview

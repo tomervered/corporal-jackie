@@ -43,7 +43,7 @@ JsonFetcher::~JsonFetcher()
 
 void JsonFetcher::get(const QUrl& url, Done done)
 {
-    fetch(url, std::move(done), kAttempts);
+    fetch(url, std::move(done), m_attempts);
 }
 
 void JsonFetcher::fetch(const QUrl& url, Done done, int attemptsLeft)

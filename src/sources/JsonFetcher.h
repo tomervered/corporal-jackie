@@ -32,6 +32,8 @@ public:
 
     void setTimeout(int ms) { m_timeoutMs = ms; }
     void setDeadline(int ms) { m_deadlineMs = ms; }
+    // How many times a request that timed out is sent (1: never again).
+    void setAttempts(int n) { m_attempts = n; }
     void setMaxBytes(qint64 bytes) { m_maxBytes = bytes; }
 
     // Answers exactly once, on this object's thread, unless the fetcher is
@@ -52,6 +54,7 @@ private:
     Mailbox m_mailbox;
     int m_timeoutMs = kDefaultTimeoutMs;
     int m_deadlineMs = kDefaultDeadlineMs;
+    int m_attempts = kAttempts;
     qint64 m_maxBytes = kDefaultMaxBytes;
     int m_inFlight = 0;
 };
