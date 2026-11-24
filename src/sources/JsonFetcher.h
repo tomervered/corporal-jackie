@@ -5,8 +5,10 @@
 
 #include "Mailbox.h"
 
+#include <QHash>
 #include <QJsonObject>
 #include <QObject>
+#include <QPointer>
 #include <QUrl>
 
 #include <functional>
@@ -42,6 +44,24 @@ public:
     using Done = std::function<void(const QJsonObject& json, const QString& error)>;
     void get(const QUrl& url, Done done);
 
+    // What an HTTP answer carried, for callers that read error bodies too
+    // (Jackie sources send a typed error envelope with a 4xx/5xx status).
+    struct Reply
+    {
+        int status = 0;         // the HTTP status; 0 when no HTTP answer came
+        QJsonObject json;       // the body, when it was a JSON object (size-bounded)
+        bool isJson = false;
+        QString error;          // a failure of the transfer itself, in words; empty when an answer arrived
+    };
+    using ReplyDone = std::function<void(const Reply&)>;
+    using UrlCheck = std::function<bool(const QUrl&)>;
+    // One request, no retry, finished within budgetMs in all (silence or a
+    // trickle alike). Redirects are followed by hand and each target has to
+    // pass `allowed` (also the first URL). Returns an id for cancel().
+    quint64 getReply(const QUrl& url, int budgetMs, UrlCheck allowed, ReplyDone done);
+    // Aborts that one request; its callback gets error "cancelled". Others keep running.
+    void cancel(quint64 id);
+
     // Aborts every request in flight; their callbacks get "cancelled".
     void abortAll();
 
@@ -57,6 +77,8 @@ private:
     int m_attempts = kAttempts;
     qint64 m_maxBytes = kDefaultMaxBytes;
     int m_inFlight = 0;
+    quint64 m_nextId = 0;
+    QHash<quint64, QPointer<QNetworkReply>> m_byId;
 };
 
 } // namespace cj

@@ -34,15 +34,19 @@ QString withQuery(QString path, const QList<QPair<QString, QString>>& items)
 
 bool goodBase(const QString& s)
 {
-    const QUrl u(s);
-    if (!u.isValid() || u.host().isEmpty())
+    return cj::jsp::allowedUrl(QUrl(s));
+}
+
+} // namespace
+
+bool allowedUrl(const QUrl& u)
+{
+    if (!u.isValid() || u.host().isEmpty() || !u.userInfo().isEmpty())
         return false;
     const QString scheme = u.scheme().toLower();
     return scheme == QLatin1String("https")
         || (scheme == QLatin1String("http") && (u.host() == QLatin1String("127.0.0.1") || u.host() == QLatin1String("localhost")));
 }
-
-} // namespace
 
 bool isJsp(const QJsonObject& manifest)
 {
@@ -196,6 +200,11 @@ QJsonObject streamsAsStremio(const QJsonObject& data)
             hints.insert("videoSize", s.value("size"));
         if (!s.value("group").toString().isEmpty())
             hints.insert("bingeGroup", s.value("group"));
+        // Typed fields beat what a label says (StremioProtocol reads these two).
+        if (s.contains("quality"))
+            hints.insert("cjQuality", s.value("quality"));
+        if (s.contains("seeders"))
+            hints.insert("cjSeeders", s.value("seeders"));
         QJsonObject o{{"name", s.value("name")}, {"description", s.value("detail")}};
         const QString kind = s.value("kind").toString();
         if (kind == QLatin1String("torrent")) {

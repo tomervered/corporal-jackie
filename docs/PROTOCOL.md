@@ -13,7 +13,7 @@ Built in 0.4.1: `JspProtocol` (parsing), `JspClient` (requests) and a dialect sw
 | Problem in Stremio add-ons | JSP answer |
 | --- | --- |
 | A failure is a hang, an HTML page or an empty list; the client cannot tell them apart | Every answer is one JSON envelope with `ok` and a typed `error.code` |
-| No time limit; one slow add-on stalls Home | The server answers within 8 s or returns `partial: true`; the client gives up at 10 s and shows the source's own error line |
+| No time limit; one slow add-on stalls Home | The server answers within 8 s or returns `partial: true`; the client ends every request inside one 10 s budget and shows the source's own error line |
 | Behavior is hidden in free-form `behaviorHints` | Streams have named, typed fields; unknown fields are ignored, missing required ones reject only that item |
 | One URL: when it is down, the source is down | The manifest lists `mirrors`; the client tries them in order and remembers the one that worked |
 | No caching rules | Every answer carries `ttl` (seconds) and an `ETag`; on an error the client may show a stale copy marked as such |
@@ -77,11 +77,16 @@ non-envelope answer as `unavailable`.
 ## What the client does (fewer timeouts)
 
 - **One connection pool per source**, so a slow source never holds up the others.
-- **Hedged requests**: if the first request has no answer after 2.5 s, a second goes to the next mirror (or the same address again when there is no mirror). The first good answer wins. A failed request is replaced at once, not after the timer.
-- **A definitive error** (`not_found`, `bad_request`) is final; every other error moves on to the next mirror.
-- **Answers are kept for their `ttl`** in memory, and when every try fails the last good copy is shown instead of an error (it is logged, the add-ons page does not call it a failure).
+- **One 10 s budget per request**, started on a monotonic clock when the request begins. Every network try gets at most what is left, and the request ends exactly once: with the first good answer, a final error, or "timed out" (or the last good copy, below). When it ends, its other tries are cancelled; other requests to the same source are left alone.
+- **Hedged requests**: if the first try has no answer after 2.5 s, a second goes to the next mirror (or the same address again when there is no mirror), still inside the same budget. The first good answer wins. A failed try is replaced at once, not after the timer.
+- **Typed errors are read from the HTTP answer**, not only from a 200: a valid envelope on a 4xx or 5xx status counts. `not_found` and `bad_request` are final (a real 404 never asks a mirror, nor the same address again). `rate_limited` keeps that address quiet for its `retryAfter` (5 s when absent, at most 300 s); another mirror is still asked inside the budget, and a later request does not ask the quiet address at all. `upstream_down`, `unavailable`, a transport failure, an HTML page or any body that is not an envelope move on to the next mirror, and the error shown is generic (never the page's text).
+- **Answers are kept for their `ttl`** in memory. When every try fails, the last good copy of a **catalog, search or title** (kept up to 24 h) is shown instead of an error, marked as cached; the add-ons page says "Showing cached results" and does not call it a failure. **Streams and subtitles are never shown from an old copy**: their links can be signed and expire.
+- **A source that is removed or whose addresses change** loses its saved answers, its remembered mirror and its cooldowns, and requests still out for the old setup end as cancelled and save nothing.
 - **The mirror that answered is asked first** next time (memory only, never written to disk).
-- A request waits at most 10 s in all.
+
+Address rule, the same for the source's own address, every mirror and every redirect target: `https`, or `http` on `127.0.0.1`/`localhost` for development; a host; no user name or password. The source's own address is checked when its manifest is recognised as Jackie's (install, restore, refresh) and again before each request; a Jackie source that fails it is refused. A path prefix such as `/he` stays part of the base for every resource. Stremio add-ons keep their old rules.
+
+Not used by the client yet (so a source may send them, nothing happens): `partial` (the answer is shown as it is), `total` (paging goes on until a page is empty), the `/search` resource (search goes through `/catalog/{type}/{id}?q=`, with `genre` and `year` in the same request), and `ETag`/`If-None-Match` revalidation (the `ttl` alone decides).
 
 Also:
 

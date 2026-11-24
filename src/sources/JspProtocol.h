@@ -9,6 +9,7 @@
 
 #include <QJsonObject>
 #include <QStringList>
+#include <QUrl>
 
 #include <optional>
 
@@ -20,6 +21,11 @@ bool isJsp(const QJsonObject& manifest);
 // A manifest of either kind: JSP when it says so, else Stremio's.
 std::optional<stremio::Manifest> parseAnyManifest(const QJsonObject& json, QString* error);
 std::optional<stremio::Manifest> parseManifest(const QJsonObject& json, QString* error);
+
+// The one address rule of a Jackie source: https, or http on 127.0.0.1/localhost for
+// development; a host, and no user name or password in the address. The primary
+// address, the mirrors and every redirect target are held to it.
+bool allowedUrl(const QUrl& url);
 
 // Other bases of the same source, https only (or 127.0.0.1 for development), without a trailing slash.
 QStringList mirrors(const QJsonObject& manifest);

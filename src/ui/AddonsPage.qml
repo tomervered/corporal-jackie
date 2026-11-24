@@ -104,6 +104,7 @@ Column {
                 Muted { width: parent.width; text: modelData.description; visible: text !== ""; maximumLineCount: 2; elide: Text.ElideRight }
                 Muted { width: parent.width; text: modelData.enabled ? "Offers: " + modelData.offers : "Switched off: gives no lists, details or streams" }
                 Muted { width: parent.width; visible: modelData.error !== ""; color: Theme.error; text: "Last request failed: " + modelData.error }
+                Muted { width: parent.width; visible: modelData.cached === true; text: "Showing cached results: this source did not answer." }
                 // Which of its lists show up in Home, Discover and search.
                 Text {
                     id: listsToggle

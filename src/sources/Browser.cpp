@@ -122,6 +122,7 @@ QVariantList Browser::addons() const
                            {"url", logging::redactUrl(a.manifestUrl)},  // its path can hold a login
                            {"offers", offers.join(QStringLiteral(", "))},
                            {"error", a.lastError},
+                           {"cached", a.showingCached},
                            {"enabled", !a.disabled},
                            {"catalogs", catalogs}};
     }

@@ -24,6 +24,16 @@ const char kDefaultManifest[] = R"json({"id":"community.wikimaze","version":"0.2
 // A copy of https://caching.stremio.net/publicdomainmovies.now.sh/manifest.json (2026-11-20).
 const char kPublicDomainManifest[] = R"json({"id":"org.stremio.pubdomainmovies","version":"1.0.0","name":"Public Domain Movies","description":"Torrents for public domain movies. Includes a collection of more then 500 public domain movies.","logo":"https://johnserv531.github.io/gh-images/1586344884.jpg","resources":["catalog","stream"],"types":["movie"],"catalogs":[{"type":"movie","id":"publicdomainmovies","extra":[{"name":"skip"},{"name":"search"}]}],"idPrefixes":["tt"]})json";
 
+// A Jackie source is held to one address rule (https, or loopback http for
+// development) for its own address, its mirrors and its redirects. A Stremio
+// add-on is left as it always was. Empty when fine.
+QString jspAddressProblem(const QUrl& manifestUrl, const QJsonObject& raw)
+{
+    if (!jsp::isJsp(raw) || jsp::allowedUrl(manifestUrl))
+        return {};
+    return QStringLiteral("A Jackie source has to use https (plain http only on this computer).");
+}
+
 struct DefaultAddon
 {
     const char* id;
@@ -134,14 +144,15 @@ void StremioAdapter::restore(const QJsonArray& list)
         const QUrl url(o.value("transportUrl").toString());
         const QJsonObject raw = o.value("manifest").toObject();
         QString error;
-        if (auto m = jsp::parseAnyManifest(raw, &error); m && url.isValid() && m_addons.size() < kMaxAddons) {
+        const QString addressProblem = jspAddressProblem(url, raw);
+        if (auto m = jsp::parseAnyManifest(raw, &error); m && url.isValid() && m_addons.size() < kMaxAddons && addressProblem.isEmpty()) {
             setManifest(url, *m, raw);
             if (o.value("disabled").toBool())
                 m_addons.last().disabled = true;
             for (const QJsonValue& h : o.value("hiddenCatalogs").toArray())
                 m_addons.last().hiddenCatalogs << h.toString();
         } else
-            qCWarning(lcSources).noquote() << "Skipping a stored add-on:" << logging::redactUrl(url) << error;
+            qCWarning(lcSources).noquote() << "Skipping a stored add-on:" << logging::redactUrl(url) << (error.isEmpty() ? addressProblem : error);
     }
     qCInfo(lcSources) << "Add-ons installed:" << m_addons.size();
     emit addonsChanged();
@@ -165,6 +176,10 @@ void StremioAdapter::setManifest(const QUrl& url, const stremio::Manifest& manif
     const QStringList mirrors = isJsp ? jsp::mirrors(raw) : QStringList();
     for (InstalledAddon& a : m_addons) {
         if (a.manifest.id == manifest.id || a.manifestUrl == url) {
+            // New addresses: nothing saved from the old ones may be shown or reused.
+            if (a.jsp && (a.manifestUrl != url || a.mirrors != mirrors || !isJsp))
+                m_jsp.forget(a.manifest.id);
+            a.showingCached = false;
             a.manifestUrl = url;
             a.manifest = manifest;
             a.rawManifest = raw;
@@ -190,11 +205,22 @@ void StremioAdapter::ask(const InstalledAddon& addon, const QUrl& stremioUrl, co
         m_fetcher.get(stremioUrl, std::move(done));
         return;
     }
-    QStringList bases{stremio::baseOf(addon.manifestUrl)};
+    const QString addonId = addon.manifest.id;
+    const QString primary = stremio::baseOf(addon.manifestUrl);
+    // The same address rule for the primary as for the mirrors, before any request.
+    if (!jsp::allowedUrl(QUrl(primary))) {
+        QTimer::singleShot(0, this, [done = std::move(done)] {
+            done({}, QStringLiteral("a Jackie source has to use https"));
+        });
+        return;
+    }
+    QStringList bases{primary};
     bases << addon.mirrors;
-    m_jsp.get(addon.manifest.id, bases, jspPath, [asStremio, done = std::move(done)](const QJsonObject& data, const QString& error, bool stale) {
+    m_jsp.get(addonId, bases, jspPath, [this, addonId, asStremio, done = std::move(done)](const QJsonObject& data, const QString& error, bool stale) {
         if (stale)
             qCWarning(lcSources) << "A Jackie source did not answer; showing its last good answer";
+        if (error != QLatin1String("cancelled"))
+            noteCached(addonId, stale);
         done(error.isEmpty() ? asStremio(data) : QJsonObject(), error);
     });
 }
@@ -215,6 +241,16 @@ QList<const InstalledAddon*> StremioAdapter::serving(const QString& resource, co
         if (!a.disabled && a.manifest.serves(resource, type, id))
             out << &a;
     return out;
+}
+
+void StremioAdapter::noteCached(const QString& addonId, bool cached)
+{
+    for (InstalledAddon& a : m_addons) {
+        if (a.manifest.id == addonId && a.showingCached != cached) {
+            a.showingCached = cached;
+            emit addonsChanged();
+        }
+    }
 }
 
 void StremioAdapter::noteResult(const QString& addonId, const QString& error)
@@ -290,8 +326,7 @@ void StremioAdapter::fetchCatalog(const CatalogRef& catalog, const QString& sear
                                           catalog.type, catalog.id, extras);
     const QString searchText = search.trimmed();
     ask(*addon, url,
-        jsp::catalogPath(catalog.type, catalog.id, searchText, searchText.isEmpty() ? genre : QString(),
-                         searchText.isEmpty() ? catalog.year : QString(), skip),
+        jsp::catalogPath(catalog.type, catalog.id, searchText, genre, catalog.year, skip),
         jsp::catalogAsStremio, [this, addonId, done](const QJsonObject& json, const QString& error) {
         noteResult(addonId, error);
         if (!error.isEmpty()) {
@@ -440,6 +475,10 @@ void StremioAdapter::install(const QString& link, std::function<void(const QStri
             done(QStringLiteral("That link did not return an add-on (%1).").arg(parseError));
             return;
         }
+        if (const QString addressProblem = jspAddressProblem(url, json); !addressProblem.isEmpty()) {
+            done(addressProblem);
+            return;
+        }
         if (m->configurationRequired) {
             done(QStringLiteral("%1 has to be set up on its website first. Install the link it gives you after that.")
                      .arg(m->name));
@@ -533,6 +572,10 @@ void StremioAdapter::refreshManifests()
             const auto m = error.isEmpty() ? jsp::parseAnyManifest(json, &parseError) : std::nullopt;
             if (!m || m->id != addonId) {
                 noteResult(addonId, !error.isEmpty() ? error : m ? QStringLiteral("its manifest changed id") : parseError);
+                return;
+            }
+            if (const QString addressProblem = jspAddressProblem(url, json); !addressProblem.isEmpty()) {
+                noteResult(addonId, addressProblem);
                 return;
             }
             setManifest(url, *m, json);
