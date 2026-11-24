@@ -867,7 +867,7 @@ private slots:
         const QJsonObject data = json(R"({"streams":[
             {"kind":"torrent","infoHash":"ABCDEF0123456789ABCDEF0123456789ABCDEF01","fileIdx":3,"trackers":["udp:\/\/t.example:80"],"name":"Ex 4K","detail":"HDR","size":1000,"group":"g"},
             {"kind":"http","url":"https:\/\/cdn.example/a.mp4","headers":{"Referer":"https:\/\/x.example"},"name":"Web"},
-            {"kind":"http","url":"file:\/\//etc/passwd","name":"Bad"},
+            {"kind":"http","url":"file:\/\/\/etc\/passwd","name":"Bad"},
             {"kind":"from-the-future","name":"Unknown"}]})");
         const QList<StreamOption> s = stremio::parseStreams(jsp::streamsAsStremio(data), "src", "Source");
         QCOMPARE(s.size(), 2);   // only the unknown and the unsafe items are dropped
