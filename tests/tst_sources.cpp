@@ -12,10 +12,12 @@
 #include "StreamRanking.h"
 #include "StremioAdapter.h"
 #include "StremioProtocol.h"
+#include "WikiMazeSearch.h"
 
 #include <QJsonDocument>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QUrlQuery>
 #include <QtTest>
 
 using namespace cj;
@@ -466,7 +468,7 @@ private slots:
             QCOMPARE(addons.addons()[1].manifest.id, QStringLiteral("org.stremio.pubdomainmovies"));
             QCOMPARE(addons.addons()[1].manifestUrl.toString(),
                      QStringLiteral("https://caching.stremio.net/publicdomainmovies.now.sh/manifest.json"));
-            QCOMPARE(addons.catalogs().size(), 8);   // WikiMaze's 7 and the public-domain films
+            QCOMPARE(addons.catalogs().size(), 10);   // WikiMaze's 9 and the public-domain films
             QVERIFY(addons.uninstallDefaults());
             QVERIFY(!addons.uninstallDefaults());
 
@@ -837,6 +839,142 @@ private slots:
     }
 
     // A server that never goes quiet but never finishes still ends.
+    // --- WikiMaze's own search API and the lists of an add-on --------------------------
+
+    void wikimazeFiltersBecomeQueryParameters()
+    {
+        const QUrl u = WikiMazeSearch::searchUrl("http://h/he", " dune ", "movie", "scifi", "2010s", "wikimaze-popular", true);
+        QCOMPARE(u.path(), QStringLiteral("/he/api/search"));
+        const QUrlQuery q(u);
+        QCOMPARE(q.queryItemValue("q"), QStringLiteral("dune"));
+        QCOMPARE(q.queryItemValue("type"), QStringLiteral("movie"));
+        QCOMPARE(q.queryItemValue("genre"), QStringLiteral("scifi"));
+        QCOMPARE(q.queryItemValue("year"), QStringLiteral("2010s"));
+        QCOMPARE(q.queryItemValue("list"), QStringLiteral("wikimaze-popular"));
+        QCOMPARE(q.queryItemValue("live"), QStringLiteral("1"));
+        const QUrlQuery plain(WikiMazeSearch::searchUrl("http://h", "x", "", "", "", "", false));
+        QVERIFY(!plain.hasQueryItem("live"));
+        QVERIFY(!plain.hasQueryItem("genre"));
+        QVERIFY(!plain.hasQueryItem("type"));
+    }
+
+    void wikimazeSearchReadsResultsAndFacets()
+    {
+        FakeHttpServer server;
+        server.setJson("/api/search", R"({"source":"store","total":2,"results":[
+            {"id":"tt1","type":"movie","name":"One","poster":"p","releaseInfo":"2020"},
+            {"id":"","type":"movie","name":"No id"},
+            {"id":"tt2","type":"movie","name":"Two"}],
+            "facets":{"genres":{"drama":2},"decades":{"2020s":2}}})");
+        WikiMazeSearch search;
+        search.setBase(server.base());
+        QVERIFY(search.available());
+        search.search("one", "movie", "", "", "", false);
+        QVERIFY(search.loading());
+        QTRY_VERIFY_WITH_TIMEOUT(!search.loading(), 5000);
+        QCOMPARE(search.items().size(), 2);
+        QCOMPARE(search.total(), 2);
+        QCOMPARE(search.source(), QStringLiteral("store"));
+        QCOMPARE(search.items()[0].provider, QStringLiteral("community.wikimaze"));
+        QCOMPARE(search.genreCounts().value("drama").toInt(), 2);
+        QCOMPARE(search.decadeCounts().value("2020s").toInt(), 2);
+        QVERIFY(server.paths().first().contains("q=one"));
+        search.clear();
+        QVERIFY(search.items().isEmpty());
+    }
+
+    void wikimazeOnlyTheLastTypingIsAsked()
+    {
+        FakeHttpServer server;
+        server.setJson("/api/search", R"({"source":"store","total":0,"results":[]})");
+        WikiMazeSearch search;
+        search.setBase(server.base());
+        search.search("d", "", "", "", "", false);
+        search.search("du", "", "", "", "", false);
+        search.search("dune", "", "", "", "", false);
+        QTRY_VERIFY_WITH_TIMEOUT(!search.loading(), 5000);
+        QTest::qWait(500);
+        QCOMPARE(server.requests.size(), 1);
+        QVERIFY(server.requests[0].path.contains("q=dune"));
+        // Nothing typed and no filter: nothing is asked.
+        search.search("  ", "", "", "", "", false);
+        QTest::qWait(500);
+        QCOMPARE(server.requests.size(), 1);
+    }
+
+    void wikimazeOlderServerWithoutTheApiIsRemembered()
+    {
+        FakeHttpServer server;   // answers 404 for everything
+        WikiMazeSearch search;
+        search.setBase(server.base());
+        search.search("dune", "", "", "", "", false);
+        QTRY_VERIFY_WITH_TIMEOUT(search.unsupported(), 5000);
+        QVERIFY(!search.loading());
+        const int asked = int(server.requests.size());
+        search.search("again", "", "", "", "", false);
+        QTest::qWait(500);
+        QCOMPARE(int(server.requests.size()), asked);   // it does not ask again
+        search.setBase(server.base() + "/x");           // a new address starts over
+        QVERIFY(!search.unsupported());
+    }
+
+    void wikimazeSlowAnswerEndsWithoutASecondTry()
+    {
+        FakeHttpServer server;
+        FakeHttpServer::Answer never;
+        never.delayMs = -1;
+        server.set("/api/search", never);
+        WikiMazeSearch search;
+        search.setBase(server.base());
+        search.search("dune", "", "", "", "", false);
+        QTRY_VERIFY_WITH_TIMEOUT(!search.loading(), 12000);
+        QVERIFY(!search.error().isEmpty());
+        QVERIFY(!search.unsupported());
+        QCOMPARE(server.requests.size(), 1);
+    }
+
+    void wikimazeFilterNamesLoadOnce()
+    {
+        FakeHttpServer server;
+        server.setJson("/api/genres", R"({"genres":[{"key":"drama","label":"Drama"}]})");
+        server.setJson("/api/lists", R"({"lists":[{"id":"wikimaze-popular","type":"movie","name":"Classics"}]})");
+        WikiMazeSearch search;
+        search.setBase(server.base());
+        search.loadFilters();
+        search.loadFilters();
+        QTRY_VERIFY_WITH_TIMEOUT(!search.genres().isEmpty() && !search.lists().isEmpty(), 5000);
+        QCOMPARE(server.requests.size(), 2);
+    }
+
+    void listsOfAnAddonCanBeHidden()
+    {
+        FakeHttpServer server;
+        server.setJson("/w/manifest.json",
+                       manifest("community.wikimaze.x", "WikiMaze", R"(["catalog"])",
+                                R"([{"type":"movie","id":"a","name":"A"},{"type":"series","id":"a","name":"A"},{"type":"movie","id":"b","name":"B"}])"));
+        QTemporaryDir data;
+        const QString store = data.filePath("addons.json");
+        {
+            StremioAdapter addons(store, false);
+            Waiter<QString> w;
+            addons.install(server.base() + "/w/manifest.json", [&](const QString& e) { w.value = e; });
+            QVERIFY(w.wait());
+            QCOMPARE(addons.catalogs().size(), 3);
+            QCOMPARE(addons.wikimazeBase(), server.base() + "/w");
+            QVERIFY(addons.setCatalogEnabled("community.wikimaze.x", "movie", "a", false));
+            QCOMPARE(addons.catalogs().size(), 2);   // only the movie list "a" is gone
+            QVERIFY(addons.setCatalogEnabled("community.wikimaze.x", "movie", "a", true));
+            QCOMPARE(addons.catalogs().size(), 3);
+            QVERIFY(addons.setCatalogEnabled("community.wikimaze.x", "series", "a", false));
+            QVERIFY(addons.setEnabled("community.wikimaze.x", false));
+            QVERIFY(addons.wikimazeBase().isEmpty());
+            QVERIFY(addons.setEnabled("community.wikimaze.x", true));
+        }
+        StremioAdapter again(store, false);   // loads what was saved
+        QCOMPARE(again.catalogs().size(), 2);  // the hidden list stays hidden
+        QVERIFY(again.addons()[0].hiddenCatalogs.contains("series/a"));
+    }
+
     void boundsTotalDuration()
     {
         FakeHttpServer server;
