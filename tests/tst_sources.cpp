@@ -858,16 +858,16 @@ private slots:
         QCOMPARE(jsp::parseEnvelope(json(R"({"metas":[]})")).code, QStringLiteral("unavailable"));
         QCOMPARE(jsp::catalogPath("movie", "top", "a b", "", "2020s", 0), QStringLiteral("/catalog/movie/top?q=a%20b&year=2020s"));
         QCOMPARE(jsp::catalogPath("movie", "top", "", "", "", 40), QStringLiteral("/catalog/movie/top?skip=40"));
-        const QStringList m = jsp::mirrors(json(R"({"mirrors":["https://a.example/","http://evil.example","http://127.0.0.1:1/x","https://a.example"]})"));
+        const QStringList m = jsp::mirrors(json(R"({"mirrors":["https:\/\/a.example/","http:\/\/evil.example","http:\/\/127.0.0.1:1/x","https:\/\/a.example"]})"));
         QCOMPARE(m, (QStringList{"https://a.example", "http://127.0.0.1:1/x"}));
     }
 
     void jspStreamsBecomePlayableSources()
     {
         const QJsonObject data = json(R"({"streams":[
-            {"kind":"torrent","infoHash":"ABCDEF0123456789ABCDEF0123456789ABCDEF01","fileIdx":3,"trackers":["udp://t.example:80"],"name":"Ex 4K","detail":"HDR","size":1000,"group":"g"},
-            {"kind":"http","url":"https://cdn.example/a.mp4","headers":{"Referer":"https://x.example"},"name":"Web"},
-            {"kind":"http","url":"file:///etc/passwd","name":"Bad"},
+            {"kind":"torrent","infoHash":"ABCDEF0123456789ABCDEF0123456789ABCDEF01","fileIdx":3,"trackers":["udp:\/\/t.example:80"],"name":"Ex 4K","detail":"HDR","size":1000,"group":"g"},
+            {"kind":"http","url":"https:\/\/cdn.example/a.mp4","headers":{"Referer":"https:\/\/x.example"},"name":"Web"},
+            {"kind":"http","url":"file:\/\//etc/passwd","name":"Bad"},
             {"kind":"from-the-future","name":"Unknown"}]})");
         const QList<StreamOption> s = stremio::parseStreams(jsp::streamsAsStremio(data), "src", "Source");
         QCOMPARE(s.size(), 2);   // only the unknown and the unsafe items are dropped
@@ -887,7 +887,7 @@ private slots:
             "resources":["catalog","meta","streams"],"types":["movie"],"idPrefixes":["tt"],
             "catalogs":[{"type":"movie","id":"top","name":"Top","search":true,"genres":["drama"],"years":["2026","Older"]}]})");
         server.setJson("/j/catalog/movie/top", R"({"ok":true,"v":1,"ttl":60,"data":{"items":[{"id":"tt1","type":"movie","name":"One","year":2020}],"total":1}})");
-        server.setJson("/j/streams/movie/tt1", R"({"ok":true,"v":1,"ttl":60,"data":{"streams":[{"kind":"http","url":"https://cdn.example/a.mp4","name":"Web"}]}})");
+        server.setJson("/j/streams/movie/tt1", R"({"ok":true,"v":1,"ttl":60,"data":{"streams":[{"kind":"http","url":"https:\/\/cdn.example/a.mp4","name":"Web"}]}})");
         server.setJson("/j/meta/movie/tt9", R"({"ok":false,"v":1,"error":{"code":"not_found","message":"no such title"}})");
         QTemporaryDir data;
         StremioAdapter addons(data.filePath("a.json"), false);
