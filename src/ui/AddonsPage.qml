@@ -113,7 +113,9 @@ Column {
                     readonly property int shown: modelData.catalogs.filter(c => c.enabled).length
                     textFormat: Text.PlainText
                     text: (expanded ? "Hide the list of lists" : "Lists shown: " + shown + " of " + modelData.catalogs.length + "  ·  choose")
-                    color: Theme.accent
+                    color: Theme.link
+                    font.underline: true
+                    font.weight: Font.DemiBold
                     font.pixelSize: Theme.smallSize + 1
                     TapHandler { onTapped: listsToggle.expanded = !listsToggle.expanded }
                 }

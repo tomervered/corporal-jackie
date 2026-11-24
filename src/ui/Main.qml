@@ -465,8 +465,11 @@ Window {
         id: corner
         objectName: "playerCorner"
         anchors { top: parent.top; right: parent.right; topMargin: 16; rightMargin: 16 }
-        visible: session.hasMedia && !root.pagesVisible
-        opacity: root.controlsVisible ? 1 : 0
+        // Also while a stream is still opening ("Looking for peers…"), when
+        // there is no media yet: that is when a way out matters most.
+        readonly property bool opening: !session.hasMedia && (session.loading || root.streaming)
+        visible: (session.hasMedia || opening) && !root.pagesVisible
+        opacity: root.controlsVisible || opening ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: 200 } }
         width: cornerRow.implicitWidth + 8
         height: cornerRow.implicitHeight + 8
@@ -474,7 +477,7 @@ Window {
         color: Qt.rgba(Theme.pPanel.r, Theme.pPanel.g, Theme.pPanel.b, 0.86)
         border.color: Qt.rgba(Theme.pText.r, Theme.pText.g, Theme.pText.b, 0.14)
         HoverHandler { id: cornerHover }
-        MouseArea { anchors.fill: parent; enabled: root.controlsVisible }
+        MouseArea { anchors.fill: parent; enabled: root.controlsVisible || corner.opening }
         Row {
             id: cornerRow
             anchors.centerIn: parent
@@ -482,7 +485,7 @@ Window {
             IconButton {
                 onPlayer: true
                 objectName: "backToPages"
-                enabled: root.controlsVisible
+                enabled: root.controlsVisible || corner.opening
                 iconName: "arrowLeft"
                 tip: "Back to browsing (B)"
                 onClicked: { controlBar.closePanel(); root.toggleBrowse() }
@@ -490,7 +493,7 @@ Window {
             IconButton {
                 onPlayer: true
                 objectName: "closeVideo"
-                enabled: root.controlsVisible
+                enabled: root.controlsVisible || corner.opening
                 iconName: "close"
                 tip: "Close video (Q)"
                 onClicked: { controlBar.closePanel(); session.stop() }

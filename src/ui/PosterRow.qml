@@ -39,8 +39,8 @@ Column {
             Accessible.name: "See all of " + posterRow.title
             contentItem: Row {
                 spacing: 2
-                Text { textFormat: Text.PlainText; anchors.verticalCenter: parent.verticalCenter; text: "See all"; color: Theme.accent; font.pixelSize: Theme.smallSize + 1; font.weight: Font.DemiBold }
-                Icon { anchors.verticalCenter: parent.verticalCenter; name: "chevronRight"; size: 14; color: Theme.accent }
+                Text { textFormat: Text.PlainText; anchors.verticalCenter: parent.verticalCenter; text: "See all"; color: Theme.link; font.pixelSize: Theme.smallSize + 1; font.weight: Font.DemiBold }
+                Icon { anchors.verticalCenter: parent.verticalCenter; name: "chevronRight"; size: 14; color: Theme.link }
             }
             background: Rectangle { radius: Theme.radius; color: seeAllButton.hovered ? Theme.hover : "transparent" }
             onClicked: posterRow.seeAll()

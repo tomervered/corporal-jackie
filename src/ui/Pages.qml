@@ -194,8 +194,19 @@ Rectangle {
         color: Theme.panel
         Rectangle { anchors { right: parent.right; top: parent.top; bottom: parent.bottom } width: 1; color: Theme.divider }
 
+        // The pages list scrolls when the window is too short to show it all
+        // above Settings and the version.
+        Flickable {
+            id: sideScroll
+            anchors { left: parent.left; right: parent.right; top: parent.top; bottom: sideBottom.top }
+            contentHeight: sideTop.implicitHeight + 22 + 8
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ScrollBar { policy: sideScroll.contentHeight > sideScroll.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
         Column {
-            anchors { left: parent.left; right: parent.right; top: parent.top; margins: 12; topMargin: 22 }
+            id: sideTop
+            x: 12; y: 22
+            width: parent.width - 24
             spacing: 4
             Row {
                 spacing: 10
@@ -239,8 +250,10 @@ Rectangle {
                 onClicked: pages.goTop("downloads")
             }
         }
+        }
 
         Column {
+            id: sideBottom
             anchors { left: parent.left; right: parent.right; bottom: parent.bottom; margins: 12; bottomMargin: 16 }
             spacing: 4
             // What plays behind the pages, and the way back to it.
