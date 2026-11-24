@@ -42,6 +42,11 @@ struct Envelope
 };
 // Anything that is not an envelope is `unavailable`.
 Envelope parseEnvelope(const QJsonObject& json);
+// Whether `data` has the shape its resource promises (docs/PROTOCOL.md): `items`
+// for a catalog or search, `streams`, `subtitles`, a title with an `id`. An empty
+// list is fine; a missing or wrongly typed one is a broken answer, so it is never
+// cached and never wins over a healthy mirror. Paths of other resources pass.
+bool validData(const QString& path, const QJsonObject& data);
 // The words for an error, for the add-ons page.
 QString describe(const Envelope& e);
 // Definitive: asking another mirror cannot change it.

@@ -23,7 +23,9 @@ struct InstalledAddon
     QStringList hiddenCatalogs;   // "type/id" of lists switched off (kept, not shown anywhere)
     bool jsp = false;             // speaks the Jackie Source Protocol (docs/PROTOCOL.md), not Stremio's
     QStringList mirrors;          // other addresses of a Jackie source, tried when the first is slow or down
-    bool showingCached = false;   // its last answer was an older saved copy (the source did not answer)
+    // The views (a list as "catalog/type/id", or "meta") whose latest answer was an older saved copy
+    // because the source did not answer. A newer answer for that same view clears it, and nothing else does.
+    QStringList cachedViews;
 };
 
 class StremioAdapter : public SourceAdapter
@@ -103,7 +105,7 @@ private:
     void save() const;
     void setManifest(const QUrl& url, const stremio::Manifest& manifest, const QJsonObject& raw);
     void noteResult(const QString& addonId, const QString& error);
-    void noteCached(const QString& addonId, bool cached);
+    void noteCached(const QString& addonId, const QString& view, bool cached);
     const InstalledAddon* find(const QString& addonId) const;
     QList<const InstalledAddon*> serving(const QString& resource, const QString& type, const QString& id) const;
     void tryMeta(QStringList addonIds, const MetaPreview& item, MetaDone done);

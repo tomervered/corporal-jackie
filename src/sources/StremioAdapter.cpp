@@ -179,7 +179,7 @@ void StremioAdapter::setManifest(const QUrl& url, const stremio::Manifest& manif
             // New addresses: nothing saved from the old ones may be shown or reused.
             if (a.jsp && (a.manifestUrl != url || a.mirrors != mirrors || !isJsp))
                 m_jsp.forget(a.manifest.id);
-            a.showingCached = false;
+            a.cachedViews.clear();
             a.manifestUrl = url;
             a.manifest = manifest;
             a.rawManifest = raw;
@@ -216,11 +216,18 @@ void StremioAdapter::ask(const InstalledAddon& addon, const QUrl& stremioUrl, co
     }
     QStringList bases{primary};
     bases << addon.mirrors;
-    m_jsp.get(addonId, bases, jspPath, [this, addonId, asStremio, done = std::move(done)](const QJsonObject& data, const QString& error, bool stale) {
+    // The list or title this answer is for: the one on screen decides whether the notice shows.
+    QString view;
+    if (jspPath.startsWith(QLatin1String("/catalog/")))
+        view = jspPath.mid(1).section(QLatin1Char('?'), 0, 0);
+    else if (jspPath.startsWith(QLatin1String("/meta/")))
+        view = QStringLiteral("meta");
+    m_jsp.get(addonId, bases, jspPath, [this, addonId, view, asStremio, done = std::move(done)](const QJsonObject& data, const QString& error, bool stale) {
         if (stale)
             qCWarning(lcSources) << "A Jackie source did not answer; showing its last good answer";
-        if (error != QLatin1String("cancelled"))
-            noteCached(addonId, stale);
+        // Only a list or a title can be shown from an old copy, so only they set or clear the notice.
+        if (error != QLatin1String("cancelled") && !view.isEmpty())
+            noteCached(addonId, view, stale);
         done(error.isEmpty() ? asStremio(data) : QJsonObject(), error);
     });
 }
@@ -243,13 +250,16 @@ QList<const InstalledAddon*> StremioAdapter::serving(const QString& resource, co
     return out;
 }
 
-void StremioAdapter::noteCached(const QString& addonId, bool cached)
+void StremioAdapter::noteCached(const QString& addonId, const QString& view, bool cached)
 {
     for (InstalledAddon& a : m_addons) {
-        if (a.manifest.id == addonId && a.showingCached != cached) {
-            a.showingCached = cached;
-            emit addonsChanged();
-        }
+        if (a.manifest.id != addonId || a.cachedViews.contains(view) == cached)
+            continue;
+        if (cached)
+            a.cachedViews << view;
+        else
+            a.cachedViews.removeAll(view);
+        emit addonsChanged();
     }
 }
 
@@ -565,7 +575,7 @@ void StremioAdapter::refreshManifests()
             continue;   // switched off: not contacted
         const QUrl url = a.manifestUrl;
         const QString addonId = a.manifest.id;
-        m_fetcher.get(url, [this, url, addonId](const QJsonObject& json, const QString& error) {
+        const auto handle = [this, url, addonId](const QJsonObject& json, const QString& error) {
             if (!find(addonId))
                 return;  // removed meanwhile
             QString parseError;
@@ -582,7 +592,20 @@ void StremioAdapter::refreshManifests()
             save();
             emit addonsChanged();
             emit catalogsChanged();
-        });
+        };
+        if (a.jsp) {
+            // A Jackie source's redirects are held to the same address rule as its requests.
+            m_fetcher.getReply(url, JsonFetcher::kDefaultDeadlineMs, &jsp::allowedUrl,
+                               [handle](const JsonFetcher::Reply& r) {
+                const bool ok = r.error.isEmpty() && r.status >= 200 && r.status < 300 && r.isJson;
+                handle(ok ? r.json : QJsonObject(),
+                       ok ? QString() : !r.error.isEmpty() ? r.error
+                                      : r.status >= 400  ? QStringLiteral("HTTP %1").arg(r.status)
+                                                         : QStringLiteral("not JSON"));
+            });
+        } else {
+            m_fetcher.get(url, handle);
+        }
     }
 }
 

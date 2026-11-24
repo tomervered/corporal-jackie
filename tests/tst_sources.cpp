@@ -1231,6 +1231,151 @@ private slots:
         QVERIFY(!stale);
     }
 
+    void jspAnOkAnswerWithBrokenDataLosesToAHealthyMirrorAndIsNeverCached()
+    {
+        FakeHttpServer broken, healthy;
+        // "ok", but no items at all (or the wrong type): not the same as an empty list.
+        broken.setJson("/catalog/movie/top", R"({"ok":true,"v":1,"data":{}})");
+        broken.setJson("/catalog/movie/top2", R"({"ok":true,"v":1,"data":{"items":"none"}})");
+        broken.setJson("/streams/movie/tt1", R"({"ok":true,"v":1,"data":{"streams":{}}})");
+        broken.setJson("/meta/movie/tt1", R"({"ok":true,"v":1,"data":{"name":"No id"}})");
+        broken.setJson("/catalog/movie/empty", R"({"ok":true,"v":1,"data":{"items":[]}})");
+        healthy.setJson("/catalog/movie/top", R"({"ok":true,"v":1,"data":{"items":[{"id":"tt1","type":"movie","name":"One"}]}})");
+        healthy.setJson("/catalog/movie/top2", R"({"ok":true,"v":1,"data":{"items":[{"id":"tt2","type":"movie","name":"Two"}]}})");
+        healthy.setJson("/streams/movie/tt1", R"({"ok":true,"v":1,"data":{"streams":[]}})");
+        healthy.setJson("/meta/movie/tt1", R"({"ok":true,"v":1,"data":{"id":"tt1","type":"movie","name":"One"}})");
+        JspClient client;
+        client.setHedgeMs(5000);   // only a failed try may move on, not the timer
+        const QStringList bases{broken.base(), healthy.base()};
+        const auto ask = [&](const QString& path, QJsonObject* out) {
+            Waiter<QString> w;
+            // A source of its own each time: the mirror that answered is otherwise asked first next time.
+            client.get("s" + path, bases, path, [&](const QJsonObject& d, const QString& e, bool) { *out = d; w.value = e; });
+            [&] { QVERIFY(w.wait(5000)); }();
+            return w.value.value_or("no answer");
+        };
+        QJsonObject d;
+        QCOMPARE(ask("/catalog/movie/top", &d), QString());
+        QCOMPARE(d.value("items").toArray().size(), 1);
+        QCOMPARE(ask("/catalog/movie/top2", &d), QString());
+        QCOMPARE(d.value("items").toArray().size(), 1);
+        QCOMPARE(ask("/streams/movie/tt1", &d), QString());
+        QVERIFY(d.value("streams").isArray());
+        QCOMPARE(ask("/meta/movie/tt1", &d), QString());
+        QCOMPARE(d.value("id").toString(), QStringLiteral("tt1"));
+        // An explicitly empty list is a real answer.
+        QCOMPARE(ask("/catalog/movie/empty", &d), QString());
+        QCOMPARE(d.value("items").toArray().size(), 0);
+
+        // Alone, a broken answer is an error, and it replaces nothing that was saved.
+        FakeHttpServer only;
+        only.setJson("/catalog/movie/c", R"({"ok":true,"v":1,"ttl":0,"data":{"items":[{"id":"tt1"}]}})");
+        JspClient other;
+        Waiter<QString> first;
+        other.get("o", {only.base()}, "/catalog/movie/c", [&](const QJsonObject&, const QString& e, bool) { first.value = e; });
+        QVERIFY(first.wait(5000));
+        QCOMPARE(*first.value, QString());
+        only.setJson("/catalog/movie/c", R"({"ok":true,"v":1,"ttl":0,"data":{}})");
+        QJsonObject kept;
+        bool stale = false;
+        Waiter<QString> second;
+        other.get("o", {only.base()}, "/catalog/movie/c", [&](const QJsonObject& dd, const QString& e, bool st) { kept = dd; stale = st; second.value = e; });
+        QVERIFY(second.wait(8000));
+        QCOMPARE(*second.value, QString());
+        QVERIFY(stale);   // the older good copy, not the empty object
+        QCOMPARE(kept.value("items").toArray().size(), 1);
+        // A streams answer that is broken has no old copy to stand in.
+        FakeHttpServer streams;
+        streams.setJson("/streams/movie/tt1", R"({"ok":true,"v":1,"data":{}})");
+        Waiter<QString> bad;
+        other.get("o", {streams.base()}, "/streams/movie/tt1", [&](const QJsonObject&, const QString& e, bool) { bad.value = e; });
+        QVERIFY(bad.wait(8000));
+        QVERIFY(bad.value->contains("malformed"));
+    }
+
+    void jspAFreshCopyDeliveredAfterTheSourceChangedIsCancelled()
+    {
+        FakeHttpServer server;
+        server.setJson("/catalog/movie/c", R"({"ok":true,"v":1,"ttl":600,"data":{"items":[{"id":"tt1"}]}})");
+        JspClient client;
+        Waiter<QString> warm;
+        client.get("s", {server.base()}, "/catalog/movie/c", [&](const QJsonObject&, const QString& e, bool) { warm.value = e; });
+        QVERIFY(warm.wait(5000));
+        Waiter<QString> hit;
+        QJsonObject got;
+        client.get("s", {server.base()}, "/catalog/movie/c", [&](const QJsonObject& d, const QString& e, bool) { got = d; hit.value = e; });
+        client.forget("s");   // before the copy is delivered
+        QVERIFY(hit.wait(5000));
+        QCOMPARE(*hit.value, QStringLiteral("cancelled"));
+        QVERIFY(got.isEmpty());
+        QCOMPARE(server.requests.size(), 1);
+    }
+
+    void jspCachedNoticeFollowsTheViewOnScreen()
+    {
+        FakeHttpServer server;
+        server.setJson("/manifest.json", R"({"protocol":1,"id":"org.views","name":"Views","version":"1","resources":["catalog"],"types":["movie"],
+            "catalogs":[{"type":"movie","id":"a","name":"List A"},{"type":"movie","id":"b","name":"List B"}]})");
+        const char* good = R"({"ok":true,"v":1,"ttl":0,"data":{"items":[{"id":"tt1","type":"movie","name":"One"}]}})";
+        server.setJson("/catalog/movie/a", good);
+        server.setJson("/catalog/movie/b", good);
+        QTemporaryDir data;
+        StremioAdapter addons(data.filePath("v.json"), false);
+        Waiter<QString> installed;
+        addons.install(server.base() + "/manifest.json", [&](const QString& e) { installed.value = e; });
+        QVERIFY(installed.wait());
+        QCOMPARE(*installed.value, QString());
+        QCOMPARE(addons.catalogs().size(), 2);
+        const CatalogRef a = addons.catalogs().value(0), b = addons.catalogs().value(1);
+        const auto fetch = [&](const CatalogRef& c, const QString& search = {}) {
+            Waiter<QString> w;
+            addons.fetchCatalog(c, search, 0, [&](const QList<MetaPreview>&, const QString& e) { w.value = e; });
+            [&] { QVERIFY(w.wait(8000)); }();
+            return w.value.value_or("no answer");
+        };
+        const auto cachedViews = [&] { return addons.addons().value(0).cachedViews; };
+        QCOMPARE(fetch(a), QString());
+        QCOMPARE(fetch(b), QString());
+        QVERIFY(cachedViews().isEmpty());
+        FakeHttpServer::Answer down;
+        down.status = 503;
+        down.body = R"({"ok":false,"v":1,"error":{"code":"unavailable"}})";
+        server.set("/catalog/movie/a", down);
+        server.set("/catalog/movie/b", down);
+        QCOMPARE(fetch(a), QString());
+        QCOMPARE(fetch(b), QString());
+        QCOMPARE(cachedViews().size(), 2);
+        // List B answers again: only B's notice goes, A is still an old copy.
+        server.setJson("/catalog/movie/b", good);
+        QCOMPARE(fetch(b), QString());
+        QCOMPARE(cachedViews(), QStringList{"catalog/movie/a"});
+        // The same list, another search: the one on screen decides.
+        server.setJson("/catalog/movie/a", good);
+        QCOMPARE(fetch(a), QString());
+        QVERIFY(cachedViews().isEmpty());
+    }
+
+    void jspManifestRefreshHoldsRedirectsToTheAddressRule()
+    {
+        FakeHttpServer server;
+        const QByteArray manifest = R"({"protocol":1,"id":"org.moved","name":"Moved","version":"1","resources":["catalog"],"types":["movie"],
+            "catalogs":[{"type":"movie","id":"a","name":"A"}]})";
+        server.setJson("/manifest.json", manifest);
+        QTemporaryDir data;
+        StremioAdapter addons(data.filePath("m.json"), false);
+        Waiter<QString> installed;
+        addons.install(server.base() + "/manifest.json", [&](const QString& e) { installed.value = e; });
+        QVERIFY(installed.wait());
+        QCOMPARE(*installed.value, QString());
+        // The manifest now redirects to plain http on another machine.
+        FakeHttpServer::Answer away;
+        away.status = 302;
+        away.location = "http://example.invalid/manifest.json";
+        server.set("/manifest.json", away);
+        addons.refreshManifests();
+        QTRY_VERIFY_WITH_TIMEOUT(addons.addons().value(0).lastError.contains("redirect"), 8000);
+    }
+
     void jspTypedQualityAndSeedersBeatTheLabel()
     {
         const QJsonObject data = json(R"({"streams":[

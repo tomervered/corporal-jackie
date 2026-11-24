@@ -85,7 +85,14 @@ void JspClient::get(const QString& sourceId, const QStringList& bases, const QSt
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     if (const auto it = m_cache.constFind(key); it != m_cache.constEnd() && it->freshUntil > now) {
         const QJsonObject data = it->data;
-        QTimer::singleShot(0, this, [done, data] { done(data, {}, false); });
+        // Delivered on the next turn: a source removed or changed until then gets "cancelled", like a network answer.
+        const int generation = m_generation.value(sourceId);
+        QTimer::singleShot(0, this, [this, done, data, sourceId, generation] {
+            if (generation != m_generation.value(sourceId))
+                done({}, QStringLiteral("cancelled"), false);
+            else
+                done(data, {}, false);
+        });
         return;
     }
     auto attempt = std::make_shared<Attempt>();
@@ -211,6 +218,12 @@ void JspClient::handle(const std::shared_ptr<Attempt>& attempt, const QString& b
             e.message = reply.status >= 400 ? QStringLiteral("HTTP %1").arg(reply.status) : QStringLiteral("not a Jackie answer");
         }
         const bool httpOk = reply.status >= 200 && reply.status < 300;
+        if (e.ok && httpOk && !jsp::validData(attempt->path, e.data)) {
+            // Says ok but the data is not what the resource promises: not cached, and another mirror is asked.
+            e.ok = false;
+            e.code = QStringLiteral("unavailable");
+            e.message = QStringLiteral("malformed answer");
+        }
         if (e.ok && httpOk) {
             const qint64 now = QDateTime::currentMSecsSinceEpoch();
             m_preferred.insert(attempt->sourceId, base);

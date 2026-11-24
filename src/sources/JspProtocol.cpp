@@ -131,6 +131,20 @@ Envelope parseEnvelope(const QJsonObject& json)
     return e;
 }
 
+bool validData(const QString& path, const QJsonObject& data)
+{
+    const auto has = [&](const char* key, QJsonValue::Type type) { return data.value(QLatin1String(key)).type() == type; };
+    if (path.startsWith(QLatin1String("/catalog/")) || path.startsWith(QLatin1String("/search")))
+        return has("items", QJsonValue::Array);
+    if (path.startsWith(QLatin1String("/streams/")))
+        return has("streams", QJsonValue::Array);
+    if (path.startsWith(QLatin1String("/subtitles/")))
+        return has("subtitles", QJsonValue::Array);
+    if (path.startsWith(QLatin1String("/meta/")))
+        return has("id", QJsonValue::String) && !data.value("id").toString().isEmpty();
+    return true;
+}
+
 QString describe(const Envelope& e)
 {
     return e.message.isEmpty() ? e.code : e.code + QStringLiteral(": ") + e.message;
