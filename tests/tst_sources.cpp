@@ -7,6 +7,8 @@
 #include "FakeHttpServer.h"
 #include "FakeTarget.h"
 #include "LocalLibrary.h"
+#include "JspClient.h"
+#include "JspProtocol.h"
 #include "LocalNames.h"
 #include "Session.h"
 #include "StreamRanking.h"
@@ -839,6 +841,183 @@ private slots:
     }
 
     // A server that never goes quiet but never finishes still ends.
+    // --- The Jackie Source Protocol (docs/PROTOCOL.md) --------------------------------
+
+    void jspEnvelopeAndPaths()
+    {
+        QVERIFY(jsp::isJsp(json(R"({"protocol":1})")));
+        QVERIFY(!jsp::isJsp(json(R"({"id":"x"})")));
+        QVERIFY(jsp::parseEnvelope(json(R"({"ok":true,"v":1,"ttl":9999,"data":{"a":1}})")).ok);
+        QCOMPARE(jsp::parseEnvelope(json(R"({"ok":true,"v":1,"ttl":9999,"data":{}})")).ttl, 3600);
+        const jsp::Envelope bad = jsp::parseEnvelope(json(R"({"ok":false,"v":1,"error":{"code":"rate_limited","message":"Slow","retryAfter":30}})"));
+        QVERIFY(!bad.ok);
+        QCOMPARE(bad.retryAfter, 30);
+        QVERIFY(!jsp::isDefinitive(bad));
+        QVERIFY(jsp::isDefinitive(jsp::parseEnvelope(json(R"({"ok":false,"v":1,"error":{"code":"not_found"}})"))));
+        // Anything that is not an envelope is "unavailable", never a crash.
+        QCOMPARE(jsp::parseEnvelope(json(R"({"metas":[]})")).code, QStringLiteral("unavailable"));
+        QCOMPARE(jsp::catalogPath("movie", "top", "a b", "", "2020s", 0), QStringLiteral("/catalog/movie/top?q=a%20b&year=2020s"));
+        QCOMPARE(jsp::catalogPath("movie", "top", "", "", "", 40), QStringLiteral("/catalog/movie/top?skip=40"));
+        const QStringList m = jsp::mirrors(json(R"({"mirrors":["https://a.example/","http://evil.example","http://127.0.0.1:1/x","https://a.example"]})"));
+        QCOMPARE(m, (QStringList{"https://a.example", "http://127.0.0.1:1/x"}));
+    }
+
+    void jspStreamsBecomePlayableSources()
+    {
+        const QJsonObject data = json(R"({"streams":[
+            {"kind":"torrent","infoHash":"ABCDEF0123456789ABCDEF0123456789ABCDEF01","fileIdx":3,"trackers":["udp://t.example:80"],"name":"Ex 4K","detail":"HDR","size":1000,"group":"g"},
+            {"kind":"http","url":"https://cdn.example/a.mp4","headers":{"Referer":"https://x.example"},"name":"Web"},
+            {"kind":"http","url":"file:///etc/passwd","name":"Bad"},
+            {"kind":"from-the-future","name":"Unknown"}]})");
+        const QList<StreamOption> s = stremio::parseStreams(jsp::streamsAsStremio(data), "src", "Source");
+        QCOMPARE(s.size(), 2);   // only the unknown and the unsafe items are dropped
+        QCOMPARE(s[0].source.kind, PlayableSource::Kind::Torrent);
+        QVERIFY(s[0].source.url.toString().contains("btih:abcdef"));
+        QVERIFY(s[0].source.url.toString().contains("so=3"));
+        QVERIFY(s[0].source.url.toString().contains("tr="));
+        QCOMPARE(s[0].sizeBytes, qint64(1000));
+        QCOMPARE(s[1].source.kind, PlayableSource::Kind::Http);
+        QCOMPARE(s[1].source.headers.value("Referer"), QStringLiteral("https://x.example"));
+    }
+
+    void jspSourceServesCatalogsThroughTheAdapter()
+    {
+        FakeHttpServer server;
+        server.setJson("/j/manifest.json", R"({"protocol":1,"id":"org.jsp","name":"Jackie Src","version":"1.0.0",
+            "resources":["catalog","meta","streams"],"types":["movie"],"idPrefixes":["tt"],
+            "catalogs":[{"type":"movie","id":"top","name":"Top","search":true,"genres":["drama"],"years":["2026","Older"]}]})");
+        server.setJson("/j/catalog/movie/top", R"({"ok":true,"v":1,"ttl":60,"data":{"items":[{"id":"tt1","type":"movie","name":"One","year":2020}],"total":1}})");
+        server.setJson("/j/streams/movie/tt1", R"({"ok":true,"v":1,"ttl":60,"data":{"streams":[{"kind":"http","url":"https://cdn.example/a.mp4","name":"Web"}]}})");
+        server.setJson("/j/meta/movie/tt9", R"({"ok":false,"v":1,"error":{"code":"not_found","message":"no such title"}})");
+        QTemporaryDir data;
+        StremioAdapter addons(data.filePath("a.json"), false);
+        Waiter<QString> installed;
+        addons.install(server.base() + "/j/manifest.json", [&](const QString& e) { installed.value = e; });
+        QVERIFY(installed.wait());
+        QCOMPARE(*installed.value, QString());
+        QVERIFY(addons.addons()[0].jsp);
+        const QList<CatalogRef> catalogs = addons.catalogs();
+        QCOMPARE(catalogs.size(), 1);
+        QVERIFY(catalogs[0].searchable);
+        QCOMPARE(catalogs[0].years, (QStringList{"2026", "Older"}));
+
+        using Items = std::pair<QList<MetaPreview>, QString>;
+        Waiter<Items> got;
+        addons.fetchCatalog(catalogs[0], "", 0, [&](const QList<MetaPreview>& items, const QString& e) { got.value = Items{items, e}; });
+        QVERIFY(got.wait());
+        QCOMPARE(got.value->second, QString());
+        QCOMPARE(got.value->first.size(), 1);
+        QCOMPARE(got.value->first[0].releaseInfo, QStringLiteral("2020"));
+
+        Waiter<QList<StreamOption>> streams;
+        addons.fetchStreams("movie", "tt1", [&](const QList<StreamOption>& s, const QString&, const QString&) { streams.value = s; }, [] {});
+        QVERIFY(streams.wait());
+        QCOMPARE(streams.value->size(), 1);
+
+        // A definitive error is final and in words; the mirror list is not asked.
+        MetaPreview missing;
+        missing.adapter = "stremio";
+        missing.provider = "org.jsp";
+        missing.type = "movie";
+        missing.id = "tt9";
+        Waiter<QString> metaError;
+        addons.fetchMeta(missing, [&](const std::optional<MetaDetail>& m, const QString& e) { metaError.value = m ? QString() : e; });
+        QVERIFY(metaError.wait());
+        QVERIFY(metaError.value->contains("not_found"));
+    }
+
+    void jspTriesTheMirrorWhenTheFirstFails()
+    {
+        FakeHttpServer primary, mirror;
+        FakeHttpServer::Answer down;
+        down.status = 503;
+        down.body = R"({"ok":false,"v":1,"error":{"code":"upstream_down","message":"data provider failed"}})";
+        primary.set("/x/catalog/movie/top", down);
+        mirror.setJson("/x/catalog/movie/top", R"({"ok":true,"v":1,"data":{"items":[{"id":"tt1","type":"movie","name":"One"}]}})");
+        mirror.setJson("/x/catalog/movie/top2", R"({"ok":true,"v":1,"data":{"items":[]}})");
+        JspClient client;
+        Waiter<QString> w;
+        QJsonObject got;
+        client.get("s", {primary.base() + "/x", mirror.base() + "/x"}, "/catalog/movie/top",
+                   [&](const QJsonObject& d, const QString& e, bool) { got = d; w.value = e; });
+        QVERIFY(w.wait());
+        QCOMPARE(*w.value, QString());
+        QCOMPARE(got.value("items").toArray().size(), 1);
+        QVERIFY(primary.requests.size() >= 1);
+        // The mirror that worked is asked first next time.
+        QJsonObject again;
+        Waiter<QString> w2;
+        client.get("s", {primary.base() + "/x", mirror.base() + "/x"}, "/catalog/movie/top2",
+                   [&](const QJsonObject& d, const QString& e, bool) { again = d; w2.value = e; });
+        QVERIFY(w2.wait());
+        QCOMPARE(primary.requests.size(), 1);
+    }
+
+    void jspSlowSourceIsHedgedNotWaitedFor()
+    {
+        FakeHttpServer slow, fast;
+        FakeHttpServer::Answer hang;
+        hang.delayMs = -1;
+        slow.set("/catalog/movie/top", hang);
+        fast.setJson("/catalog/movie/top", R"({"ok":true,"v":1,"data":{"items":[]}})");
+        JspClient client;
+        client.setHedgeMs(200);
+        Waiter<QString> w;
+        QElapsedTimer clock;
+        clock.start();
+        client.get("s", {slow.base(), fast.base()}, "/catalog/movie/top", [&](const QJsonObject&, const QString& e, bool) { w.value = e; });
+        QVERIFY(w.wait(5000));
+        QCOMPARE(*w.value, QString());
+        QVERIFY2(clock.elapsed() < 3000, "the second request should not wait for the first one's 10 s limit");
+    }
+
+    void jspSameAddressIsAskedAgainWhenThereIsNoMirror()
+    {
+        FakeHttpServer server;
+        FakeHttpServer::Answer first;
+        first.delayMs = 1500;   // slower than the hedge
+        first.body = R"({"ok":true,"v":1,"data":{"items":[]}})";
+        server.set("/c", first);
+        JspClient client;
+        client.setHedgeMs(100);
+        Waiter<QString> w;
+        client.get("s", {server.base()}, "/c", [&](const QJsonObject&, const QString& e, bool) { w.value = e; });
+        QVERIFY(w.wait(5000));
+        QCOMPARE(*w.value, QString());
+        QCOMPARE(server.requests.size(), 2);
+    }
+
+    void jspKeepsAnswersForTheirTtlAndShowsTheLastGoodCopyOnFailure()
+    {
+        FakeHttpServer server;
+        server.setJson("/c", R"({"ok":true,"v":1,"ttl":0,"data":{"items":[1]}})");
+        JspClient client;
+        auto ask = [&](QJsonObject* out, bool* stale) {
+            Waiter<QString> w;
+            client.get("s", {server.base()}, "/c", [&](const QJsonObject& d, const QString& e, bool s) { *out = d; *stale = s; w.value = e; });
+            [&] { QVERIFY(w.wait(8000)); }();
+            return w.value.value_or("no answer");
+        };
+        QJsonObject d;
+        bool stale = true;
+        QCOMPARE(ask(&d, &stale), QString());
+        QVERIFY(!stale);
+        // The source goes down: the last good answer is used and says so.
+        FakeHttpServer::Answer down;
+        down.status = 503;
+        down.body = R"({"ok":false,"v":1,"error":{"code":"unavailable"}})";
+        server.set("/c", down);
+        QJsonObject d2;
+        QCOMPARE(ask(&d2, &stale), QString());
+        QVERIFY(stale);
+        QCOMPARE(d2.value("items").toArray().size(), 1);
+        // A source never asked before has no copy: the error is shown.
+        Waiter<QString> w;
+        client.get("other", {server.base()}, "/c", [&](const QJsonObject&, const QString& e, bool) { w.value = e; });
+        QVERIFY(w.wait(8000));
+        QVERIFY(!w.value->isEmpty());
+    }
+
     // --- WikiMaze's own search API and the lists of an add-on --------------------------
 
     void wikimazeFiltersBecomeQueryParameters()

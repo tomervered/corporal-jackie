@@ -90,7 +90,7 @@ void StremioAdapter::installDefaults(const QStringList& only)
             continue;
         QString error;
         const QJsonObject raw = QJsonDocument::fromJson(d.manifest).object();
-        if (auto m = stremio::parseManifest(raw, &error)) {
+        if (auto m = jsp::parseAnyManifest(raw, &error)) {
             setManifest(QUrl(QString::fromLatin1(d.url)), *m, raw);
             added = true;
         } else
@@ -133,7 +133,7 @@ void StremioAdapter::restore(const QJsonArray& list)
         const QUrl url(o.value("transportUrl").toString());
         const QJsonObject raw = o.value("manifest").toObject();
         QString error;
-        if (auto m = stremio::parseManifest(raw, &error); m && url.isValid() && m_addons.size() < kMaxAddons) {
+        if (auto m = jsp::parseAnyManifest(raw, &error); m && url.isValid() && m_addons.size() < kMaxAddons) {
             setManifest(url, *m, raw);
             if (o.value("disabled").toBool())
                 m_addons.last().disabled = true;
@@ -160,16 +160,42 @@ void StremioAdapter::save() const
 
 void StremioAdapter::setManifest(const QUrl& url, const stremio::Manifest& manifest, const QJsonObject& raw)
 {
+    const bool isJsp = jsp::isJsp(raw);
+    const QStringList mirrors = isJsp ? jsp::mirrors(raw) : QStringList();
     for (InstalledAddon& a : m_addons) {
         if (a.manifest.id == manifest.id || a.manifestUrl == url) {
             a.manifestUrl = url;
             a.manifest = manifest;
             a.rawManifest = raw;
+            a.jsp = isJsp;
+            a.mirrors = mirrors;
             a.lastError.clear();
             return;
         }
     }
-    m_addons.append({url, manifest, raw, {}, false, {}});
+    InstalledAddon a;
+    a.manifestUrl = url;
+    a.manifest = manifest;
+    a.rawManifest = raw;
+    a.jsp = isJsp;
+    a.mirrors = mirrors;
+    m_addons.append(a);
+}
+
+void StremioAdapter::ask(const InstalledAddon& addon, const QUrl& stremioUrl, const QString& jspPath,
+                         QJsonObject (*asStremio)(const QJsonObject&), JsonFetcher::Done done)
+{
+    if (!addon.jsp) {
+        m_fetcher.get(stremioUrl, std::move(done));
+        return;
+    }
+    QStringList bases{stremio::baseOf(addon.manifestUrl)};
+    bases << addon.mirrors;
+    m_jsp.get(addon.manifest.id, bases, jspPath, [asStremio, done = std::move(done)](const QJsonObject& data, const QString& error, bool stale) {
+        if (stale)
+            qCWarning(lcSources) << "A Jackie source did not answer; showing its last good answer";
+        done(error.isEmpty() ? asStremio(data) : QJsonObject(), error);
+    });
 }
 
 const InstalledAddon* StremioAdapter::find(const QString& addonId) const
@@ -261,7 +287,11 @@ void StremioAdapter::fetchCatalog(const CatalogRef& catalog, const QString& sear
     const QString addonId = addon->manifest.id;
     const QUrl url = stremio::resourceUrl(stremio::baseOf(addon->manifestUrl), QStringLiteral("catalog"),
                                           catalog.type, catalog.id, extras);
-    m_fetcher.get(url, [this, addonId, done](const QJsonObject& json, const QString& error) {
+    const QString searchText = search.trimmed();
+    ask(*addon, url,
+        jsp::catalogPath(catalog.type, catalog.id, searchText, searchText.isEmpty() ? genre : QString(),
+                         searchText.isEmpty() ? catalog.year : QString(), skip),
+        jsp::catalogAsStremio, [this, addonId, done](const QJsonObject& json, const QString& error) {
         noteResult(addonId, error);
         if (!error.isEmpty()) {
             done({}, error);
@@ -307,7 +337,8 @@ void StremioAdapter::tryMeta(QStringList addonIds, const MetaPreview& item, Meta
     }
     const QString addonId = addon->manifest.id;
     const QUrl url = stremio::resourceUrl(stremio::baseOf(addon->manifestUrl), QStringLiteral("meta"), item.type, item.id);
-    m_fetcher.get(url, [this, addonId, addonIds, item, done](const QJsonObject& json, const QString& error) {
+    ask(*addon, url, jsp::metaPath(item.type, item.id), jsp::metaAsStremio,
+        [this, addonId, addonIds, item, done](const QJsonObject& json, const QString& error) {
         noteResult(addonId, error);
         std::optional<MetaDetail> meta = error.isEmpty() ? stremio::parseMeta(json) : std::nullopt;
         if (!meta) {
@@ -343,7 +374,8 @@ void StremioAdapter::fetchStreams(const QString& type, const QString& videoId, S
         const QString addonId = addon->manifest.id;
         const QString addonName = addon->manifest.name;
         const QUrl url = stremio::resourceUrl(stremio::baseOf(addon->manifestUrl), QStringLiteral("stream"), type, videoId);
-        m_fetcher.get(url, [this, addonId, addonName, part, finished, left](const QJsonObject& json, const QString& error) {
+        ask(*addon, url, jsp::streamsPath(type, videoId), jsp::streamsAsStremio,
+            [this, addonId, addonName, part, finished, left](const QJsonObject& json, const QString& error) {
             noteResult(addonId, error);
             part(error.isEmpty() ? stremio::parseStreams(json, addonId, addonName) : QList<StreamOption>{},
                  addonName, error);
@@ -366,7 +398,8 @@ void StremioAdapter::fetchSubtitles(const QString& type, const QString& videoId,
         const QString addonId = addon->manifest.id;
         const QString addonName = addon->manifest.name;
         const QUrl url = stremio::resourceUrl(stremio::baseOf(addon->manifestUrl), QStringLiteral("subtitles"), type, videoId);
-        m_fetcher.get(url, [this, addonId, addonName, done, left, all](const QJsonObject& json, const QString& error) {
+        ask(*addon, url, jsp::subtitlesPath(type, videoId), jsp::subtitlesAsStremio,
+            [this, addonId, addonName, done, left, all](const QJsonObject& json, const QString& error) {
             noteResult(addonId, error);
             for (SubtitleSource s : stremio::parseSubtitles(json)) {
                 if (s.label.isEmpty())
@@ -401,7 +434,7 @@ void StremioAdapter::install(const QString& link, std::function<void(const QStri
             return;
         }
         QString parseError;
-        const std::optional<stremio::Manifest> m = stremio::parseManifest(json, &parseError);
+        const std::optional<stremio::Manifest> m = jsp::parseAnyManifest(json, &parseError);
         if (!m) {
             done(QStringLiteral("That link did not return an add-on (%1).").arg(parseError));
             return;
@@ -427,6 +460,7 @@ bool StremioAdapter::uninstall(const QString& addonId)
     if (it == m_addons.end())
         return false;
     m_addons.erase(it);
+    m_jsp.forget(addonId);
     save();
     qCInfo(lcSources).noquote() << "Removed add-on" << addonId;
     emit addonsChanged();
@@ -495,7 +529,7 @@ void StremioAdapter::refreshManifests()
             if (!find(addonId))
                 return;  // removed meanwhile
             QString parseError;
-            const auto m = error.isEmpty() ? stremio::parseManifest(json, &parseError) : std::nullopt;
+            const auto m = error.isEmpty() ? jsp::parseAnyManifest(json, &parseError) : std::nullopt;
             if (!m || m->id != addonId) {
                 noteResult(addonId, !error.isEmpty() ? error : m ? QStringLiteral("its manifest changed id") : parseError);
                 return;

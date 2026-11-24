@@ -5,6 +5,8 @@ add_library(cj_sources STATIC
     StremioProtocol.cpp StremioProtocol.h
     StreamRanking.cpp StreamRanking.h
     JsonFetcher.cpp JsonFetcher.h
+    JspProtocol.cpp JspProtocol.h
+    JspClient.cpp JspClient.h
     StremioAdapter.cpp StremioAdapter.h
     LocalNames.cpp LocalNames.h
     LocalLibrary.cpp LocalLibrary.h

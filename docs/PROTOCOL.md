@@ -6,7 +6,7 @@ for sources that want clear failures, bounded waits and plain data. Both are
 adapters behind `SourceAdapter`, so the rest of the app does not know which
 one answered.
 
-Draft for review. Nothing here is built yet.
+Built in 0.4.1: `JspProtocol` (parsing), `JspClient` (requests) and a dialect switch in `StremioAdapter`, so a Jackie source is listed, ordered, switched on and off and persisted like any add-on.
 
 ## What it fixes compared with the Stremio protocol
 
@@ -74,13 +74,17 @@ non-envelope answer as `unavailable`.
 { "kind": "http", "url": "https://…", "name": "…", "quality": 1080, "size": 2147483648, "headers": { } }
 ```
 
-## What the client does
+## What the client does (fewer timeouts)
 
-- One request per call, a 10 s limit, one retry only for a transport error that
-  happened before any byte came back. `rate_limited` waits `retryAfter` once.
-- Tries `mirrors` in order, with the manifest URL as the first; the working
-  one is kept for the session, never written to disk.
-- Caches by `ttl` in memory; on an error shows the stale copy with a note.
+- **One connection pool per source**, so a slow source never holds up the others.
+- **Hedged requests**: if the first request has no answer after 2.5 s, a second goes to the next mirror (or the same address again when there is no mirror). The first good answer wins. A failed request is replaced at once, not after the timer.
+- **A definitive error** (`not_found`, `bad_request`) is final; every other error moves on to the next mirror.
+- **Answers are kept for their `ttl`** in memory, and when every try fails the last good copy is shown instead of an error (it is logged, the add-ons page does not call it a failure).
+- **The mirror that answered is asked first** next time (memory only, never written to disk).
+- A request waits at most 10 s in all.
+
+Also:
+
 - A `Stream` goes through the same checks as any other source (`LinkRules`,
   `docs/SECURITY.md`): no file or UNC links, no credentials in URLs, headers
   only for the same host.
@@ -93,12 +97,11 @@ identifiers, no accounts and no telemetry.
 
 ## Stremio add-ons
 
-`StremioAdapter` stays as it is and keeps its tests. Installing a link whose
-manifest has `protocol: 1` uses the JSP adapter; any other manifest uses the
-Stremio adapter. WikiMaze will serve both until Stremio use is gone.
+A manifest with `protocol: 1` is a Jackie source; any other is a Stremio add-on. Both live in `StremioAdapter`, which
+asks each in its own protocol and turns a Jackie answer into the shape the Stremio parsers already read, so the stream,
+header and link checks apply to both. WikiMaze will serve both until Stremio use is gone.
 
-## Build order
+## Still to do
 
-1. `JspAdapter` (catalog, search, meta, streams) over `JsonFetcher`, with a fake-server test for every error code, mirror failover, `ttl`, stale copy and a hung server.
-2. The installer picks the adapter from the manifest; the add-ons page shows the protocol.
-3. WikiMaze serves JSP next to Stremio (outside this repository).
+- WikiMaze serves JSP next to Stremio (outside this repository). Until then nothing in the app speaks JSP by default.
+- Show the protocol on the add-ons page.
