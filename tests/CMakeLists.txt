@@ -98,6 +98,20 @@ set_tests_properties(tst_bench PROPERTIES TIMEOUT 600 LABELS bench)
 add_test(NAME bench_mpv COMMAND tst_torrentstream magnetPlaysToTheEnd)
 set_tests_properties(bench_mpv PROPERTIES TIMEOUT 300 LABELS bench)
 
+# Decoding benchmark (libmpv headless, software decoding of the bundled clip):
+# frames per second, CPU time, peak memory and seek time. Compare an old and a
+# new mpv/FFmpeg build with bench/compare_decode.py. ctest -L bench -V.
+add_executable(bench_decode bench/bench_decode.cpp)
+target_link_libraries(bench_decode PRIVATE cj::mpv)
+if(WIN32)
+    target_link_libraries(bench_decode PRIVATE psapi)
+endif()
+# 1080p clips (H.264, HEVC 10-bit, AV1), 6 s of a synthetic test pattern each.
+foreach(clip h264-1080p hevc10-1080p av1-1080p)
+    add_test(NAME bench_decode_${clip} COMMAND bench_decode ${CMAKE_CURRENT_SOURCE_DIR}/data/bench/${clip}.mkv)
+    set_tests_properties(bench_decode_${clip} PROPERTIES TIMEOUT 600 LABELS bench)
+endforeach()
+
 # Download benchmark: a whole file with each download mode and with other
 # clients (aria2, Transmission, qBittorrent, WebTorrent) through
 # bench/download_competitor.cjs. Its own label, so the weekly "bench" runs

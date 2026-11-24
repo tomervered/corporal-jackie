@@ -86,6 +86,7 @@ Column {
         spacing: 6
         ScrollBar.vertical: ScrollBar {}
         delegate: Rectangle {
+            id: addonCard
             required property var modelData
             required property int index
             width: ListView.view.width
@@ -103,6 +104,39 @@ Column {
                 Muted { width: parent.width; text: modelData.description; visible: text !== ""; maximumLineCount: 2; elide: Text.ElideRight }
                 Muted { width: parent.width; text: modelData.enabled ? "Offers: " + modelData.offers : "Switched off: gives no lists, details or streams" }
                 Muted { width: parent.width; visible: modelData.error !== ""; color: Theme.error; text: "Last request failed: " + modelData.error }
+                // Which of its lists show up in Home, Discover and search.
+                Text {
+                    id: listsToggle
+                    objectName: "listsToggle-" + modelData.id
+                    visible: modelData.enabled && modelData.catalogs.length > 1
+                    property bool expanded: false
+                    readonly property int shown: modelData.catalogs.filter(c => c.enabled).length
+                    textFormat: Text.PlainText
+                    text: (expanded ? "Hide the list of lists" : "Lists shown: " + shown + " of " + modelData.catalogs.length + "  ·  choose")
+                    color: Theme.accent
+                    font.pixelSize: Theme.smallSize + 1
+                    TapHandler { onTapped: listsToggle.expanded = !listsToggle.expanded }
+                }
+                Column {
+                    width: parent.width
+                    visible: listsToggle.visible && listsToggle.expanded
+                    spacing: 2
+                    Repeater {
+                        model: modelData.catalogs
+                        Row {
+                            required property var modelData
+                            spacing: 8
+                            AppSwitch {
+                                objectName: "catalogSwitch-" + parent.modelData.id + "-" + parent.modelData.type
+                                anchors.verticalCenter: parent.verticalCenter
+                                checked: parent.modelData.enabled
+                                Accessible.name: (checked ? "Hide " : "Show ") + parent.modelData.name
+                                onToggled: browser.setCatalogEnabled(addonCard.modelData.id, parent.modelData.type, parent.modelData.id, checked)
+                            }
+                            Muted { anchors.verticalCenter: parent.verticalCenter; text: parent.modelData.name }
+                        }
+                    }
+                }
             }
             Row {
                 id: addonButtons

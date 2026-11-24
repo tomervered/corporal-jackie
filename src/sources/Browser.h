@@ -19,6 +19,7 @@ namespace cj {
 class LocalLibrary;
 class Session;
 class StremioAdapter;
+class WikiMazeSearch;
 
 class Browser : public QObject
 {
@@ -33,6 +34,10 @@ class Browser : public QObject
     Q_PROPERTY(QString search READ search NOTIFY itemsChanged)
     Q_PROPERTY(QStringList genres READ genres NOTIFY itemsChanged)
     Q_PROPERTY(QString genre READ genre NOTIFY itemsChanged)
+    Q_PROPERTY(QStringList years READ years NOTIFY itemsChanged)
+    Q_PROPERTY(QString year READ year NOTIFY itemsChanged)
+    // WikiMaze's own search (filters, whole title store); see WikiMazeSearch.h.
+    Q_PROPERTY(QObject* wikimaze READ wikimaze CONSTANT)
     Q_PROPERTY(QVariantList homeRows READ homeRows NOTIFY homeChanged)
     Q_PROPERTY(QVariantList searchRows READ searchRows NOTIFY searchRowsChanged)
     Q_PROPERTY(QString searchAllText READ searchAllText NOTIFY searchRowsChanged)
@@ -69,6 +74,7 @@ public:
     void setLocal(LocalLibrary* local);
 
     QVariantList addons() const;
+    QObject* wikimaze() const;
     bool installing() const { return m_installing > 0; }
     QStringList folders() const;
     bool scanning() const;
@@ -78,6 +84,8 @@ public:
     QString search() const { return m_search; }
     QStringList genres() const { return m_catalogs.value(m_catalogIndex).genres; }
     QString genre() const { return m_genre; }
+    QStringList years() const { return m_catalogs.value(m_catalogIndex).years; }
+    QString year() const { return m_year; }
     QVariantList homeRows() const { return rowsMap(m_homeRows); }
     QVariantList searchRows() const { return rowsMap(m_searchRows); }
     QString searchAllText() const { return m_searchAllText; }
@@ -107,12 +115,14 @@ public:
     Q_INVOKABLE void moveAddon(const QString& addonId, int delta);
     // Off: the add-on stays installed but gives no lists, details or streams.
     Q_INVOKABLE void setAddonEnabled(const QString& addonId, bool enabled);
+    // One list of an add-on off or on: off, it shows nowhere (Home, Discover, search).
+    Q_INVOKABLE void setCatalogEnabled(const QString& addonId, const QString& type, const QString& catalogId, bool enabled);
     Q_INVOKABLE bool addFolder(const QUrl& folder);
     Q_INVOKABLE void removeFolder(const QString& path);
     Q_INVOKABLE void rescanFolders();
 
     // genre: one of the catalog's genres, or empty for none.
-    Q_INVOKABLE void openCatalog(int index, const QString& search = {}, const QString& genre = {});
+    Q_INVOKABLE void openCatalog(int index, const QString& search = {}, const QString& genre = {}, const QString& year = {});
     // The home page: the first page of every list that can be browsed.
     Q_INVOKABLE void loadHome();
     // Searches every list that can be searched (of one type, or all types
@@ -120,6 +130,8 @@ public:
     Q_INVOKABLE void searchAll(const QString& text, const QString& type = {});
     // An item of a home or search row: its details.
     Q_INVOKABLE void openRowItem(bool searchRow, int row, int index);
+    // An item of the WikiMaze search row: its details.
+    Q_INVOKABLE void openWikimazeItem(int index);
     Q_INVOKABLE void loadMore();
     Q_INVOKABLE void openItem(int index);
     // Shows an item that is not in the list: one from the library or history.
@@ -184,12 +196,16 @@ private:
     int m_catalogIndex = -1;
     QString m_search;
     QString m_genre;
+    QString m_year;
     bool m_homeLoaded = false;  // loadHome() ran: later list changes reload it
     QStringList m_homeKeys;     // the catalogs the home rows were loaded for
     QList<Row> m_homeRows;
     quint64 m_homeGen = 0;
     QList<Row> m_searchRows;
     QString m_searchAllText;
+    QString m_searchType;
+    WikiMazeSearch* m_wikimaze = nullptr;
+    bool m_wikimazeRowsKept = true;   // the last search kept WikiMaze's own rows
     quint64 m_searchGen = 0;
     QList<MetaPreview> m_items;
     bool m_itemsLoading = false;

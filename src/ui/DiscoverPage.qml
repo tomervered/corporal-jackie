@@ -106,7 +106,18 @@ Item {
                 Accessible.name: "Genre"
                 model: (discoverPage.open && discoverPage.open.genreRequired ? [] : ["All genres"]).concat(browser.genres)
                 currentIndex: Math.max(0, model.indexOf(browser.genre === "" ? "All genres" : browser.genre))
-                onActivated: index => browser.openCatalog(browser.catalogIndex, "", model[index] === "All genres" ? "" : model[index])
+                onActivated: index => browser.openCatalog(browser.catalogIndex, "", model[index] === "All genres" ? "" : model[index], browser.year)
+            }
+            // For a list that declares a year filter (WikiMaze does).
+            AppCombo {
+                id: yearBox
+                objectName: "yearPicker"
+                visible: browser.years.length > 0
+                width: 150
+                Accessible.name: "Year"
+                model: ["Any year"].concat(browser.years)
+                currentIndex: Math.max(0, model.indexOf(browser.year === "" ? "Any year" : browser.year))
+                onActivated: index => browser.openCatalog(browser.catalogIndex, "", browser.genre, model[index] === "Any year" ? "" : model[index])
             }
             // Only for a list that can be searched: the others have no box
             // that does nothing. The search at the top asks every add-on.
@@ -118,7 +129,7 @@ Item {
                 search: true
                 text: browser.search
                 placeholderText: "Filter this list"
-                onAccepted: browser.openCatalog(browser.catalogIndex, text, browser.genre)
+                onAccepted: browser.openCatalog(browser.catalogIndex, text, browser.genre, browser.year)
             }
         }
         Muted {

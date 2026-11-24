@@ -19,6 +19,7 @@ struct InstalledAddon
     QJsonObject rawManifest;  // kept on disk so catalogs show without network
     QString lastError;        // the last failed request, in words; empty when fine
     bool disabled = false;    // switched off: kept, but never asked for anything
+    QStringList hiddenCatalogs;   // "type/id" of lists switched off (kept, not shown anywhere)
 };
 
 class StremioAdapter : public SourceAdapter
@@ -56,6 +57,11 @@ public:
 
     QList<InstalledAddon> addons() const { return m_addons; }
 
+    // WikiMaze's address (its manifest link without "/manifest.json", with a
+    // language prefix such as /he-il if the link has one), for its search API.
+    // Empty when it is not installed or switched off.
+    QString wikimazeBase() const;
+
     // Accepts https://…/manifest.json and stremio://…/manifest.json. An
     // add-on already installed is updated in place. `done` gets an empty
     // error on success.
@@ -66,6 +72,8 @@ public:
     bool move(const QString& addonId, int delta);
     // Switches an add-on off (kept in the list, never asked) or on again.
     bool setEnabled(const QString& addonId, bool enabled);
+    // Switches one of an add-on's lists off (hidden from Home, Discover and search) or on again.
+    bool setCatalogEnabled(const QString& addonId, const QString& type, const QString& catalogId, bool enabled);
     // Fetches every manifest again (add-ons change their catalogs).
     void refreshManifests();
 

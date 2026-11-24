@@ -44,6 +44,7 @@ class Preferences : public QObject
     Q_PROPERTY(QString colorMode READ colorMode WRITE setColorMode NOTIFY themeChanged)
     Q_PROPERTY(QVariantMap colorEdits READ colorEdits WRITE setColorEdits NOTIFY themeChanged)
     // The upscaler badge over the video (top left).
+    Q_PROPERTY(bool screenshots READ screenshots WRITE setScreenshots NOTIFY screenshotsChanged)
     Q_PROPERTY(bool showUpscalerBadge READ showUpscalerBadge WRITE setShowUpscalerBadge NOTIFY upscalerBadgeChanged)
     // With white or near-white panels the player's controls turn charcoal,
     // unless this is on.
@@ -87,6 +88,8 @@ public:
                                    bool torrents = false, bool uploads = false);
 
     QString colorMode() const { return m_colorMode; }
+    bool screenshots() const { return m_screenshots; }
+    void setScreenshots(bool on);
     bool showUpscalerBadge() const { return m_upscalerBadge; }
     void setShowUpscalerBadge(bool on);
     // How strong the fade behind the player's controls is: full, half, little or off.
@@ -128,6 +131,7 @@ signals:
     void appearanceChanged();
     void themeChanged();
     void upscalerBadgeChanged();
+    void screenshotsChanged();
     void playerHaloChanged();
     void savedPalettesChanged();
 
@@ -153,6 +157,7 @@ private:
     QString m_colorMode = QStringLiteral("dark");
     QVariantMap m_colorEdits;
     bool m_upscalerBadge = true;
+    bool m_screenshots = true;
     QString m_playerHalo = QStringLiteral("full");
     QVariantList m_savedPalettes;
     void storePalettes();

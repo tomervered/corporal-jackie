@@ -17,8 +17,8 @@ namespace {
 
 // Used only until the first refresh fetches the real manifests: enough for
 // the default add-ons' lists to show on a first run. A copy of
-// https://wikimaze-seven.vercel.app/manifest.json (2026-11-17).
-const char kDefaultManifest[] = R"json({"id":"community.wikimaze","version":"0.1.0","name":"WikiMaze","description":"Movie and series details from Wikidata (CC0) and TVmaze (CC BY-SA), titles in your language. TV data from TVmaze.com, licensed CC BY-SA 4.0.","resources":["catalog",{"name":"meta","types":["movie","series"],"idPrefixes":["tt"]}],"types":["movie","series"],"idPrefixes":["tt"],"catalogs":[{"type":"movie","id":"wikimaze-trending","name":"WikiMovies - Trending","extra":[{"name":"genre","options":["Action","Adventure","Animation","Biography","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Musical","Mystery","Romance","Sci-Fi","Sports","Superhero","Thriller","War","Western"]},{"name":"skip"}]},{"type":"series","id":"wikimaze-trending","name":"WikiSeries - Trending","extra":[{"name":"genre","options":["Action","Adventure","Animation","Anime","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Medical","Mystery","Romance","Sci-Fi","Sports","Thriller","War","Western"]},{"name":"skip"}]},{"type":"movie","id":"wikimaze-hot","name":"WikiMovies - Surging","extra":[{"name":"genre","options":["Action","Adventure","Animation","Biography","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Musical","Mystery","Romance","Sci-Fi","Sports","Superhero","Thriller","War","Western"]},{"name":"skip"}]},{"type":"series","id":"wikimaze-hot","name":"WikiSeries - Surging","extra":[{"name":"genre","options":["Action","Adventure","Anime","Children","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Legal","Medical","Mystery","Romance","Sci-Fi","Sports","Supernatural","Thriller","War","Western"]},{"name":"skip"}]},{"type":"movie","id":"wikimaze-popular","name":"WikiMovies - Classics","extra":[{"name":"search"},{"name":"genre","options":["Action","Adventure","Animation","Biography","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Musical","Mystery","Romance","Sci-Fi","Sports","Superhero","Thriller","War","Western"]},{"name":"skip"}]},{"type":"series","id":"wikimaze-classics","name":"WikiSeries - Classics","extra":[{"name":"search"},{"name":"genre","options":["Action","Adventure","Animation","Anime","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Medical","Mystery","Romance","Sci-Fi","Sports","Thriller","War","Western"]},{"name":"skip"}]},{"type":"series","id":"wikimaze-airing","name":"WikiSeries - Airing now","extra":[{"name":"genre","options":["Action","Adventure","Anime","Children","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Legal","Medical","Mystery","Romance","Sci-Fi","Sports","Supernatural","Thriller","War","Western"]},{"name":"skip"}]}],"behaviorHints":{"configurable":true}})json";
+// https://wikimaze-seven.vercel.app/manifest.json (2026-11-17), refreshed 2026-11-24 (version 0.2.0: Brand New, year filter).
+const char kDefaultManifest[] = R"json({"id":"community.wikimaze","version":"0.2.0","name":"WikiMaze","description":"Movie and series details from Wikidata (CC0) and TVmaze (CC BY-SA), titles in your language. Search ends with \"!\" to ask Wikidata and TVmaze directly. TV data from TVmaze.com, licensed CC BY-SA 4.0.","resources":["catalog",{"name":"meta","types":["movie","series"],"idPrefixes":["tt"]}],"types":["movie","series"],"idPrefixes":["tt"],"catalogs":[{"type":"movie","id":"wikimaze-trending","name":"WikiMovies - Trending","extra":[{"name":"genre","options":["Action","Adventure","Animation","Biography","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Musical","Mystery","Romance","Sci-Fi","Sports","Superhero","Thriller","War","Western"]},{"name":"year","options":["2026","2025","2024","2023","2022","2020s","2010s","2000s","1990s","1980s","1970s","Older"]},{"name":"search"},{"name":"skip"}]},{"type":"series","id":"wikimaze-trending","name":"WikiSeries - Trending","extra":[{"name":"genre","options":["Action","Adventure","Animation","Anime","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Medical","Mystery","Romance","Sci-Fi","Sports","Thriller","War","Western"]},{"name":"year","options":["2026","2025","2024","2023","2022","2020s","2010s","2000s","1990s","1980s","1970s","Older"]},{"name":"search"},{"name":"skip"}]},{"type":"movie","id":"wikimaze-hot","name":"WikiMovies - Surging","extra":[{"name":"genre","options":["Action","Adventure","Animation","Biography","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Musical","Mystery","Romance","Sci-Fi","Sports","Superhero","Thriller","War","Western"]},{"name":"year","options":["2026","2025","2024","2023","2022","2020s","2010s","2000s","1990s","1980s","1970s","Older"]},{"name":"search"},{"name":"skip"}]},{"type":"series","id":"wikimaze-hot","name":"WikiSeries - Surging","extra":[{"name":"genre","options":["Action","Adventure","Anime","Children","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Legal","Medical","Mystery","Romance","Sci-Fi","Sports","Supernatural","Thriller","War","Western"]},{"name":"year","options":["2026","2025","2024","2023","2022","2020s","2010s","2000s","1990s","1980s","1970s","Older"]},{"name":"search"},{"name":"skip"}]},{"type":"movie","id":"wikimaze-new","name":"WikiMovies - Brand New","extra":[{"name":"genre","options":["Action","Adventure","Animation","Biography","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Musical","Mystery","Romance","Sci-Fi","Sports","Superhero","Thriller","War","Western"]},{"name":"year","options":["2026","2025","2024","2023","2022","2020s","2010s","2000s","1990s","1980s","1970s","Older"]},{"name":"search"},{"name":"skip"}]},{"type":"series","id":"wikimaze-new","name":"WikiSeries - Brand New","extra":[{"name":"genre","options":["Action","Adventure","Anime","Children","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Legal","Medical","Mystery","Romance","Sci-Fi","Sports","Supernatural","Thriller","War","Western"]},{"name":"year","options":["2026","2025","2024","2023","2022","2020s","2010s","2000s","1990s","1980s","1970s","Older"]},{"name":"search"},{"name":"skip"}]},{"type":"movie","id":"wikimaze-popular","name":"WikiMovies - Classics","extra":[{"name":"genre","options":["Action","Adventure","Animation","Biography","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Musical","Mystery","Romance","Sci-Fi","Sports","Superhero","Thriller","War","Western"]},{"name":"year","options":["2026","2025","2024","2023","2022","2020s","2010s","2000s","1990s","1980s","1970s","Older"]},{"name":"search"},{"name":"skip"}]},{"type":"series","id":"wikimaze-classics","name":"WikiSeries - Classics","extra":[{"name":"genre","options":["Action","Adventure","Animation","Anime","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Medical","Mystery","Romance","Sci-Fi","Sports","Thriller","War","Western"]},{"name":"year","options":["2026","2025","2024","2023","2022","2020s","2010s","2000s","1990s","1980s","1970s","Older"]},{"name":"search"},{"name":"skip"}]},{"type":"series","id":"wikimaze-airing","name":"WikiSeries - Airing now","extra":[{"name":"genre","options":["Action","Adventure","Anime","Children","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Legal","Medical","Mystery","Romance","Sci-Fi","Sports","Supernatural","Thriller","War","Western"]},{"name":"year","options":["2026","2025","2024","2023","2022","2020s","2010s","2000s","1990s","1980s","1970s","Older"]},{"name":"search"},{"name":"skip"}]}],"behaviorHints":{"configurable":true}})json";
 
 // A copy of https://caching.stremio.net/publicdomainmovies.now.sh/manifest.json (2026-11-20).
 const char kPublicDomainManifest[] = R"json({"id":"org.stremio.pubdomainmovies","version":"1.0.0","name":"Public Domain Movies","description":"Torrents for public domain movies. Includes a collection of more then 500 public domain movies.","logo":"https://johnserv531.github.io/gh-images/1586344884.jpg","resources":["catalog","stream"],"types":["movie"],"catalogs":[{"type":"movie","id":"publicdomainmovies","extra":[{"name":"skip"},{"name":"search"}]}],"idPrefixes":["tt"]})json";
@@ -118,6 +118,8 @@ QJsonArray StremioAdapter::storedList() const
         QJsonObject entry{{"transportUrl", a.manifestUrl.toString()}, {"manifest", a.rawManifest}};
         if (a.disabled)
             entry.insert("disabled", true);
+        if (!a.hiddenCatalogs.isEmpty())
+            entry.insert("hiddenCatalogs", QJsonArray::fromStringList(a.hiddenCatalogs));
         list.append(entry);
     }
     return list;
@@ -135,6 +137,8 @@ void StremioAdapter::restore(const QJsonArray& list)
             setManifest(url, *m, raw);
             if (o.value("disabled").toBool())
                 m_addons.last().disabled = true;
+            for (const QJsonValue& h : o.value("hiddenCatalogs").toArray())
+                m_addons.last().hiddenCatalogs << h.toString();
         } else
             qCWarning(lcSources).noquote() << "Skipping a stored add-on:" << logging::redactUrl(url) << error;
     }
@@ -165,7 +169,7 @@ void StremioAdapter::setManifest(const QUrl& url, const stremio::Manifest& manif
             return;
         }
     }
-    m_addons.append({url, manifest, raw, {}});
+    m_addons.append({url, manifest, raw, {}, false, {}});
 }
 
 const InstalledAddon* StremioAdapter::find(const QString& addonId) const
@@ -196,6 +200,14 @@ void StremioAdapter::noteResult(const QString& addonId, const QString& error)
     }
 }
 
+QString StremioAdapter::wikimazeBase() const
+{
+    for (const InstalledAddon& a : m_addons)
+        if (!a.disabled && a.manifest.id.startsWith(QLatin1String(kDefaultAddonId)))
+            return stremio::baseOf(a.manifestUrl);
+    return {};
+}
+
 QList<CatalogRef> StremioAdapter::catalogs() const
 {
     QList<CatalogRef> out;
@@ -203,6 +215,8 @@ QList<CatalogRef> StremioAdapter::catalogs() const
         if (a.disabled)
             continue;
         for (const stremio::Catalog& c : a.manifest.catalogs) {
+            if (a.hiddenCatalogs.contains(c.type + QLatin1Char('/') + c.id))
+                continue;
             CatalogRef ref;
             ref.adapter = id();
             ref.provider = a.manifest.id;
@@ -216,6 +230,7 @@ QList<CatalogRef> StremioAdapter::catalogs() const
             ref.searchOnly = c.searchRequired;
             ref.genres = c.genres;
             ref.genreRequired = c.genreRequired;
+            ref.years = c.years;
             out << ref;
         }
     }
@@ -239,6 +254,8 @@ void StremioAdapter::fetchCatalog(const CatalogRef& catalog, const QString& sear
                                                    : QString();
     if (!genre.isEmpty() && search.trimmed().isEmpty())
         extras << qMakePair(QStringLiteral("genre"), genre);
+    if (!catalog.year.isEmpty() && search.trimmed().isEmpty())
+        extras << qMakePair(QStringLiteral("year"), catalog.year);
     if (skip > 0)
         extras << qMakePair(QStringLiteral("skip"), QString::number(skip));
     const QString addonId = addon->manifest.id;
@@ -432,6 +449,24 @@ bool StremioAdapter::move(const QString& addonId, int delta)
     emit addonsChanged();
     emit catalogsChanged();
     return true;
+}
+
+bool StremioAdapter::setCatalogEnabled(const QString& addonId, const QString& type, const QString& catalogId, bool enabled)
+{
+    const QString key = type + QLatin1Char('/') + catalogId;
+    for (InstalledAddon& a : m_addons) {
+        if (a.manifest.id != addonId || a.hiddenCatalogs.contains(key) == !enabled)
+            continue;
+        if (enabled)
+            a.hiddenCatalogs.removeAll(key);
+        else
+            a.hiddenCatalogs << key;
+        save();
+        emit addonsChanged();
+        emit catalogsChanged();
+        return true;
+    }
+    return false;
 }
 
 bool StremioAdapter::setEnabled(const QString& addonId, bool enabled)

@@ -42,7 +42,7 @@ new file mode 100644
 index 0000000..0000001
 --- /dev/null
 +++ b/video/out/opengl/hwdec_d3d11gldx.c
-@@ -0,0 +1,419 @@
+@@ -0,0 +1,430 @@
 +/*
 + * This file is part of mpv.
 + *
@@ -103,6 +103,7 @@ index 0000000..0000001
 +    ID3D11VideoDevice *video_dev;
 +    ID3D11VideoContext *video_ctx;
 +    HANDLE gl_device;
++    bool finish_before_unlock;   // NVIDIA: see mapper_map
 +
 +    PFNWGLDXOPENDEVICENVPROC DXOpenDeviceNV;
 +    PFNWGLDXCLOSEDEVICENVPROC DXCloseDeviceNV;
@@ -203,6 +204,12 @@ index 0000000..0000001
 +        MP_VERBOSE(hw, "WGL_NV_DX_interop2 is not available.\n");
 +        return -1;
 +    }
++
++    // NVIDIA's driver lets Direct3D overwrite the shared texture while OpenGL
++    // still reads it; waiting for OpenGL costs a stall that other drivers
++    // (Intel) do not need and show as stutter.
++    const char *gl_vendor = (const char *)ra_gl_get(hw->ra_ctx->ra)->GetString(GL_VENDOR);
++    p->finish_before_unlock = gl_vendor && strstr(gl_vendor, "NVIDIA");
 +
 +    d3d_load_dlls();
 +    if (!d3d11_D3D11CreateDevice) {
@@ -401,6 +408,10 @@ index 0000000..0000001
 +    HRESULT hr;
 +
 +    if (p->locked) {
++        // OpenGL may still be reading the texture from the last frame:
++        // unlocking lets Direct3D write the next one over it (tearing).
++        if (o->finish_before_unlock)
++            ra_gl_get(mapper->ra)->Finish();
 +        o->DXUnlockObjectsNV(o->gl_device, 1, &p->gl_obj);
 +        p->locked = false;
 +    }

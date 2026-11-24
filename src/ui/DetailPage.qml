@@ -20,6 +20,20 @@ Item {
     property string streamsAskedFor: ""
     readonly property bool streamsAsked: !browser.detailLoading && !!browser.detail.key
                                          && streamsAskedFor === browser.detail.key
+                                         && browser.streamsTitle !== ""
+    // The browser forgets the list when the item is opened again (back from
+    // the player, or from a download): ask again for the movie that was
+    // asked for, rather than show an empty list.
+    function askAgain() {
+        if (isMovie && !browser.detailLoading && !!browser.detail.key
+                && streamsAskedFor === browser.detail.key && browser.streamsTitle === "")
+            askForStreams()
+    }
+    Connections {
+        target: browser
+        function onStreamsChanged() { detailPage.askAgain() }
+        function onDetailChanged() { detailPage.askAgain() }
+    }
     function askForStreams() {
         if (browser.detailLoading || !browser.detail.key || !isMovie)
             return

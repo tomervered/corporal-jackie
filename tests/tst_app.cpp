@@ -196,6 +196,8 @@ private slots:
             QCOMPARE(changed.count(), 2);
             QVERIFY(p.showUpscalerBadge());
             p.setShowUpscalerBadge(false);
+            QVERIFY(p.screenshots());   // on until switched off in Settings > Misc
+            p.setScreenshots(false);
         }
         Run run(m_root->path());
         const Preferences& p = run.core.preferences();
@@ -203,6 +205,7 @@ private slots:
         const QVariantMap expected{{QStringLiteral("bright"), QVariantMap{{QStringLiteral("accent"), QStringLiteral("#aa3300")}}}};
         QCOMPARE(p.colorEdits(), expected);
         QVERIFY(!p.showUpscalerBadge());
+        QVERIFY(!p.screenshots());
     }
 
     // The Custom colors go to a file and come back; a file that is not one

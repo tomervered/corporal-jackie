@@ -417,6 +417,9 @@ void MpvTarget::bindAppKeys()
         bind(key, "script-message cj-app stop");
     for (const char* key : {"i", "I"})
         bind(key, "script-message cj-app stats");
+    // Up and Down change the volume (mpv's defaults seek a minute).
+    bind("UP", "add volume 5");
+    bind("DOWN", "add volume -5");
     // Lua-only bindings (the on-screen controller and the console): nothing
     // to run, so nothing should be tried.
     for (const char* key : {"DEL", "`"})
@@ -437,7 +440,6 @@ QString MpvTarget::keyName(int key, Qt::KeyboardModifiers modifiers, const QStri
         {Qt::Key_MediaPlay, "PLAY"}, {Qt::Key_MediaPause, "PAUSE"}, {Qt::Key_MediaTogglePlayPause, "PLAYPAUSE"},
         {Qt::Key_MediaStop, "STOP"}, {Qt::Key_MediaNext, "NEXT"}, {Qt::Key_MediaPrevious, "PREV"},
         {Qt::Key_AudioForward, "FORWARD"}, {Qt::Key_AudioRewind, "REWIND"},
-        {Qt::Key_VolumeUp, "VOLUME_UP"}, {Qt::Key_VolumeDown, "VOLUME_DOWN"}, {Qt::Key_VolumeMute, "MUTE"},
     };
     static const QHash<int, const char*> keypad = {
         {Qt::Key_Plus, "KP_ADD"}, {Qt::Key_Minus, "KP_SUBTRACT"}, {Qt::Key_Asterisk, "KP_MULTIPLY"},

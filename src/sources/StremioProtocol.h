@@ -29,6 +29,7 @@ struct Catalog
     bool searchRequired = false;
     QStringList genres;          // the "genre" filter's options; empty = no filter
     bool genreRequired = false;  // answers only with a genre picked
+    QStringList years;           // the "year" filter's options (2026, 2010s, Older...); empty = no filter
 };
 
 struct Manifest
