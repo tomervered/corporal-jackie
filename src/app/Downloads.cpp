@@ -699,6 +699,7 @@ void Downloads::finish(const std::shared_ptr<Job>& job)
     if (m_stopped)
         return;
     save();
+    m_storage.flush();
     const State s = job->state;
     qCInfo(lcApp).noquote() << "Download" << job->id << stateName(s);
     if (s == State::Done || s == State::Seeding)
@@ -881,6 +882,7 @@ void Downloads::stop()
     m_stopped = true;
     m_refresh.stop();
     save();   // before the cancelling below: what is running is kept as interrupted
+    m_storage.flush();   // to disk now: the app is closing
     // Unfinished downloads are dropped with what they wrote: nothing picks
     // them up again next time (they stay on the list as interrupted).
     // Finished files stay.
