@@ -852,6 +852,10 @@ private slots:
         QCOMPARE(q.queryItemValue("year"), QStringLiteral("2010s"));
         QCOMPARE(q.queryItemValue("list"), QStringLiteral("wikimaze-popular"));
         QCOMPARE(q.queryItemValue("live"), QStringLiteral("1"));
+        const QUrlQuery span(WikiMazeSearch::searchUrl("http://h", "", "", "", "1995 - 2003", "", false));
+        QCOMPARE(span.queryItemValue("from"), QStringLiteral("1995"));
+        QCOMPARE(span.queryItemValue("to"), QStringLiteral("2003"));
+        QVERIFY(!span.hasQueryItem("year"));
         const QUrlQuery plain(WikiMazeSearch::searchUrl("http://h", "x", "", "", "", "", false));
         QVERIFY(!plain.hasQueryItem("live"));
         QVERIFY(!plain.hasQueryItem("genre"));

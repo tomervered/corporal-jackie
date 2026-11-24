@@ -13,6 +13,7 @@ Flickable {
     readonly property bool wmOn: wm.available && !wm.unsupported
     property string genreKey: ""
     property string yearOption: ""
+    property bool customYear: false
     property string listId: ""
     readonly property string query: browser.searchAllText
     readonly property bool filtersOn: genreKey !== "" || yearOption !== "" || listId !== ""
@@ -70,18 +71,18 @@ Flickable {
             width: parent.width
             spacing: 8
             visible: searchPage.wmOn
-            Flow {
-                width: parent.width
-                spacing: 6
-                Muted { text: "Genre"; height: 34; verticalAlignment: Text.AlignVCenter }
-                Repeater {
-                    model: searchPage.genreChips()
-                    Chip {
-                        required property var modelData
-                        text: modelData.label
-                        selected: searchPage.genreKey === modelData.key
-                        onClicked: { searchPage.genreKey = selected ? "" : modelData.key; searchPage.askWikimaze(false) }
-                    }
+            Row {
+                spacing: 10
+                Muted { text: "Genre"; height: genreBox.height; verticalAlignment: Text.AlignVCenter }
+                AppCombo {
+                    id: genreBox
+                    objectName: "genrePicker"
+                    width: 220
+                    Accessible.name: "Genre"
+                    readonly property var chips: searchPage.genreChips()
+                    model: ["Any genre"].concat(chips.map(g => g.label))
+                    currentIndex: Math.max(0, chips.findIndex(g => g.key === searchPage.genreKey) + 1)
+                    onActivated: index => { searchPage.genreKey = index === 0 ? "" : chips[index - 1].key; searchPage.askWikimaze(false) }
                 }
             }
             Flow {
@@ -94,8 +95,26 @@ Flickable {
                         required property string modelData
                         text: modelData
                         selected: searchPage.yearOption === modelData
-                        onClicked: { searchPage.yearOption = selected ? "" : modelData; searchPage.askWikimaze(false) }
+                        onClicked: { searchPage.customYear = false; searchPage.yearOption = selected ? "" : modelData; searchPage.askWikimaze(false) }
                     }
+                }
+                Chip {
+                    objectName: "customYearChip"
+                    text: "Custom"
+                    selected: searchPage.customYear
+                    onClicked: {
+                        searchPage.customYear = !searchPage.customYear
+                        if (!searchPage.customYear) { searchPage.yearOption = ""; searchPage.askWikimaze(false) }
+                        else { searchPage.yearOption = ""; customField.forceActiveFocus() }
+                    }
+                }
+                AppField {
+                    id: customField
+                    objectName: "customYearField"
+                    visible: searchPage.customYear
+                    width: 200
+                    placeholderText: "1995 or 1995-2003"
+                    onAccepted: { searchPage.yearOption = text.trim(); searchPage.askWikimaze(false) }
                 }
             }
             Flow {
@@ -135,7 +154,7 @@ Flickable {
         AppButton {
             objectName: "wikimazeLiveButton"
             visible: searchPage.wmShown && !searchPage.wm.loading
-            text: "Search Wikidata and TVmaze"
+            text: "Search again"
             onClicked: searchPage.askWikimaze(true)
         }
         Muted {

@@ -2,6 +2,7 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QRegularExpression>
 #include <QUrlQuery>
 
 namespace cj {
@@ -86,8 +87,15 @@ QUrl WikiMazeSearch::searchUrl(const QString& base, const QString& text, const Q
         query.addQueryItem(QStringLiteral("q"), text.trimmed());
     if (!genre.isEmpty())
         query.addQueryItem(QStringLiteral("genre"), genre);
-    if (!year.isEmpty())
-        query.addQueryItem(QStringLiteral("year"), year);
+    // "1995-2003" is a range of years, anything else (2026, 2010s, Older) goes as it is.
+    static const QRegularExpression range(QStringLiteral("^(\\d{4})\\s*[-–]\\s*(\\d{4})$"));
+    const QRegularExpressionMatch inRange = range.match(year.trimmed());
+    if (inRange.hasMatch()) {
+        query.addQueryItem(QStringLiteral("from"), inRange.captured(1));
+        query.addQueryItem(QStringLiteral("to"), inRange.captured(2));
+    } else if (!year.trimmed().isEmpty()) {
+        query.addQueryItem(QStringLiteral("year"), year.trimmed());
+    }
     if (!list.isEmpty())
         query.addQueryItem(QStringLiteral("list"), list);
     if (live)
