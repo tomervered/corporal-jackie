@@ -234,7 +234,7 @@ void AppCore::restorePlaybackSettings()
     Session* session = m_session.get();
     Storage* storage = m_storage.get();
     session->setHardwareDecoding(storage->setting(kHwdec, true).toBool());
-    session->setIntelVsrCopyback(storage->setting(kIntelCopyback, false).toBool());
+    session->setIntelVsrCopyback(storage->setting(kIntelCopyback, true).toBool());
     session->setUpscaleHeight(storage->setting(kUpscaleHeight, 0).toInt());
     session->setUpscaler(storage->setting(kUpscaler, QStringLiteral("off")).toString());
     session->setSubtitleStyle(styleFromMap(storage->setting(kSubtitleStyle).toMap()));

@@ -217,7 +217,7 @@ public:
     void setUpscaler(const QString& name);
     // 0 or 480–4320; anything else is ignored.
     void setUpscaleHeight(int height);
-    // Intel VSR compatibility mode (copy-back); off by default. Kept even when
+    // Intel VSR compatibility mode (copy-back); on by default. Kept even when
     // this computer has no Intel VSR, so it is still there after a card change.
     void setIntelVsrCopyback(bool on);
     // A key over the video, passed to the target's own bindings (mpv's).
@@ -295,7 +295,7 @@ private:
     bool m_fullScreen = false;
     Upscaler m_upscaler = Upscaler::Off;
     int m_upscaleHeight = 0;
-    bool m_intelVsrCopyback = false;
+    bool m_intelVsrCopyback = true;
     QString m_upscalerStatus;
     bool m_upscalerProblem = false;
     QVariantMap m_stats;

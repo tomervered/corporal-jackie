@@ -157,7 +157,7 @@ private:
     bool m_hwdecEnabled = true;
     Upscaler m_upscaler = Upscaler::Off;
     int m_upscaleHeight = 0;
-    bool m_intelCopyback = false;  // Intel VSR compatibility mode (the filter's intel-copyback)
+    bool m_intelCopyback = true;   // Intel VSR compatibility mode (the filter's intel-copyback); on until told otherwise
     Capabilities m_vsrCaps;       // VSR (Windows) or MetalFX (macOS), found once at start
     QString m_vsrFilter;          // the vf now set, empty for none
     int m_shownHeight = 0;        // physical height of the video framebuffer
