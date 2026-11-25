@@ -42,7 +42,7 @@ new file mode 100644
 index 0000000..0000001
 --- /dev/null
 +++ b/video/out/opengl/hwdec_d3d11gldx.c
-@@ -0,0 +1,430 @@
+@@ -0,0 +1,525 @@
 +/*
 + * This file is part of mpv.
 + *
@@ -69,10 +69,22 @@ index 0000000..0000001
 +// exists for the libmpv render API on Windows, so vf_d3d11vpp (and its
 +// NVIDIA/Intel Video Super Resolution) works there.
 +//
++// How OpenGL and Direct3D take turns on the shared texture. Direct3D must not
++// write the next frame over a texture OpenGL is still reading (tearing), and
++// the ways of waiting suit different drivers:
++//   finish: wait for all of OpenGL's work before the texture is unlocked. What
++//           NVIDIA needs; on Intel the wait shows as stutter.
++//   ring:   a few textures in turn, and wait only for the fence of the frame
++//           drawn two frames ago, which is long done. No stall.
++//   none:   no wait at all (tears on any driver that does not guard itself).
++// NVIDIA gets finish and everything else ring. The environment variable
++// CJ_VSR_SYNC (finish, ring or none) overrides it, to compare on one machine.
++//
 +// Added for Corporal Jackie (packaging/windows/mpv-patches).
 +
 +#include <d3d11.h>
 +#include <dxgi.h>
++#include <stdlib.h>
 +#include <string.h>
 +
 +#include <libavutil/hwcontext.h>
@@ -96,6 +108,16 @@ index 0000000..0000001
 +static const GUID cj_IID_IDXGIFactory1 =
 +    {0x770aae78, 0xf26f, 0x4dba, {0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87}};
 +
++enum { SYNC_FINISH, SYNC_RING, SYNC_NONE };
++#define RING_SLOTS 3
++
++#ifndef GL_SYNC_GPU_COMMANDS_COMPLETE
++#define GL_SYNC_GPU_COMMANDS_COMPLETE 0x9117
++#endif
++#ifndef GL_SYNC_FLUSH_COMMANDS_BIT
++#define GL_SYNC_FLUSH_COMMANDS_BIT 0x00000001
++#endif
++
 +struct priv_owner {
 +    struct mp_hwdec_ctx hwctx;
 +    ID3D11Device *device;
@@ -103,7 +125,7 @@ index 0000000..0000001
 +    ID3D11VideoDevice *video_dev;
 +    ID3D11VideoContext *video_ctx;
 +    HANDLE gl_device;
-+    bool finish_before_unlock;   // NVIDIA: see mapper_map
++    int sync_mode;               // SYNC_*, see above
 +
 +    PFNWGLDXOPENDEVICENVPROC DXOpenDeviceNV;
 +    PFNWGLDXCLOSEDEVICENVPROC DXCloseDeviceNV;
@@ -113,14 +135,24 @@ index 0000000..0000001
 +    PFNWGLDXUNLOCKOBJECTSNVPROC DXUnlockObjectsNV;
 +};
 +
-+struct priv {
++// One RGB texture shared between Direct3D and OpenGL.
++struct slot {
 +    ID3D11Texture2D *rgb_tex;
-+    ID3D11VideoProcessorEnumerator *vp_enum;
-+    ID3D11VideoProcessor *vp;
 +    ID3D11VideoProcessorOutputView *out_view;
 +    GLuint gl_tex;
 +    HANDLE gl_obj;
++    struct ra_tex *ra_tex;
 +    bool locked;
++    GLsync fence;       // ring: OpenGL has drawn everything it was asked for before this
++};
++
++struct priv {
++    ID3D11VideoProcessorEnumerator *vp_enum;
++    ID3D11VideoProcessor *vp;
++    struct slot slots[RING_SLOTS];
++    int n_slots;        // 1, or RING_SLOTS in ring mode
++    int next;           // the slot the next frame goes to
++    int prev;           // the slot of the last frame, -1 at first
 +};
 +
 +static void uninit(struct ra_hwdec *hw)
@@ -205,11 +237,21 @@ index 0000000..0000001
 +        return -1;
 +    }
 +
-+    // NVIDIA's driver lets Direct3D overwrite the shared texture while OpenGL
-+    // still reads it; waiting for OpenGL costs a stall that other drivers
-+    // (Intel) do not need and show as stutter.
-+    const char *gl_vendor = (const char *)ra_gl_get(hw->ra_ctx->ra)->GetString(GL_VENDOR);
-+    p->finish_before_unlock = gl_vendor && strstr(gl_vendor, "NVIDIA");
++    // How to wait for OpenGL: see the top of this file.
++    GL *gl = ra_gl_get(hw->ra_ctx->ra);
++    const char *gl_vendor = (const char *)gl->GetString(GL_VENDOR);
++    p->sync_mode = gl_vendor && strstr(gl_vendor, "NVIDIA") ? SYNC_FINISH : SYNC_RING;
++    const char *forced = getenv("CJ_VSR_SYNC");
++    if (forced && !strcmp(forced, "finish"))
++        p->sync_mode = SYNC_FINISH;
++    else if (forced && !strcmp(forced, "ring"))
++        p->sync_mode = SYNC_RING;
++    else if (forced && !strcmp(forced, "none"))
++        p->sync_mode = SYNC_NONE;
++    if (p->sync_mode == SYNC_RING && (!gl->FenceSync || !gl->ClientWaitSync || !gl->DeleteSync))
++        p->sync_mode = SYNC_FINISH;   // no fences in this OpenGL
++    MP_INFO(hw, "d3d11-dxinterop: waiting for OpenGL by %s\n",
++            p->sync_mode == SYNC_FINISH ? "finish" : p->sync_mode == SYNC_RING ? "ring" : "nothing");
 +
 +    d3d_load_dlls();
 +    if (!d3d11_D3D11CreateDevice) {
@@ -273,29 +315,40 @@ index 0000000..0000001
 +    return 0;
 +}
 +
-+static void mapper_uninit(struct ra_hwdec_mapper *mapper)
++static void slot_free(struct ra_hwdec_mapper *mapper, struct slot *sl)
 +{
 +    struct priv_owner *o = mapper->owner->priv;
-+    struct priv *p = mapper->priv;
 +    GL *gl = ra_gl_get(mapper->ra);
-+
-+    if (p->gl_obj) {
-+        if (p->locked)
-+            o->DXUnlockObjectsNV(o->gl_device, 1, &p->gl_obj);
-+        o->DXUnregisterObjectNV(o->gl_device, p->gl_obj);
-+        p->gl_obj = NULL;
++    if (sl->fence)
++        gl->DeleteSync(sl->fence);
++    sl->fence = NULL;
++    if (sl->gl_obj) {
++        if (sl->locked)
++            o->DXUnlockObjectsNV(o->gl_device, 1, &sl->gl_obj);
++        o->DXUnregisterObjectNV(o->gl_device, sl->gl_obj);
++        sl->gl_obj = NULL;
 +    }
-+    ra_tex_free(mapper->ra, &mapper->tex[0]);
-+    if (p->gl_tex)
-+        gl->DeleteTextures(1, &p->gl_tex);
-+    p->gl_tex = 0;
-+    SAFE_RELEASE(p->out_view);
-+    SAFE_RELEASE(p->vp);
-+    SAFE_RELEASE(p->vp_enum);
-+    SAFE_RELEASE(p->rgb_tex);
++    sl->locked = false;
++    ra_tex_free(mapper->ra, &sl->ra_tex);
++    if (sl->gl_tex)
++        gl->DeleteTextures(1, &sl->gl_tex);
++    sl->gl_tex = 0;
++    SAFE_RELEASE(sl->out_view);
++    SAFE_RELEASE(sl->rgb_tex);
 +}
 +
-+static int mapper_init(struct ra_hwdec_mapper *mapper)
++static void mapper_uninit(struct ra_hwdec_mapper *mapper)
++{
++    struct priv *p = mapper->priv;
++
++    mapper->tex[0] = NULL;   // one of the slots', freed with it
++    for (int i = 0; i < RING_SLOTS; i++)
++        slot_free(mapper, &p->slots[i]);
++    SAFE_RELEASE(p->vp);
++    SAFE_RELEASE(p->vp_enum);
++}
++
++static int slot_init(struct ra_hwdec_mapper *mapper, struct slot *sl)
 +{
 +    struct priv_owner *o = mapper->owner->priv;
 +    struct priv *p = mapper->priv;
@@ -316,59 +369,33 @@ index 0000000..0000001
 +        // NVIDIA's interop shows black for textures that are not shared.
 +        .MiscFlags = D3D11_RESOURCE_MISC_SHARED,
 +    };
-+    hr = ID3D11Device_CreateTexture2D(o->device, &td, NULL, &p->rgb_tex);
++    hr = ID3D11Device_CreateTexture2D(o->device, &td, NULL, &sl->rgb_tex);
 +    if (FAILED(hr)) {
 +        MP_ERR(mapper, "Failed to create the RGB texture: %s\n", mp_HRESULT_to_str(hr));
 +        return -1;
 +    }
 +
-+    D3D11_VIDEO_PROCESSOR_CONTENT_DESC vpdesc = {
-+        .InputFrameFormat = D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
-+        .InputWidth = w,
-+        .InputHeight = h,
-+        .OutputWidth = w,
-+        .OutputHeight = h,
-+        .Usage = D3D11_VIDEO_USAGE_PLAYBACK_NORMAL,
-+    };
-+    hr = ID3D11VideoDevice_CreateVideoProcessorEnumerator(o->video_dev, &vpdesc, &p->vp_enum);
-+    if (FAILED(hr))
-+        goto fail;
-+    hr = ID3D11VideoDevice_CreateVideoProcessor(o->video_dev, p->vp_enum, 0, &p->vp);
-+    if (FAILED(hr))
-+        goto fail;
-+
 +    D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC outdesc = {
 +        .ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D,
 +    };
 +    hr = ID3D11VideoDevice_CreateVideoProcessorOutputView(o->video_dev,
-+            (ID3D11Resource *)p->rgb_tex, p->vp_enum, &outdesc, &p->out_view);
-+    if (FAILED(hr))
-+        goto fail;
++            (ID3D11Resource *)sl->rgb_tex, p->vp_enum, &outdesc, &sl->out_view);
++    if (FAILED(hr)) {
++        MP_ERR(mapper, "Failed to set up the D3D11 video processor: %s\n", mp_HRESULT_to_str(hr));
++        return -1;
++    }
 +
-+    // As vf_d3d11vpp sets it up: no driver "enhancements", matrix and range
-+    // from the video, full-range RGB out.
-+    ID3D11VideoContext_VideoProcessorSetStreamAutoProcessingMode(o->video_ctx, p->vp, 0, FALSE);
-+    D3D11_VIDEO_PROCESSOR_COLOR_SPACE in_csp = {
-+        .YCbCr_Matrix = mapper->src_params.repr.sys != PL_COLOR_SYSTEM_BT_601,
-+        .Nominal_Range = mapper->src_params.repr.levels == PL_COLOR_LEVELS_FULL ? 2 : 1,
-+    };
-+    D3D11_VIDEO_PROCESSOR_COLOR_SPACE out_csp = {
-+        .RGB_Range = 0,  // 0-255
-+    };
-+    ID3D11VideoContext_VideoProcessorSetStreamColorSpace(o->video_ctx, p->vp, 0, &in_csp);
-+    ID3D11VideoContext_VideoProcessorSetOutputColorSpace(o->video_ctx, p->vp, &out_csp);
-+
-+    gl->GenTextures(1, &p->gl_tex);
-+    gl->BindTexture(GL_TEXTURE_2D, p->gl_tex);
++    gl->GenTextures(1, &sl->gl_tex);
++    gl->BindTexture(GL_TEXTURE_2D, sl->gl_tex);
 +    gl->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 +    gl->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 +    gl->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 +    gl->TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 +    gl->BindTexture(GL_TEXTURE_2D, 0);
 +
-+    p->gl_obj = o->DXRegisterObjectNV(o->gl_device, p->rgb_tex, p->gl_tex,
-+                                      GL_TEXTURE_2D, WGL_ACCESS_READ_ONLY_NV);
-+    if (!p->gl_obj) {
++    sl->gl_obj = o->DXRegisterObjectNV(o->gl_device, sl->rgb_tex, sl->gl_tex,
++                                       GL_TEXTURE_2D, WGL_ACCESS_READ_ONLY_NV);
++    if (!sl->gl_obj) {
 +        MP_ERR(mapper, "Failed to register the D3D11 texture with OpenGL: %s\n",
 +               mp_LastError_to_str());
 +        return -1;
@@ -385,9 +412,54 @@ index 0000000..0000001
 +    };
 +    if (!params.format)
 +        return -1;
-+    mapper->tex[0] = ra_create_wrapped_tex(mapper->ra, &params, p->gl_tex);
-+    if (!mapper->tex[0])
-+        return -1;
++    sl->ra_tex = ra_create_wrapped_tex(mapper->ra, &params, sl->gl_tex);
++    return sl->ra_tex ? 0 : -1;
++}
++
++static int mapper_init(struct ra_hwdec_mapper *mapper)
++{
++    struct priv_owner *o = mapper->owner->priv;
++    struct priv *p = mapper->priv;
++    HRESULT hr;
++
++    const int w = mapper->src_params.w, h = mapper->src_params.h;
++
++    D3D11_VIDEO_PROCESSOR_CONTENT_DESC vpdesc = {
++        .InputFrameFormat = D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
++        .InputWidth = w,
++        .InputHeight = h,
++        .OutputWidth = w,
++        .OutputHeight = h,
++        .Usage = D3D11_VIDEO_USAGE_PLAYBACK_NORMAL,
++    };
++    hr = ID3D11VideoDevice_CreateVideoProcessorEnumerator(o->video_dev, &vpdesc, &p->vp_enum);
++    if (FAILED(hr))
++        goto fail;
++    hr = ID3D11VideoDevice_CreateVideoProcessor(o->video_dev, p->vp_enum, 0, &p->vp);
++    if (FAILED(hr))
++        goto fail;
++
++    // As vf_d3d11vpp sets it up: no driver "enhancements", matrix and range
++    // from the video, full-range RGB out.
++    ID3D11VideoContext_VideoProcessorSetStreamAutoProcessingMode(o->video_ctx, p->vp, 0, FALSE);
++    D3D11_VIDEO_PROCESSOR_COLOR_SPACE in_csp = {
++        .YCbCr_Matrix = mapper->src_params.repr.sys != PL_COLOR_SYSTEM_BT_601,
++        .Nominal_Range = mapper->src_params.repr.levels == PL_COLOR_LEVELS_FULL ? 2 : 1,
++    };
++    D3D11_VIDEO_PROCESSOR_COLOR_SPACE out_csp = {
++        .RGB_Range = 0,  // 0-255
++    };
++    ID3D11VideoContext_VideoProcessorSetStreamColorSpace(o->video_ctx, p->vp, 0, &in_csp);
++    ID3D11VideoContext_VideoProcessorSetOutputColorSpace(o->video_ctx, p->vp, &out_csp);
++
++    p->n_slots = o->sync_mode == SYNC_RING ? RING_SLOTS : 1;
++    p->next = 0;
++    p->prev = -1;
++    for (int i = 0; i < p->n_slots; i++) {
++        if (slot_init(mapper, &p->slots[i]) < 0)
++            return -1;
++    }
++    mapper->tex[0] = p->slots[0].ra_tex;
 +
 +    mapper->dst_params = mapper->src_params;
 +    mapper->dst_params.imgfmt = IMGFMT_RGB0;
@@ -405,15 +477,35 @@ index 0000000..0000001
 +{
 +    struct priv_owner *o = mapper->owner->priv;
 +    struct priv *p = mapper->priv;
++    GL *gl = ra_gl_get(mapper->ra);
 +    HRESULT hr;
 +
-+    if (p->locked) {
++    if (o->sync_mode == SYNC_RING && p->prev >= 0) {
++        // Everything OpenGL was asked to draw so far includes the last frame:
++        // its texture may be written again once this fence has signalled.
++        struct slot *last = &p->slots[p->prev];
++        if (last->fence)
++            gl->DeleteSync(last->fence);
++        last->fence = gl->FenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
++    }
++
++    // The slot for this frame was last used RING_SLOTS frames ago, so its
++    // fence (taken one frame after that) is long signalled and the wait is
++    // normally none. Time-limited, so that a stuck driver cannot hang playback.
++    struct slot *sl = &p->slots[p->next];
++    if (sl->fence) {
++        gl->ClientWaitSync(sl->fence, GL_SYNC_FLUSH_COMMANDS_BIT, 20000000ULL);
++        gl->DeleteSync(sl->fence);
++        sl->fence = NULL;
++    }
++
++    if (sl->locked) {
 +        // OpenGL may still be reading the texture from the last frame:
 +        // unlocking lets Direct3D write the next one over it (tearing).
-+        if (o->finish_before_unlock)
-+            ra_gl_get(mapper->ra)->Finish();
-+        o->DXUnlockObjectsNV(o->gl_device, 1, &p->gl_obj);
-+        p->locked = false;
++        if (o->sync_mode == SYNC_FINISH)
++            gl->Finish();
++        o->DXUnlockObjectsNV(o->gl_device, 1, &sl->gl_obj);
++        sl->locked = false;
 +    }
 +
 +    ID3D11Texture2D *tex = (void *)mapper->src->planes[0];
@@ -438,7 +530,7 @@ index 0000000..0000001
 +        .Enable = TRUE,
 +        .pInputSurface = in_view,
 +    };
-+    hr = ID3D11VideoContext_VideoProcessorBlt(o->video_ctx, p->vp, p->out_view, 0, 1, &stream);
++    hr = ID3D11VideoContext_VideoProcessorBlt(o->video_ctx, p->vp, sl->out_view, 0, 1, &stream);
 +    ID3D11VideoProcessorInputView_Release(in_view);
 +    if (FAILED(hr)) {
 +        MP_ERR(mapper, "VideoProcessorBlt failed: %s\n", mp_HRESULT_to_str(hr));
@@ -451,11 +543,14 @@ index 0000000..0000001
 +    ID3D11DeviceContext_Flush(o->device_ctx);
 +
 +    // Locking for OpenGL waits for the D3D11 work above.
-+    if (!o->DXLockObjectsNV(o->gl_device, 1, &p->gl_obj)) {
++    if (!o->DXLockObjectsNV(o->gl_device, 1, &sl->gl_obj)) {
 +        MP_ERR(mapper, "Failed to lock the texture for OpenGL: %s\n", mp_LastError_to_str());
 +        return -1;
 +    }
-+    p->locked = true;
++    sl->locked = true;
++    mapper->tex[0] = sl->ra_tex;
++    p->prev = p->next;
++    p->next = (p->next + 1) % p->n_slots;
 +    return 0;
 +}
 +
