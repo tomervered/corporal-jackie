@@ -111,9 +111,11 @@ bool PieceStore::read(const lt::peer_request& r, std::vector<char>& out) const
     return true;
 }
 
-void PieceStore::write(int piece, int offset, const char* data, int length)
+bool PieceStore::write(int piece, int offset, const char* data, int length)
 {
     std::lock_guard lock(m_mutex);
+    if (const auto it = m_pieces.find(piece); it == m_pieces.end() && pieceSize(piece) > m_registry.maxPieceBytes())
+        return false;   // too big to hold in RAM: not even allocated
     auto& buffer = m_pieces[piece];
     if (buffer.empty()) {
         const int size = pieceSize(piece);
@@ -122,8 +124,9 @@ void PieceStore::write(int piece, int offset, const char* data, int length)
         m_registry.m_total += size;
     }
     if (offset < 0 || offset + length > int(buffer.size()))
-        return;
+        return true;
     std::memcpy(buffer.data() + offset, data, std::size_t(length));
+    return true;
 }
 
 bool PieceStore::hash(int piece, lt::span<lt::sha256_hash> blockHashes, lt::sha1_hash& out) const
@@ -255,9 +258,18 @@ public:
                      std::shared_ptr<lt::disk_observer>, std::function<void(const lt::storage_error&)> handler,
                      lt::disk_job_flags_t) override
     {
+        bool tooBig = false;
         if (const auto& store = m_slots[storage].store)
-            store->write(static_cast<int>(r.piece), r.start, buf, r.length);
-        boost::asio::post(m_ioc, [handler = std::move(handler)] { handler(lt::storage_error()); });
+            tooBig = !store->write(static_cast<int>(r.piece), r.start, buf, r.length);
+        // The torrent goes into an error state ("pieces too large for RAM only"); nothing was allocated.
+        boost::asio::post(m_ioc, [handler = std::move(handler), tooBig] {
+            lt::storage_error e;
+            if (tooBig) {
+                e.ec = boost::system::errc::make_error_code(boost::system::errc::not_enough_memory);
+                e.operation = lt::operation_t::file_write;
+            }
+            handler(e);
+        });
         return false;
     }
 

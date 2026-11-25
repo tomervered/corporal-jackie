@@ -3,12 +3,18 @@ import QtQuick.Controls.Basic
 import CorporalJackie.Player   // KeyedList
 
 // Library: what to go on watching, then what the user saved.
-Item {
+Flickable {
+    id: libraryPage
     required property Item nav   // the Pages: go(), back(), openItem() and the picked types
     function takeFocus() { if (libraryContinue.count > 0) libraryContinue.forceActiveFocus(); else libraryGrid.forceActiveFocus() }
 
     readonly property int columns: Math.max(2, Math.floor((width - 14 + Theme.posterGap) / (140 + Theme.posterGap)))
     readonly property real cell: Math.floor((width - 14) / columns)
+    contentWidth: width
+    contentHeight: libraryGrid.y + libraryGrid.height + 24
+    clip: true
+    boundsBehavior: Flickable.StopAtBounds
+    ScrollBar.vertical: ScrollBar {}
 
     Column {
         id: libraryTop
@@ -53,6 +59,7 @@ Item {
         // A plain wheel (up and down) scrolls the row sideways.
         WheelHandler {
             acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+            enabled: libraryGrid.contentWidth > libraryGrid.width
             onWheel: event => {
                 const delta = event.angleDelta.x !== 0 ? event.angleDelta.x : event.angleDelta.y
                 const most = Math.max(0, libraryGrid.contentWidth - libraryGrid.width + libraryGrid.leftMargin + libraryGrid.rightMargin)

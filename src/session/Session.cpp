@@ -822,4 +822,13 @@ void Session::setUpscaleHeight(int height)
     emit upscalerChanged();
 }
 
+void Session::setIntelVsrCopyback(bool on)
+{
+    if (on == m_intelVsrCopyback)
+        return;
+    m_intelVsrCopyback = on;
+    m_target->setIntelVsrCopyback(on);
+    emit intelVsrCopybackChanged();
+}
+
 } // namespace cj

@@ -36,6 +36,12 @@ Column {
         width: parent.width
         text: "Saving to " + downloads.folder + (downloads.normalTorrents ? ". Torrents download like in a torrent program (rarest pieces first)." : ". Torrents download from the start, so you can play them while they download.")
     }
+    Muted {
+        width: parent.width
+        visible: !library.keepHistory
+        color: Theme.error
+        text: "\"Remember what I watch\" is off in Settings, so this list is not kept: it is empty again after you close the app. The files stay in the download folder."
+    }
     Rectangle { width: parent.width; height: 1; color: Theme.divider }
     Muted {
         width: parent.width

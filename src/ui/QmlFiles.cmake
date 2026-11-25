@@ -12,7 +12,7 @@ set(CJ_QML_FILES
     Theme.qml Muted.qml Heading.qml PageTitle.qml SectionLabel.qml RowItem.qml
     RoundedArtwork.qml PosterTile.qml PosterRow.qml NavButton.qml Chip.qml
     Icon.qml Icons.js IconButton.qml AppButton.qml AppField.qml AppCombo.qml AppSwitch.qml)
-set(CJ_UI_RESOURCES images/logo.png images/subtitle-sample.jpg
+set(CJ_UI_RESOURCES images/logo.png images/app-icon.png images/subtitle-sample.jpg
     shaders/rounded-clip.frag.qsb shaders/poster-glow.frag.qsb)
 
 # Adds the files to `target` as the CorporalJackie module, each served under

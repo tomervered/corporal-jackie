@@ -42,7 +42,8 @@ public:
 
     // For the disk interface.
     bool read(const lt::peer_request& r, std::vector<char>& out) const;
-    void write(int piece, int offset, const char* data, int length);
+    // False when the piece is bigger than the registry allows: nothing is allocated.
+    bool write(int piece, int offset, const char* data, int length);
     bool hash(int piece, lt::span<lt::sha256_hash> blockHashes, lt::sha1_hash& out) const;
     bool hash2(int piece, int offset, lt::sha256_hash& out) const;
 
@@ -66,6 +67,11 @@ public:
     std::shared_ptr<PieceStore> findOrCreate(const std::string& id, const lt::file_storage& files);
     void erase(const std::string& id);
     std::int64_t totalBytes() const { return m_total; }
+    // The biggest piece that may be held. A piece is allocated whole when its
+    // first block arrives, so a torrent with huge pieces (the file says how
+    // big) would otherwise take gigabytes before any cap could drop it.
+    void setMaxPieceBytes(std::int64_t bytes) { m_maxPiece = bytes; }
+    std::int64_t maxPieceBytes() const { return m_maxPiece; }
 
     // The disk interface constructor for lt::session_params.
     lt::disk_io_constructor_type constructor(std::shared_ptr<MemoryRegistry> self);
@@ -75,6 +81,7 @@ private:
     mutable std::mutex m_mutex;
     std::map<std::string, std::shared_ptr<PieceStore>> m_stores;
     std::atomic<std::int64_t> m_total{0};
+    std::atomic<std::int64_t> m_maxPiece{64LL * 1024 * 1024};
 };
 
 } // namespace cj::broker_detail

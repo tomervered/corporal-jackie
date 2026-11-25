@@ -75,7 +75,7 @@ AbstractButton {
                 opacity: row.selected ? 1 : 0
                 name: "check"
                 size: 15
-                color: Theme.accent
+                color: Theme.link
             }
         }
     }

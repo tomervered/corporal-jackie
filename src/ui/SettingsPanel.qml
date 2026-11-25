@@ -453,6 +453,14 @@ Item {
                     value: session.upscaler
                     onPicked: v => session.upscaler = v
                 }
+                Toggle {
+                    visible: session.upscalers.indexOf("intel") >= 0
+                    objectName: "intelVsrCopybackToggle"
+                    title: "Intel VSR compatibility mode"
+                    detail: "On by default, because Intel VSR can tear or show blocks on some screens without it. Each frame is copied through memory instead of straight to the graphics card, which is slower: 1080p60 upscaled to 4K can stutter. Turn it off then, or use AMD FSR."
+                    checked: session.intelVsrCopyback
+                    onToggled: on => session.intelVsrCopyback = on
+                }
                 Choice {
                     visible: session.upscaler !== "off"
                     title: "Upscale to"

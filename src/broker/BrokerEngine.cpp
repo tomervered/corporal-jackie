@@ -84,6 +84,8 @@ Engine::Engine(const BrokerSettings& s)
     params.extensions.push_back(uploadGuard);
     if (settings.memoryOnly) {
         m_memory = std::make_shared<MemoryRegistry>();
+        // No single piece may take more than a quarter of the cap (and never over 64 MiB).
+        m_memory->setMaxPieceBytes(std::min<qint64>(64LL * 1024 * 1024, memoryCap() / 4));
         params.disk_io_constructor = m_memory->constructor(m_memory);
     }
     // On disk, libtorrent's own default: pread files with 2.1 (Windows,
@@ -517,6 +519,19 @@ void Engine::onMetadata(Torrent& t)
     t.info = t.handle.torrent_file();
     if (!t.info)
         return;
+    if (m_memory && t.info->piece_length() > m_memory->maxPieceBytes()) {
+        // RAM only cannot hold pieces this big: stop now instead of allocating them. hasMetadata stays
+        // false, so an open waiting for the file list ends with the error (and nothing reads a list that is not set up).
+        if (!t.failed)
+            qCWarning(lcBroker).noquote() << "Torrent" << QString::fromStdString(t.id) << "has pieces of"
+                                          << t.info->piece_length() / (1024 * 1024) << "MiB, over the RAM-only limit of"
+                                          << m_memory->maxPieceBytes() / (1024 * 1024) << "MiB";
+        t.failed = true;
+        t.error = "its pieces are too large for RAM-only storage";
+        t.handle.pause();
+        t.cv.notify_all();
+        return;
+    }
     t.hasMetadata = true;
     t.have.assign(std::size_t(t.info->num_pieces()), false);
     const lt::torrent_status st = t.handle.status(lt::torrent_handle::query_pieces);

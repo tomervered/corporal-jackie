@@ -63,6 +63,10 @@ public:
     // targetHeight: the height to upscale to, in pixels; 0 = the size the
     // video is shown at.
     virtual void setUpscaler(Upscaler, int /*targetHeight*/) {}
+    // Intel VSR compatibility: bring each upscaled frame back to system memory
+    // instead of handing it on as a Direct3D texture. Slower, and fixes tearing
+    // on some Intel displays. Only Intel VSR on Windows hears it.
+    virtual void setIntelVsrCopyback(bool) {}
     // NativeKeys: a key pressed or released over the video, as Qt names it.
     // The target runs its own binding for it. False if it has no name for
     // the key (a lone Shift, say).
