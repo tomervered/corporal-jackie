@@ -250,7 +250,9 @@ private slots:
         QCOMPARE(caps(0x1002, "AMD Radeon RX 7600"), Capabilities());
         QCOMPARE(caps(0x1414, "Microsoft Basic Render Driver"), Capabilities());
 
-        const auto vf = MpvTarget::vsrFilter;
+        const auto vf = [](Upscaler u, int videoHeight, int target, int shown, bool intelCopyback = false) {
+            return MpvTarget::vsrFilter(u, videoHeight, target, shown, intelCopyback);
+        };
         QCOMPARE(vf(Upscaler::NvidiaVsr, 720, 1440, 0), QStringLiteral("d3d11vpp=scaling-mode=nvidia:scale=2.00"));
         QCOMPARE(vf(Upscaler::IntelVsr, 1080, 2160, 0), QStringLiteral("d3d11vpp=scaling-mode=intel:scale=2.00"));
         // 0 = the size shown; steps of 0.05, at most 4x.
