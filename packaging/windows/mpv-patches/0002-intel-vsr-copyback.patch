@@ -1,0 +1,80 @@
+diff --git a/video/filter/vf_d3d11vpp.c b/video/filter/vf_d3d11vpp.c
+index 8dba38a..3142dfa 100644
+--- a/video/filter/vf_d3d11vpp.c
++++ b/video/filter/vf_d3d11vpp.c
+@@ -17,6 +17,9 @@
+ 
+ #include <assert.h>
+ #include <windows.h>
++#include <stdlib.h>
++#include <string.h>
++
+ #include <d3d11.h>
+ 
+ #include <libavutil/hwcontext.h>
+@@ -79,6 +82,7 @@ struct opts {
+     int field_parity;
+     int format;
+     bool nvidia_true_hdr;
++    bool intel_copyback;
+ };
+ 
+ struct priv {
+@@ -103,6 +107,11 @@ struct priv {
+     AVBufferRef *hw_pool;
+ 
+     struct mp_refqueue *queue;
++
++    // Intel VSR on the d3d11-dxinterop bridge: each output frame is copied
++    // back to system memory instead of going through the shared texture.
++    bool copyback;
++    struct mp_image_pool *copyback_pool;
+ };
+ 
+ 
+@@ -519,7 +528,15 @@ static void vf_d3d11vpp_process(struct mp_filter *vf)
+         }
+         mp_refqueue_write_out_pin(p->queue, in);
+     } else {
+-        mp_refqueue_write_out_pin(p->queue, render(vf));
++        struct mp_image *out = render(vf);
++        if (out && p->copyback) {
++            // A NULL result goes through the filter's failure path in
++            // mp_refqueue_write_out_pin.
++            struct mp_image *sw = mp_image_hw_download(out, p->copyback_pool);
++            talloc_free(out);
++            out = sw;
++        }
++        mp_refqueue_write_out_pin(p->queue, out);
+     }
+ }
+ 
+@@ -595,6 +612,20 @@ static struct mp_filter *vf_d3d11vpp_create(struct mp_filter *parent,
+     if (!hwctx || !hwctx->av_device_ref)
+         goto fail;
+     p->av_device_ref = av_buffer_ref(hwctx->av_device_ref);
++
++    // Intel VSR through the shared texture of d3d11-dxinterop can tear on some
++    // Intel displays. The compatibility option (or CJ_INTEL_VSR_COPYBACK=1, for
++    // testing) brings each upscaled frame back to system memory, so it never
++    // reaches the shared texture. It applies to Intel VSR on that bridge only.
++    const char *copyback_env = getenv("CJ_INTEL_VSR_COPYBACK");
++    if ((p->opts->intel_copyback || (copyback_env && !strcmp(copyback_env, "1"))) &&
++        p->opts->scaling_mode == SCALING_INTEL_VSR &&
++        hwctx->driver_name && !strcmp(hwctx->driver_name, "d3d11-dxinterop"))
++    {
++        p->copyback_pool = mp_image_pool_new(p);
++        p->copyback = true;
++        MP_INFO(f, "d3d11-dxinterop: Intel VSR output uses copy-back\n");
++    }
+     AVHWDeviceContext *avhwctx = (void *)p->av_device_ref->data;
+     AVD3D11VADeviceContext *d3dctx = avhwctx->hwctx;
+ 
+@@ -654,6 +685,7 @@ static const m_option_t vf_opts_fields[] = {
+         {"bff", MP_FIELD_PARITY_BFF},
+         {"auto", MP_FIELD_PARITY_AUTO})},
+     {"nvidia-true-hdr", OPT_BOOL(nvidia_true_hdr)},
++    {"intel-copyback", OPT_BOOL(intel_copyback)},
+     {0}
+ };
+ 

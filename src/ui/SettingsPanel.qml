@@ -453,9 +453,13 @@ Item {
                     value: session.upscaler
                     onPicked: v => session.upscaler = v
                 }
-                Note {
-                    visible: session.upscaler === "intel" && session.upscalers.indexOf("fsr") >= 0
-                    text: "On some Intel graphics, Intel VSR makes shadows look blocky or shows other artifacts. If you see them, pick AMD FSR instead; it does not depend on the Intel driver."
+                Toggle {
+                    visible: session.upscalers.indexOf("intel") >= 0
+                    objectName: "intelVsrCopybackToggle"
+                    title: "Intel VSR compatibility mode"
+                    detail: "Turn this on if Intel VSR tears or shows blocks on your screen. Each frame is copied through memory instead of straight to the graphics card, which is slower: 1080p60 upscaled to 4K can stutter. AMD FSR is the other way out."
+                    checked: session.intelVsrCopyback
+                    onToggled: on => session.intelVsrCopyback = on
                 }
                 Choice {
                     visible: session.upscaler !== "off"

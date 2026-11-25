@@ -291,6 +291,27 @@ private slots:
         QCOMPARE(t.last(), QStringLiteral("upscaler 1 0"));
     }
 
+    // Intel VSR's compatibility mode: off until asked for, sent to the target
+    // once per change, and kept whether or not an upscaler is on.
+    void intelVsrCompatibilityMode()
+    {
+        FakeTarget t;
+        Session s(&t);
+        QVERIFY(!s.intelVsrCopyback());
+        QSignalSpy changed(&s, &Session::intelVsrCopybackChanged);
+        const int before = t.commands.size();
+        s.setIntelVsrCopyback(false);  // the default: nothing to send
+        QCOMPARE(t.commands.size(), before);
+        s.setIntelVsrCopyback(true);
+        QVERIFY(s.intelVsrCopyback());
+        QCOMPARE(t.last(), QStringLiteral("intelCopyback true"));
+        s.setIntelVsrCopyback(true);
+        QCOMPARE(t.commands.size(), before + 1);
+        s.setIntelVsrCopyback(false);
+        QCOMPARE(t.last(), QStringLiteral("intelCopyback false"));
+        QCOMPARE(changed.count(), 2);
+    }
+
     // The target's line about its upscaler reaches the UI as it is.
     void upscalerStatusFromTheTarget()
     {

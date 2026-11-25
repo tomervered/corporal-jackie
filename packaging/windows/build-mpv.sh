@@ -18,7 +18,7 @@ FFMPEG_VERSION=n7.1.5
 LIBPLACEBO_VERSION=v7.349.0
 MPV_VERSION=v0.41.0
 PATCHES="$(cd "$(dirname "$0")" && pwd)/mpv-patches"
-STAMP="$PREFIX/.built-$FFMPEG_VERSION-$LIBPLACEBO_VERSION-$MPV_VERSION-8"
+STAMP="$PREFIX/.built-$FFMPEG_VERSION-$LIBPLACEBO_VERSION-$MPV_VERSION-9"
 
 if [ -f "$STAMP" ]; then
     echo "Using cached build in $PREFIX"

@@ -186,16 +186,21 @@ Capabilities MpvTarget::vsrCapabilities(unsigned vendorId, const QString& adapte
     return {};
 }
 
-QString MpvTarget::vsrFilter(Upscaler upscaler, int videoHeight, int targetHeight, int shownHeight)
+QString MpvTarget::vsrFilter(Upscaler upscaler, int videoHeight, int targetHeight, int shownHeight,
+                             bool intelCopyback)
 {
     const int target = targetHeight > 0 ? targetHeight : shownHeight;
     if (!isVsr(upscaler) || videoHeight <= 0 || target <= videoHeight)
         return {};  // nothing to make bigger (yet)
     // In steps of 0.05, so a window resized by a few pixels keeps its filter.
     const double factor = qBound(1.05, qRound(20.0 * target / videoHeight) / 20.0, 4.0);
-    return QStringLiteral("d3d11vpp=scaling-mode=%1:scale=%2")
+    QString filter = QStringLiteral("d3d11vpp=scaling-mode=%1:scale=%2")
         .arg(upscaler == Upscaler::NvidiaVsr ? QStringLiteral("nvidia") : QStringLiteral("intel"))
         .arg(factor, 0, 'f', 2);
+    // Only Intel VSR has the compatibility mode; NVIDIA keeps its own path.
+    if (upscaler == Upscaler::IntelVsr && intelCopyback)
+        filter += QStringLiteral(":intel-copyback=yes");
+    return filter;
 }
 
 namespace {
@@ -704,7 +709,7 @@ void MpvTarget::prepareVsrFilter()
         }
         mpv_free_node_contents(&tracks);
     }
-    const QString filter = vsrFilter(m_upscaler, height, m_upscaleHeight, m_shownHeight);
+    const QString filter = vsrFilter(m_upscaler, height, m_upscaleHeight, m_shownHeight, m_intelCopyback);
     if (filter != m_vsrFilter && mpv_set_property_string(m_mpv, "vf", filter.toUtf8().constData()) >= 0) {
         m_vsrFilter = filter;
         if (!filter.isEmpty())
@@ -926,6 +931,16 @@ std::unique_ptr<QTemporaryFile> MpvTarget::writeShader(Upscaler upscaler, int ta
     return file;
 }
 
+// The filter is set again at once when Intel VSR is the one running.
+void MpvTarget::setIntelVsrCopyback(bool on)
+{
+    if (on == m_intelCopyback)
+        return;
+    m_intelCopyback = on;
+    if (m_upscaler == Upscaler::IntelVsr)
+        applyVsrFilter();
+}
+
 // Off clears the shader list and the filter, so mpv frees what they used.
 void MpvTarget::setUpscaler(Upscaler upscaler, int targetHeight)
 {
@@ -969,7 +984,7 @@ void MpvTarget::setUpscaler(Upscaler upscaler, int targetHeight)
 
 void MpvTarget::applyVsrFilter()
 {
-    const QString filter = vsrFilter(m_upscaler, m_videoHeight, m_upscaleHeight, m_shownHeight);
+    const QString filter = vsrFilter(m_upscaler, m_videoHeight, m_upscaleHeight, m_shownHeight, m_intelCopyback);
     if (filter == m_vsrFilter)
         return;
     m_vsrFilter = filter;

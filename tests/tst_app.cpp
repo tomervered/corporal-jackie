@@ -533,6 +533,23 @@ private slots:
         QVERIFY(run.core.session().hardwareDecoding());
     }
 
+    // Intel VSR's compatibility mode is off on a fresh install and kept between runs.
+    void intelVsrCompatibilityIsKept()
+    {
+        {
+            Run run(m_root->path());
+            QVERIFY(!run.core.session().intelVsrCopyback());
+            run.core.session().setIntelVsrCopyback(true);
+        }
+        {
+            Run run(m_root->path());
+            QVERIFY(run.core.session().intelVsrCopyback());
+            run.core.session().setIntelVsrCopyback(false);
+        }
+        Run run(m_root->path());
+        QVERIFY(!run.core.session().intelVsrCopyback());
+    }
+
     void preferencesApplyNextRun()
     {
         {
