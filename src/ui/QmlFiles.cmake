@@ -2,6 +2,11 @@
 # app and by tst_ui, which loads the same window against a fake player.
 set(CJ_QML_FILES
     Main.qml Pages.qml SettingsPanel.qml PrivacyScreen.qml ContinueWatching.qml
+    # settings
+    SettingNote.qml SettingsGroup.qml SettingSwitch.qml
+    SettingChoice.qml SettingActions.qml SettingRow.qml
+    PictureSettings.qml TorrentPermissions.qml PrivacySettings.qml
+    SubtitlePreview.qml SubtitleSettings.qml
     # player
     ControlBar.qml PlayerPanel.qml PanelRow.qml
     CornerMask.qml PanelChoices.qml BarButton.qml EpisodesPanel.qml LinkPopup.qml Toast.qml StatsOverlay.qml ShortcutsOverlay.qml Format.js Notices.js
