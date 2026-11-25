@@ -38,6 +38,22 @@ When a video has chapters, the seek bar shows a small break at each chapter star
 
 Settings > Appearance has three looks: olive dark (the default), OLED black and bright. Each look's accent, background, panel and text colours can be changed, and restored.
 
+## Reading the code for the first time
+
+Start with an action you already know from using the player.
+
+| If you want to understand… | Start here | What to look for |
+| --- | --- | --- |
+| What happens when you press Play on a search result | [PlayFromCatalog.cpp](src/sources/PlayFromCatalog.cpp) | `Browser::play` finds the stream you picked. Once the player accepts it, the browser remembers the episode and asks for subtitles. |
+| How the player remembers where you stopped | [Session.cpp](src/session/Session.cpp) and [Library.cpp](src/storage/Library.cpp) | `emitResumePoint` reports the video and its position. The library saves them and looks them up next time. |
+| What the arrow keys do over a video | [PlayerKeyboard.cpp](src/targets/PlayerKeyboard.cpp) | `keyName` turns a keyboard press into the name understood by mpv, the engine that plays the video. |
+| Where subtitle settings live | [SubtitleSettings.qml](src/ui/SubtitleSettings.qml) | Each row has a title, the current value and an action when you pick a value. The preview is drawn when you open this group. |
+| How a torrent link becomes a video | [ReadTorrentLink.cpp](src/transports/ReadTorrentLink.cpp) | `resolve` reads the link and identifies the file. The torrent engine can then fetch the pieces of that file as the player needs them. |
+| What happens when you save a download | [Downloads.cpp](src/app/Downloads.cpp) and [DownloadFiles.cpp](src/app/DownloadFiles.cpp) | `saveTorrentToFolder` gets the stream. `copyTorrentBytes` writes a temporary file. Only a finished download gets its final name. |
+| What is inside a library backup | [LibraryBackupFormat.cpp](src/storage/LibraryBackupFormat.cpp) | Each pair of functions writes and reads the same named fields, including the title, episode, and playback position. |
+
+A `.qml` file describes what appears on screen and what happens when you use it. A `.cpp` file supplies the steps the program follows. Its `.h` file lists the actions and information that other parts of the app can use. In these files, `emit` announces that something happened. Search for that announcement's name to find who responds.
+
 ## Layout
 
 One folder per layer under `src/`. Each folder's README says what the layer owns and what it must never do.

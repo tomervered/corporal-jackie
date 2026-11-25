@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls.Basic
-import "Notices.js" as Notices
 import "Format.js" as Format
 import QtQuick.Dialogs
 
@@ -17,14 +16,20 @@ Item {
     function takeFocus() { appearanceGroup.focusHeader() }
     // Opens one group (by its title) and scrolls to it.
     function openGroup(title) {
-        for (const g of [appearanceGroup, pictureGroup, subtitlesGroup, torrentsGroup, privacyGroup, storageGroup, downloadsGroup, imagesGroup, historyGroup])
-            if (g.title === title) { g.expanded = true; Qt.callLater(() => flick.contentY = Math.min(g.y, Math.max(0, flick.contentHeight - flick.height))) }
+        for (const group of body.children) {
+            if (group.title !== title) continue
+            group.expanded = true
+            Qt.callLater(() => {
+                const bottom = Math.max(0, flick.contentHeight - flick.height)
+                flick.contentY = Math.min(group.y, bottom)
+            })
+            return
+        }
     }
 
     // Clicks and scrolls on the page stay here, away from the video below.
     MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons; onWheel: wheel => wheel.accepted = true }
     onVisibleChanged: if (visible) { caches.measure(); panel.confirmClear = false; panel.result = ""; panel.importAsks = [] }
-
 
     property bool confirmClear: false
     property string result: ""      // what the last export or import did
@@ -68,7 +73,6 @@ Item {
         delete edits[Theme.mode]
         preferences.colorEdits = edits
     }
-
 
     Flickable {
         id: flick

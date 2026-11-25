@@ -301,6 +301,9 @@ jobs:
           export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
           rm -rf dist && mkdir -p dist/app
           cp build/src/app/CorporalJackie.exe dist/app/
+          # The packaged player needs its code and resources. Keep the debugger
+          # symbols in the build copy used by tests.
+          strip --strip-unneeded dist/app/CorporalJackie.exe
           WDQ=$(command -v windeployqt6 || command -v windeployqt-qt6 || command -v windeployqt)
           "$WDQ" --release --qmldir src/ui --no-translations \
             --skip-plugin-types qmltooling,generic,networkinformation dist/app/CorporalJackie.exe
