@@ -584,9 +584,13 @@ void Browser::play(int streamIndex)
     if (m_playingVideoId == m_streamsVideoId && m_session->source() == m_playingUrl
         && (m_session->hasMedia() || m_session->loading()))
         start = m_session->position();
-    if (m_detail)
-        emit aboutToPlay(PlayContext{m_detail->preview, m_streamsVideo});
-    m_session->playSource(choice.source, start);
+    const auto rememberEpisode = [this] {
+        if (m_detail)
+            emit aboutToPlay(PlayContext{m_detail->preview, m_streamsVideo});
+    };
+    if (!m_session->playSource(choice.source, start, rememberEpisode))
+        return;
+
     m_playingVideoId = m_streamsVideoId;
     m_playingUrl = m_session->source();
     ++m_playingGen;

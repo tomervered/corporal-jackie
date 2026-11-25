@@ -232,7 +232,7 @@ void Session::openPath(const QString& pathOrUrl, double startSeconds)
         open(QUrl::fromLocalFile(QFileInfo(pathOrUrl).absoluteFilePath()), startSeconds);
 }
 
-void Session::playSource(const PlayableSource& source, double startSeconds)
+bool Session::playSource(const PlayableSource& source, double startSeconds, const std::function<void()>& onAccepted)
 {
     // A magnet link from an add-on still goes through the torrent resolver;
     // everything else the adapter said (title, subtitles, headers) is kept.
@@ -246,7 +246,7 @@ void Session::playSource(const PlayableSource& source, double startSeconds)
         if (s.title.isEmpty())
             s.title = resolved->title;
     }
-    load(s, startSeconds);
+    return startPlayback(s, startSeconds, onAccepted);
 }
 
 void Session::addSubtitleTracks(const QList<SubtitleSource>& subtitles, const QUrl& forSource)
@@ -259,15 +259,23 @@ void Session::addSubtitleTracks(const QList<SubtitleSource>& subtitles, const QU
 
 void Session::load(const PlayableSource& source, double startSeconds)
 {
+    startPlayback(source, startSeconds, {});
+}
+
+bool Session::startPlayback(const PlayableSource& source, double startSeconds, const std::function<void()>& onAccepted)
+{
     if (m_sourceCheck) {
         if (const auto refusal = m_sourceCheck(source)) {
             qCInfo(lcSession).noquote() << "Not loading" << logging::redactUrl(source.url) << ":" << refusal->second;
             emit errorOccurred(refusal->first, refusal->second);
-            return;
+            return false;
         }
     }
     emitResumePoint();  // remember where the previous item was left
 
+    // History needs the chosen episode before it can look up where we left off.
+    if (onAccepted)
+        onAccepted();
     if (startSeconds <= 0 && m_resumeLookup)
         startSeconds = std::max(0.0, m_resumeLookup(source));
     m_source = source;
@@ -307,6 +315,7 @@ void Session::load(const PlayableSource& source, double startSeconds)
     emit cropChanged();
     if (streamWasSet)
         emit streamStatusChanged();
+    return true;
 }
 
 void Session::setStreamStatus(const StreamStatus& status)
