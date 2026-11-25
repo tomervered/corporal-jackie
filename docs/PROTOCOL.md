@@ -74,6 +74,49 @@ non-envelope answer as `unavailable`.
 { "kind": "http", "url": "https://…", "name": "…", "quality": 1080, "size": 2147483648, "headers": { } }
 ```
 
+## A minimal source, end to end
+
+The manifest above is the whole setup. Then, for a catalog of one title:
+
+```
+GET /catalog/movie/trending?q=dune&genre=drama&year=2026&skip=0
+200 { "ok": true, "v": 1, "ttl": 600,
+      "data": { "items": [ { "id": "tt1160419", "type": "movie", "name": "Dune", "poster": "https://…/dune.jpg", "year": 2021 } ] } }
+```
+
+A catalog with nothing in it is a valid answer, not an error:
+
+```
+GET /catalog/movie/trending?q=zzzz
+200 { "ok": true, "v": 1, "ttl": 60, "data": { "items": [] } }
+```
+
+A title that does not exist is a typed error, with the matching HTTP status. The client does not ask a mirror or the same address again:
+
+```
+GET /meta/movie/tt0000000
+404 { "ok": false, "v": 1, "error": { "code": "not_found", "message": "No such title" } }
+```
+
+An "ok" answer must carry the data of its resource (`items`, `streams`, `subtitles`, or a title with an `id`). Without it the client counts the try as failed and asks the next mirror, and never saves it.
+
+## Which v1 features the client uses
+
+| Feature | Used by Corporal Jackie 0.4.1 |
+| --- | --- |
+| Manifest, `mirrors`, `/catalog`, `/meta`, `/streams`, `/subtitles` | Yes |
+| `q`, `genre`, `year`, `skip` on `/catalog` | Yes, in one request |
+| Envelope `ok`, `v`, `ttl`, typed `error` and `retryAfter` | Yes |
+| Typed stream fields (`quality`, `size`, `seeders`, `infoHash`, `fileIdx`, `trackers`, `headers`) | Yes |
+| `/search` (across the source) | No: search goes through `/catalog/{type}/{id}?q=` |
+| `partial` | No: the answer is shown as it is |
+| `total` | No: paging goes on until a page is empty |
+| `ETag` and `If-None-Match` | No: `ttl` alone decides |
+| `limit` | No |
+| `/health` | No (for monitors) |
+
+A source may send the features marked No; nothing happens with them.
+
 ## What the client does (fewer timeouts)
 
 - **One connection pool per source**, so a slow source never holds up the others.

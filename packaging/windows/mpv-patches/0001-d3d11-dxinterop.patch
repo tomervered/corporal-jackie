@@ -251,7 +251,7 @@ index 0000000..0000001
 +    if (p->sync_mode == SYNC_RING && (!gl->FenceSync || !gl->ClientWaitSync || !gl->DeleteSync))
 +        p->sync_mode = SYNC_FINISH;   // no fences in this OpenGL
 +    MP_INFO(hw, "d3d11-dxinterop: waiting for OpenGL by %s\n",
-+            p->sync_mode == SYNC_FINISH ? "finish" : p->sync_mode == SYNC_RING ? "ring" : "nothing");
++            p->sync_mode == SYNC_FINISH ? "finish" : p->sync_mode == SYNC_RING ? "ring (experimental)" : "nothing");
 +
 +    d3d_load_dlls();
 +    if (!d3d11_D3D11CreateDevice) {
