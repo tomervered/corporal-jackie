@@ -42,7 +42,7 @@ new file mode 100644
 index 0000000..0000001
 --- /dev/null
 +++ b/video/out/opengl/hwdec_d3d11gldx.c
-@@ -0,0 +1,525 @@
+@@ -0,0 +1,535 @@
 +/*
 + * This file is part of mpv.
 + *
@@ -116,6 +116,12 @@ index 0000000..0000001
 +#endif
 +#ifndef GL_SYNC_FLUSH_COMMANDS_BIT
 +#define GL_SYNC_FLUSH_COMMANDS_BIT 0x00000001
++#endif
++#ifndef GL_TIMEOUT_EXPIRED
++#define GL_TIMEOUT_EXPIRED 0x911B
++#endif
++#ifndef GL_WAIT_FAILED
++#define GL_WAIT_FAILED 0x911D
 +#endif
 +
 +struct priv_owner {
@@ -494,7 +500,11 @@ index 0000000..0000001
 +    // normally none. Time-limited, so that a stuck driver cannot hang playback.
 +    struct slot *sl = &p->slots[p->next];
 +    if (sl->fence) {
-+        gl->ClientWaitSync(sl->fence, GL_SYNC_FLUSH_COMMANDS_BIT, 20000000ULL);
++        // A wait that timed out or failed does not mean OpenGL is done with
++        // the texture: finish its work before the slot is unlocked and reused.
++        GLenum waited = gl->ClientWaitSync(sl->fence, GL_SYNC_FLUSH_COMMANDS_BIT, 20000000ULL);
++        if (waited == GL_TIMEOUT_EXPIRED || waited == GL_WAIT_FAILED)
++            gl->Finish();
 +        gl->DeleteSync(sl->fence);
 +        sl->fence = NULL;
 +    }

@@ -453,6 +453,10 @@ Item {
                     value: session.upscaler
                     onPicked: v => session.upscaler = v
                 }
+                Note {
+                    visible: session.upscaler === "intel" && session.upscalers.indexOf("fsr") >= 0
+                    text: "On some Intel graphics, Intel VSR makes shadows look blocky or shows other artifacts. If you see them, pick AMD FSR instead; it does not depend on the Intel driver."
+                }
                 Choice {
                     visible: session.upscaler !== "off"
                     title: "Upscale to"
