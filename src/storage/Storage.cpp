@@ -1,4 +1,5 @@
 #include "Storage.h"
+#include "LibraryBackupFormat.h"
 
 #include "LinkRules.h"
 #include "Logging.h"
@@ -265,69 +266,6 @@ bool isImportableLink(const QString& text)
     const QString scheme = url.scheme().toLower();
     return url.isValid()
         && (isWeb(url) || scheme == QLatin1String("file") || scheme == QLatin1String("torrent"));
-}
-
-QJsonObject entryToJson(const HistoryEntry& e)
-{
-    return {{"key", e.key}, {"adapter", e.adapter}, {"provider", e.provider}, {"itemId", e.itemId},
-            {"itemType", e.itemType}, {"itemName", e.itemName}, {"poster", e.poster}, {"videoId", e.videoId},
-            {"videoTitle", e.videoTitle}, {"season", e.season}, {"episode", e.episode},
-            {"source", Storage::sourceToJson(e.source)}, {"position", e.position}, {"duration", e.duration},
-            {"updatedAt", double(e.updatedAt)}, {"finished", e.finished}};
-}
-
-// A time in ms since 1970 from an export. Converting a double outside
-// qint64's range is undefined, so anything not finite, negative or past the
-// year 9999 comes back as -1, which import refuses.
-qint64 timeFromJson(const QJsonValue& v)
-{
-    constexpr double kLatest = 253402300800000.0;  // 10000-01-01
-    const double ms = v.toDouble();
-    if (!std::isfinite(ms) || ms < 0 || ms > kLatest)
-        return -1;
-    return qint64(ms);
-}
-
-HistoryEntry entryFromJson(const QJsonObject& o)
-{
-    HistoryEntry e;
-    e.key = o.value("key").toString();
-    e.adapter = o.value("adapter").toString();
-    e.provider = o.value("provider").toString();
-    e.itemId = o.value("itemId").toString();
-    e.itemType = o.value("itemType").toString();
-    e.itemName = o.value("itemName").toString();
-    e.poster = links::imageLinkOrEmpty(o.value("poster").toString());  // web images only: see LinkRules.h
-    e.videoId = o.value("videoId").toString();
-    e.videoTitle = o.value("videoTitle").toString();
-    e.season = o.value("season").toInt();
-    e.episode = o.value("episode").toInt();
-    e.source = Storage::sourceFromJson(o.value("source").toObject());
-    e.position = o.value("position").toDouble();
-    e.duration = o.value("duration").toDouble();
-    e.updatedAt = timeFromJson(o.value("updatedAt"));
-    e.finished = o.value("finished").toBool();
-    return e;
-}
-
-QJsonObject itemToJson(const LibraryItem& i)
-{
-    return {{"adapter", i.adapter}, {"provider", i.provider}, {"itemId", i.itemId}, {"type", i.type},
-            {"name", i.name}, {"poster", i.poster}, {"releaseInfo", i.releaseInfo}, {"addedAt", double(i.addedAt)}};
-}
-
-LibraryItem itemFromJson(const QJsonObject& o)
-{
-    LibraryItem i;
-    i.adapter = o.value("adapter").toString();
-    i.provider = o.value("provider").toString();
-    i.itemId = o.value("itemId").toString();
-    i.type = o.value("type").toString();
-    i.name = o.value("name").toString();
-    i.poster = links::imageLinkOrEmpty(o.value("poster").toString());
-    i.releaseInfo = o.value("releaseInfo").toString();
-    i.addedAt = timeFromJson(o.value("addedAt"));
-    return i;
 }
 
 // Puts every entry of `incoming` into `list` the way keepInMemory() would one
@@ -897,9 +835,9 @@ QByteArray Storage::exportJson(ExportMode mode) const
     int left = 0;
     for (const HistoryEntry& e : m_history) {
         if (full) {
-            history.append(entryToJson(e));
+            history.append(backup::writeWatchHistoryEntry(e));
         } else if (const auto kept = shareable(e)) {
-            history.append(entryToJson(*kept));
+            history.append(backup::writeWatchHistoryEntry(*kept));
         } else {
             ++left;
         }
@@ -909,7 +847,7 @@ QByteArray Storage::exportJson(ExportMode mode) const
         LibraryItem kept = i;
         if (!full && carriesSecrets(QUrl(kept.poster)))
             kept.poster.clear();
-        library.append(itemToJson(kept));
+        library.append(backup::writeLibraryItem(kept));
     }
     QJsonArray addons;
     QJsonArray withheld;
@@ -1039,7 +977,7 @@ QString Storage::importJson(const QByteArray& json, ImportExtras extrasWanted)
     for (qsizetype n = 0; n < historyIn.size(); ++n) {
         if (!historyIn.at(n).isObject())
             return damaged("history", n);
-        const HistoryEntry e = entryFromJson(historyIn.at(n).toObject());
+        const HistoryEntry e = backup::readWatchHistoryEntry(historyIn.at(n).toObject());
         if (e.key.isEmpty() || !std::isfinite(e.position) || !std::isfinite(e.duration) || e.position < 0
             || e.duration < 0 || e.updatedAt < 0 || !isImportableLink(e.source.url.toString()) || !isImportableLink(e.source.origin))
             return damaged("history", n);
@@ -1061,7 +999,7 @@ QString Storage::importJson(const QByteArray& json, ImportExtras extrasWanted)
     for (qsizetype n = 0; n < libraryIn.size(); ++n) {
         if (!libraryIn.at(n).isObject())
             return damaged("library", n);
-        const LibraryItem i = itemFromJson(libraryIn.at(n).toObject());
+        const LibraryItem i = backup::readLibraryItem(libraryIn.at(n).toObject());
         if (i.itemId.isEmpty() || i.addedAt < 0)
             return damaged("library", n);
         if (!libraryKeys.contains(i.key()))
@@ -1142,49 +1080,6 @@ QString Storage::sourceKey(const PlayableSource& source)
     // the video; the trackers, which may hold a passkey, never key it.
     const QString reduced = shareableMagnet(opened);
     return reduced.isEmpty() ? opened : reduced;
-}
-
-QJsonObject Storage::sourceToJson(const PlayableSource& s)
-{
-    QJsonObject headers;
-    for (auto it = s.headers.begin(); it != s.headers.end(); ++it)
-        headers.insert(it.key(), it.value());
-    QJsonArray subtitles;
-    for (const SubtitleSource& sub : s.subtitles)
-        subtitles.append(QJsonObject{{"url", sub.url.toString()}, {"language", sub.language}, {"label", sub.label}});
-    const char* kinds[] = {"file", "http", "torrent"};
-    QJsonObject o{{"url", s.url.toString()}, {"title", s.title}, {"kind", kinds[int(s.kind)]}};
-    if (!s.origin.isEmpty())
-        o.insert("origin", s.origin);
-    if (!headers.isEmpty())
-        o.insert("headers", headers);
-    if (!subtitles.isEmpty())
-        o.insert("subtitles", subtitles);
-    if (!s.adapter.isEmpty())
-        o.insert("adapter", s.adapter);
-    return o;
-}
-
-PlayableSource Storage::sourceFromJson(const QJsonObject& o)
-{
-    PlayableSource s;
-    s.url = QUrl(o.value("url").toString());
-    s.title = o.value("title").toString();
-    const QString kind = o.value("kind").toString();
-    s.kind = kind == QLatin1String("torrent") ? PlayableSource::Kind::Torrent
-           : kind == QLatin1String("http")    ? PlayableSource::Kind::Http
-                                              : PlayableSource::Kind::LocalFile;
-    s.origin = o.value("origin").toString();
-    const QJsonObject headers = o.value("headers").toObject();
-    for (auto it = headers.begin(); it != headers.end(); ++it)
-        s.headers.insert(it.key(), it.value().toString());
-    for (const QJsonValue& v : o.value("subtitles").toArray()) {
-        const QJsonObject sub = v.toObject();
-        s.subtitles.append({QUrl(sub.value("url").toString()), sub.value("language").toString(),
-                            sub.value("label").toString()});
-    }
-    s.adapter = o.value("adapter").toString();
-    return s;
 }
 
 } // namespace cj

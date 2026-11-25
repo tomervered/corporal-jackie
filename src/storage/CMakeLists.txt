@@ -3,6 +3,7 @@
 # UI uses for history, Continue Watching and saved items.
 add_library(cj_storage STATIC
     Storage.cpp Storage.h
+    LibraryBackupFormat.cpp LibraryBackupFormat.h
     Library.cpp Library.h
 )
 target_include_directories(cj_storage PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
