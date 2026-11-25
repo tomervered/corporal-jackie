@@ -224,6 +224,12 @@ QList<StreamOption> parseStreams(const QJsonObject& json, const QString& addonId
         // (or not a number) is ignored.
         if (const double size = hints.value("videoSize").toDouble(-1); size >= 0 && size <= 1125899906842624.0)
             s.sizeBytes = qint64(size);
+        // Typed values some sources send (Jackie sources always do): they win
+        // over the guess from the label, which only fills what is missing.
+        if (const int q = hints.value("cjQuality").toInt(0); q > 0 && q <= 8640)
+            s.quality = q;
+        if (const int n = hints.value("cjSeeders").toInt(-1); n >= 0 && n <= 10000000)
+            s.seeders = n;
         s.source.adapter = QStringLiteral("stremio:") + addonId;
 
         const QString infoHash = o.value("infoHash").toString();

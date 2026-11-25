@@ -112,6 +112,15 @@ QVariantList Browser::addons() const
         for (const stremio::Catalog& c : a.manifest.catalogs)
             catalogs << QVariantMap{{"type", c.type}, {"id", c.id}, {"name", c.name},
                                     {"enabled", !a.hiddenCatalogs.contains(c.type + QLatin1Char('/') + c.id)}};
+        // The lists (and details) now shown from an old copy, in words.
+        QStringList cachedIn;
+        for (const QString& view : a.cachedViews) {
+            QString label = view == QLatin1String("meta") ? QStringLiteral("details") : view;
+            for (const stremio::Catalog& c : a.manifest.catalogs)
+                if (view == QStringLiteral("catalog/") + c.type + QLatin1Char('/') + c.id && !c.name.isEmpty())
+                    label = c.name;
+            cachedIn << label;
+        }
         QStringList offers;
         for (const stremio::Resource& r : a.manifest.resources)
             offers << r.name;
@@ -121,7 +130,10 @@ QVariantList Browser::addons() const
                            {"description", a.manifest.description},
                            {"url", logging::redactUrl(a.manifestUrl)},  // its path can hold a login
                            {"offers", offers.join(QStringLiteral(", "))},
+                           {"protocol", a.jsp ? QStringLiteral("Jackie Source Protocol v1") : QStringLiteral("Stremio")},
                            {"error", a.lastError},
+                           {"cached", !a.cachedViews.isEmpty()},
+                           {"cachedIn", cachedIn.join(QStringLiteral(", "))},
                            {"enabled", !a.disabled},
                            {"catalogs", catalogs}};
     }

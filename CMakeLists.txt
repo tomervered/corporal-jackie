@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(CorporalJackie
-    VERSION 0.4.0
+    VERSION 0.4.1
     DESCRIPTION "A native media player that streams torrents"
     LANGUAGES CXX)
 if(APPLE)
@@ -17,7 +17,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # App identity, used by the code and by packaging.
 # The version people see. project(VERSION) takes numbers only, so a
 # pre-release letter goes here; keep the numbers in step with it.
-set(CJ_VERSION_LABEL   "0.4.0a")
+set(CJ_VERSION_LABEL   "0.4.1a")
 set(CJ_APP_NAME        "Corporal Jackie")
 set(CJ_APP_ID          "corporal-jackie")
 set(CJ_ORG_DOMAIN      "tomervered.com")

@@ -58,13 +58,16 @@ The Windows package builds FFmpeg n7.1.5 in `packaging/windows/build-mpv.sh`. Th
 
 The macOS package bundles Homebrew's current mpv and FFmpeg. The player logs `mpv-version` and `ffmpeg-version` when it starts, and `SOURCE.txt` in the package lists the Homebrew versions. Building mpv and FFmpeg ourselves on macOS, as on Windows, is still to do.
 
+## Piece size in RAM-only mode
+
+A piece is held whole in memory, so RAM-only storage refuses torrents whose pieces are over a quarter of the memory cap (and never over 64 MiB). The engine checks it when the file list arrives and stops the torrent with an error; the memory layer checks again before it allocates a piece, as a second guard. With the default 1 GiB cap the limit is 64 MiB, far over the 16 MiB or so that real torrents use. Torrents stored on disk are not affected.
+
 ## Known gaps
 
 These were rated low in the review and are not fixed yet:
 
 - libtorrent listens for peers on all interfaces while the engine runs. Every piece is hash-checked; the risk left is a bug in libtorrent's own parsers.
 - Trackers from add-ons and web seeds from pasted magnets are not checked, so a tracker on the home network can get a blind GET request.
-- In RAM mode the first block of a piece allocates the whole piece. A torrent with 512 MiB pieces can use gigabytes of memory and crash the app.
 - The update signature covers `build.txt` and `manifest.txt` joined with no separator, and `apply-update.cmd` passes `%1` unquoted.
 
 ## The local relay for links with credentials

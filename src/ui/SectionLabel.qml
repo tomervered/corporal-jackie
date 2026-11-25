@@ -5,7 +5,7 @@ Text {
     textFormat: Text.PlainText
     required property string section
     text: section
-    color: Theme.accent
+    color: Theme.link
     font.pixelSize: Theme.bodySize
     font.weight: Font.DemiBold
     topPadding: 14

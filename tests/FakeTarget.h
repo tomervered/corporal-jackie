@@ -76,6 +76,7 @@ public:
     }
     void setHardwareDecoding(bool on) override { log("hwdec", on); }
     void setUpscaler(Upscaler u, int height) override { log("upscaler", int(u), height); }
+    void setIntelVsrCopyback(bool on) override { log("intelCopyback", on); }
     bool keyEvent(int key, Qt::KeyboardModifiers m, const QString&, bool pressed) override
     {
         log(pressed ? "keydown" : "keyup", key, int(m));

@@ -43,7 +43,7 @@ ComboBox {
             textFormat: Text.PlainText
             text: Array.isArray(control.model) ? entry.modelData : (control.textRole ? entry.modelData[control.textRole] : entry.modelData)
             font: control.font
-            color: control.currentIndex === entry.index ? Theme.accent : Theme.text
+            color: control.currentIndex === entry.index ? Theme.link : Theme.text
             elide: Text.ElideRight
             verticalAlignment: Text.AlignVCenter
         }

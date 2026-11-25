@@ -1,4 +1,5 @@
 #include "StremioAdapter.h"
+#include "JspProtocol.h"
 
 #include "Logging.h"
 
@@ -20,8 +21,19 @@ namespace {
 // https://wikimaze-seven.vercel.app/manifest.json (2026-11-17), refreshed 2026-11-24 (version 0.2.0: Brand New, year filter).
 const char kDefaultManifest[] = R"json({"id":"community.wikimaze","version":"0.2.0","name":"WikiMaze","description":"Movie and series details from Wikidata (CC0) and TVmaze (CC BY-SA), titles in your language. Search ends with \"!\" to ask Wikidata and TVmaze directly. TV data from TVmaze.com, licensed CC BY-SA 4.0.","resources":["catalog",{"name":"meta","types":["movie","series"],"idPrefixes":["tt"]}],"types":["movie","series"],"idPrefixes":["tt"],"catalogs":[{"type":"movie","id":"wikimaze-trending","name":"WikiMovies - Trending","extra":[{"name":"genre","options":["Action","Adventure","Animation","Biography","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Musical","Mystery","Romance","Sci-Fi","Sports","Superhero","Thriller","War","Western"]},{"name":"year","options":["2026","2025","2024","2023","2022","2020s","2010s","2000s","1990s","1980s","1970s","Older"]},{"name":"search"},{"name":"skip"}]},{"type":"series","id":"wikimaze-trending","name":"WikiSeries - Trending","extra":[{"name":"genre","options":["Action","Adventure","Animation","Anime","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Medical","Mystery","Romance","Sci-Fi","Sports","Thriller","War","Western"]},{"name":"year","options":["2026","2025","2024","2023","2022","2020s","2010s","2000s","1990s","1980s","1970s","Older"]},{"name":"search"},{"name":"skip"}]},{"type":"movie","id":"wikimaze-hot","name":"WikiMovies - Surging","extra":[{"name":"genre","options":["Action","Adventure","Animation","Biography","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Musical","Mystery","Romance","Sci-Fi","Sports","Superhero","Thriller","War","Western"]},{"name":"year","options":["2026","2025","2024","2023","2022","2020s","2010s","2000s","1990s","1980s","1970s","Older"]},{"name":"search"},{"name":"skip"}]},{"type":"series","id":"wikimaze-hot","name":"WikiSeries - Surging","extra":[{"name":"genre","options":["Action","Adventure","Anime","Children","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Legal","Medical","Mystery","Romance","Sci-Fi","Sports","Supernatural","Thriller","War","Western"]},{"name":"year","options":["2026","2025","2024","2023","2022","2020s","2010s","2000s","1990s","1980s","1970s","Older"]},{"name":"search"},{"name":"skip"}]},{"type":"movie","id":"wikimaze-new","name":"WikiMovies - Brand New","extra":[{"name":"genre","options":["Action","Adventure","Animation","Biography","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Musical","Mystery","Romance","Sci-Fi","Sports","Superhero","Thriller","War","Western"]},{"name":"year","options":["2026","2025","2024","2023","2022","2020s","2010s","2000s","1990s","1980s","1970s","Older"]},{"name":"search"},{"name":"skip"}]},{"type":"series","id":"wikimaze-new","name":"WikiSeries - Brand New","extra":[{"name":"genre","options":["Action","Adventure","Anime","Children","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Legal","Medical","Mystery","Romance","Sci-Fi","Sports","Supernatural","Thriller","War","Western"]},{"name":"year","options":["2026","2025","2024","2023","2022","2020s","2010s","2000s","1990s","1980s","1970s","Older"]},{"name":"search"},{"name":"skip"}]},{"type":"movie","id":"wikimaze-popular","name":"WikiMovies - Classics","extra":[{"name":"genre","options":["Action","Adventure","Animation","Biography","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Musical","Mystery","Romance","Sci-Fi","Sports","Superhero","Thriller","War","Western"]},{"name":"year","options":["2026","2025","2024","2023","2022","2020s","2010s","2000s","1990s","1980s","1970s","Older"]},{"name":"search"},{"name":"skip"}]},{"type":"series","id":"wikimaze-classics","name":"WikiSeries - Classics","extra":[{"name":"genre","options":["Action","Adventure","Animation","Anime","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Medical","Mystery","Romance","Sci-Fi","Sports","Thriller","War","Western"]},{"name":"year","options":["2026","2025","2024","2023","2022","2020s","2010s","2000s","1990s","1980s","1970s","Older"]},{"name":"search"},{"name":"skip"}]},{"type":"series","id":"wikimaze-airing","name":"WikiSeries - Airing now","extra":[{"name":"genre","options":["Action","Adventure","Anime","Children","Comedy","Crime","Documentary","Drama","Family","Fantasy","History","Horror","Legal","Medical","Mystery","Romance","Sci-Fi","Sports","Supernatural","Thriller","War","Western"]},{"name":"year","options":["2026","2025","2024","2023","2022","2020s","2010s","2000s","1990s","1980s","1970s","Older"]},{"name":"search"},{"name":"skip"}]}],"behaviorHints":{"configurable":true}})json";
 
-// A copy of https://caching.stremio.net/publicdomainmovies.now.sh/manifest.json (2026-11-20).
-const char kPublicDomainManifest[] = R"json({"id":"org.stremio.pubdomainmovies","version":"1.0.0","name":"Public Domain Movies","description":"Torrents for public domain movies. Includes a collection of more then 500 public domain movies.","logo":"https://johnserv531.github.io/gh-images/1586344884.jpg","resources":["catalog","stream"],"types":["movie"],"catalogs":[{"type":"movie","id":"publicdomainmovies","extra":[{"name":"skip"},{"name":"search"}]}],"idPrefixes":["tt"]})json";
+// Follows the manifest at https://caching.stremio.net/publicdomainmovies.now.sh/manifest.json (2026-11-20): the
+// ids and resources are the add-on's own, the description is ours (docs/PROVENANCE.md).
+const char kPublicDomainManifest[] = R"json({"id":"org.stremio.pubdomainmovies","version":"1.0.0","name":"Public Domain Movies","description":"A list of public domain films, each with its torrents.","logo":"https://johnserv531.github.io/gh-images/1586344884.jpg","resources":["catalog","stream"],"types":["movie"],"catalogs":[{"type":"movie","id":"publicdomainmovies","extra":[{"name":"skip"},{"name":"search"}]}],"idPrefixes":["tt"]})json";
+
+// A Jackie source is held to one address rule (https, or loopback http for
+// development) for its own address, its mirrors and its redirects. A Stremio
+// add-on is left as it always was. Empty when fine.
+QString jspAddressProblem(const QUrl& manifestUrl, const QJsonObject& raw)
+{
+    if (!jsp::isJsp(raw) || jsp::allowedUrl(manifestUrl))
+        return {};
+    return QStringLiteral("A Jackie source has to use https (plain http only on this computer).");
+}
 
 struct DefaultAddon
 {
@@ -90,7 +102,7 @@ void StremioAdapter::installDefaults(const QStringList& only)
             continue;
         QString error;
         const QJsonObject raw = QJsonDocument::fromJson(d.manifest).object();
-        if (auto m = stremio::parseManifest(raw, &error)) {
+        if (auto m = jsp::parseAnyManifest(raw, &error)) {
             setManifest(QUrl(QString::fromLatin1(d.url)), *m, raw);
             added = true;
         } else
@@ -133,14 +145,15 @@ void StremioAdapter::restore(const QJsonArray& list)
         const QUrl url(o.value("transportUrl").toString());
         const QJsonObject raw = o.value("manifest").toObject();
         QString error;
-        if (auto m = stremio::parseManifest(raw, &error); m && url.isValid() && m_addons.size() < kMaxAddons) {
+        const QString addressProblem = jspAddressProblem(url, raw);
+        if (auto m = jsp::parseAnyManifest(raw, &error); m && url.isValid() && m_addons.size() < kMaxAddons && addressProblem.isEmpty()) {
             setManifest(url, *m, raw);
             if (o.value("disabled").toBool())
                 m_addons.last().disabled = true;
             for (const QJsonValue& h : o.value("hiddenCatalogs").toArray())
                 m_addons.last().hiddenCatalogs << h.toString();
         } else
-            qCWarning(lcSources).noquote() << "Skipping a stored add-on:" << logging::redactUrl(url) << error;
+            qCWarning(lcSources).noquote() << "Skipping a stored add-on:" << logging::redactUrl(url) << (error.isEmpty() ? addressProblem : error);
     }
     qCInfo(lcSources) << "Add-ons installed:" << m_addons.size();
     emit addonsChanged();
@@ -160,16 +173,64 @@ void StremioAdapter::save() const
 
 void StremioAdapter::setManifest(const QUrl& url, const stremio::Manifest& manifest, const QJsonObject& raw)
 {
+    const bool isJsp = jsp::isJsp(raw);
+    const QStringList mirrors = isJsp ? jsp::mirrors(raw) : QStringList();
     for (InstalledAddon& a : m_addons) {
         if (a.manifest.id == manifest.id || a.manifestUrl == url) {
+            // New addresses: nothing saved from the old ones may be shown or reused.
+            if (a.jsp && (a.manifestUrl != url || a.mirrors != mirrors || !isJsp))
+                m_jsp.forget(a.manifest.id);
+            a.cachedViews.clear();
             a.manifestUrl = url;
             a.manifest = manifest;
             a.rawManifest = raw;
+            a.jsp = isJsp;
+            a.mirrors = mirrors;
             a.lastError.clear();
             return;
         }
     }
-    m_addons.append({url, manifest, raw, {}, false, {}});
+    InstalledAddon a;
+    a.manifestUrl = url;
+    a.manifest = manifest;
+    a.rawManifest = raw;
+    a.jsp = isJsp;
+    a.mirrors = mirrors;
+    m_addons.append(a);
+}
+
+void StremioAdapter::ask(const InstalledAddon& addon, const QUrl& stremioUrl, const QString& jspPath,
+                         QJsonObject (*asStremio)(const QJsonObject&), JsonFetcher::Done done)
+{
+    if (!addon.jsp) {
+        m_fetcher.get(stremioUrl, std::move(done));
+        return;
+    }
+    const QString addonId = addon.manifest.id;
+    const QString primary = stremio::baseOf(addon.manifestUrl);
+    // The same address rule for the primary as for the mirrors, before any request.
+    if (!jsp::allowedUrl(QUrl(primary))) {
+        QTimer::singleShot(0, this, [done = std::move(done)] {
+            done({}, QStringLiteral("a Jackie source has to use https"));
+        });
+        return;
+    }
+    QStringList bases{primary};
+    bases << addon.mirrors;
+    // The list or title this answer is for: the one on screen decides whether the notice shows.
+    QString view;
+    if (jspPath.startsWith(QLatin1String("/catalog/")))
+        view = jspPath.mid(1).section(QLatin1Char('?'), 0, 0);
+    else if (jspPath.startsWith(QLatin1String("/meta/")))
+        view = QStringLiteral("meta");
+    m_jsp.get(addonId, bases, jspPath, [this, addonId, view, asStremio, done = std::move(done)](const QJsonObject& data, const QString& error, bool stale) {
+        if (stale)
+            qCWarning(lcSources) << "A Jackie source did not answer; showing its last good answer";
+        // Only a list or a title can be shown from an old copy, so only they set or clear the notice.
+        if (error != QLatin1String("cancelled") && !view.isEmpty())
+            noteCached(addonId, view, stale);
+        done(error.isEmpty() ? asStremio(data) : QJsonObject(), error);
+    });
 }
 
 const InstalledAddon* StremioAdapter::find(const QString& addonId) const
@@ -188,6 +249,19 @@ QList<const InstalledAddon*> StremioAdapter::serving(const QString& resource, co
         if (!a.disabled && a.manifest.serves(resource, type, id))
             out << &a;
     return out;
+}
+
+void StremioAdapter::noteCached(const QString& addonId, const QString& view, bool cached)
+{
+    for (InstalledAddon& a : m_addons) {
+        if (a.manifest.id != addonId || a.cachedViews.contains(view) == cached)
+            continue;
+        if (cached)
+            a.cachedViews << view;
+        else
+            a.cachedViews.removeAll(view);
+        emit addonsChanged();
+    }
 }
 
 void StremioAdapter::noteResult(const QString& addonId, const QString& error)
@@ -261,7 +335,10 @@ void StremioAdapter::fetchCatalog(const CatalogRef& catalog, const QString& sear
     const QString addonId = addon->manifest.id;
     const QUrl url = stremio::resourceUrl(stremio::baseOf(addon->manifestUrl), QStringLiteral("catalog"),
                                           catalog.type, catalog.id, extras);
-    m_fetcher.get(url, [this, addonId, done](const QJsonObject& json, const QString& error) {
+    const QString searchText = search.trimmed();
+    ask(*addon, url,
+        jsp::catalogPath(catalog.type, catalog.id, searchText, genre, catalog.year, skip),
+        jsp::catalogAsStremio, [this, addonId, done](const QJsonObject& json, const QString& error) {
         noteResult(addonId, error);
         if (!error.isEmpty()) {
             done({}, error);
@@ -307,7 +384,8 @@ void StremioAdapter::tryMeta(QStringList addonIds, const MetaPreview& item, Meta
     }
     const QString addonId = addon->manifest.id;
     const QUrl url = stremio::resourceUrl(stremio::baseOf(addon->manifestUrl), QStringLiteral("meta"), item.type, item.id);
-    m_fetcher.get(url, [this, addonId, addonIds, item, done](const QJsonObject& json, const QString& error) {
+    ask(*addon, url, jsp::metaPath(item.type, item.id), jsp::metaAsStremio,
+        [this, addonId, addonIds, item, done](const QJsonObject& json, const QString& error) {
         noteResult(addonId, error);
         std::optional<MetaDetail> meta = error.isEmpty() ? stremio::parseMeta(json) : std::nullopt;
         if (!meta) {
@@ -343,7 +421,8 @@ void StremioAdapter::fetchStreams(const QString& type, const QString& videoId, S
         const QString addonId = addon->manifest.id;
         const QString addonName = addon->manifest.name;
         const QUrl url = stremio::resourceUrl(stremio::baseOf(addon->manifestUrl), QStringLiteral("stream"), type, videoId);
-        m_fetcher.get(url, [this, addonId, addonName, part, finished, left](const QJsonObject& json, const QString& error) {
+        ask(*addon, url, jsp::streamsPath(type, videoId), jsp::streamsAsStremio,
+            [this, addonId, addonName, part, finished, left](const QJsonObject& json, const QString& error) {
             noteResult(addonId, error);
             part(error.isEmpty() ? stremio::parseStreams(json, addonId, addonName) : QList<StreamOption>{},
                  addonName, error);
@@ -366,7 +445,8 @@ void StremioAdapter::fetchSubtitles(const QString& type, const QString& videoId,
         const QString addonId = addon->manifest.id;
         const QString addonName = addon->manifest.name;
         const QUrl url = stremio::resourceUrl(stremio::baseOf(addon->manifestUrl), QStringLiteral("subtitles"), type, videoId);
-        m_fetcher.get(url, [this, addonId, addonName, done, left, all](const QJsonObject& json, const QString& error) {
+        ask(*addon, url, jsp::subtitlesPath(type, videoId), jsp::subtitlesAsStremio,
+            [this, addonId, addonName, done, left, all](const QJsonObject& json, const QString& error) {
             noteResult(addonId, error);
             for (SubtitleSource s : stremio::parseSubtitles(json)) {
                 if (s.label.isEmpty())
@@ -401,9 +481,13 @@ void StremioAdapter::install(const QString& link, std::function<void(const QStri
             return;
         }
         QString parseError;
-        const std::optional<stremio::Manifest> m = stremio::parseManifest(json, &parseError);
+        const std::optional<stremio::Manifest> m = jsp::parseAnyManifest(json, &parseError);
         if (!m) {
             done(QStringLiteral("That link did not return an add-on (%1).").arg(parseError));
+            return;
+        }
+        if (const QString addressProblem = jspAddressProblem(url, json); !addressProblem.isEmpty()) {
+            done(addressProblem);
             return;
         }
         if (m->configurationRequired) {
@@ -427,6 +511,7 @@ bool StremioAdapter::uninstall(const QString& addonId)
     if (it == m_addons.end())
         return false;
     m_addons.erase(it);
+    m_jsp.forget(addonId);
     save();
     qCInfo(lcSources).noquote() << "Removed add-on" << addonId;
     emit addonsChanged();
@@ -491,20 +576,37 @@ void StremioAdapter::refreshManifests()
             continue;   // switched off: not contacted
         const QUrl url = a.manifestUrl;
         const QString addonId = a.manifest.id;
-        m_fetcher.get(url, [this, url, addonId](const QJsonObject& json, const QString& error) {
+        const auto handle = [this, url, addonId](const QJsonObject& json, const QString& error) {
             if (!find(addonId))
                 return;  // removed meanwhile
             QString parseError;
-            const auto m = error.isEmpty() ? stremio::parseManifest(json, &parseError) : std::nullopt;
+            const auto m = error.isEmpty() ? jsp::parseAnyManifest(json, &parseError) : std::nullopt;
             if (!m || m->id != addonId) {
                 noteResult(addonId, !error.isEmpty() ? error : m ? QStringLiteral("its manifest changed id") : parseError);
+                return;
+            }
+            if (const QString addressProblem = jspAddressProblem(url, json); !addressProblem.isEmpty()) {
+                noteResult(addonId, addressProblem);
                 return;
             }
             setManifest(url, *m, json);
             save();
             emit addonsChanged();
             emit catalogsChanged();
-        });
+        };
+        if (a.jsp) {
+            // A Jackie source's redirects are held to the same address rule as its requests.
+            m_fetcher.getReply(url, JsonFetcher::kDefaultDeadlineMs, &jsp::allowedUrl,
+                               [handle](const JsonFetcher::Reply& r) {
+                const bool ok = r.error.isEmpty() && r.status >= 200 && r.status < 300 && r.isJson;
+                handle(ok ? r.json : QJsonObject(),
+                       ok ? QString() : !r.error.isEmpty() ? r.error
+                                      : r.status >= 400  ? QStringLiteral("HTTP %1").arg(r.status)
+                                                         : QStringLiteral("not JSON"));
+            });
+        } else {
+            m_fetcher.get(url, handle);
+        }
     }
 }
 

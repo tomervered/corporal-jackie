@@ -16,6 +16,7 @@
 #include <mpv/client.h>
 
 #include <algorithm>
+#include <cstring>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -185,16 +186,21 @@ Capabilities MpvTarget::vsrCapabilities(unsigned vendorId, const QString& adapte
     return {};
 }
 
-QString MpvTarget::vsrFilter(Upscaler upscaler, int videoHeight, int targetHeight, int shownHeight)
+QString MpvTarget::vsrFilter(Upscaler upscaler, int videoHeight, int targetHeight, int shownHeight,
+                             bool intelCopyback)
 {
     const int target = targetHeight > 0 ? targetHeight : shownHeight;
     if (!isVsr(upscaler) || videoHeight <= 0 || target <= videoHeight)
         return {};  // nothing to make bigger (yet)
     // In steps of 0.05, so a window resized by a few pixels keeps its filter.
     const double factor = qBound(1.05, qRound(20.0 * target / videoHeight) / 20.0, 4.0);
-    return QStringLiteral("d3d11vpp=scaling-mode=%1:scale=%2")
+    QString filter = QStringLiteral("d3d11vpp=scaling-mode=%1:scale=%2")
         .arg(upscaler == Upscaler::NvidiaVsr ? QStringLiteral("nvidia") : QStringLiteral("intel"))
         .arg(factor, 0, 'f', 2);
+    // Only Intel VSR has the compatibility mode; NVIDIA keeps its own path.
+    if (upscaler == Upscaler::IntelVsr && intelCopyback)
+        filter += QStringLiteral(":intel-copyback=yes");
+    return filter;
 }
 
 namespace {
@@ -331,8 +337,11 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
     }
 
     // CJ_MPV_LOG=v (or debug) shows more of mpv's own log, for troubleshooting.
+    // Without it mpv is asked for info, and only warnings and the one line the
+    // Windows video bridge writes about how it waits for OpenGL are kept, so a
+    // report shows which mode ran.
     const QByteArray mpvLog = qgetenv("CJ_MPV_LOG");
-    mpv_request_log_messages(m_mpv, mpvLog.isEmpty() ? "warn" : mpvLog.constData());
+    mpv_request_log_messages(m_mpv, mpvLog.isEmpty() ? "info" : mpvLog.constData());
 
     struct { PropertyId id; const char* name; mpv_format format; } observed[] = {
         {PropPause,          "pause",                  MPV_FORMAT_FLAG},
@@ -700,7 +709,7 @@ void MpvTarget::prepareVsrFilter()
         }
         mpv_free_node_contents(&tracks);
     }
-    const QString filter = vsrFilter(m_upscaler, height, m_upscaleHeight, m_shownHeight);
+    const QString filter = vsrFilter(m_upscaler, height, m_upscaleHeight, m_shownHeight, m_intelCopyback);
     if (filter != m_vsrFilter && mpv_set_property_string(m_mpv, "vf", filter.toUtf8().constData()) >= 0) {
         m_vsrFilter = filter;
         if (!filter.isEmpty())
@@ -922,6 +931,16 @@ std::unique_ptr<QTemporaryFile> MpvTarget::writeShader(Upscaler upscaler, int ta
     return file;
 }
 
+// The filter is set again at once when Intel VSR is the one running.
+void MpvTarget::setIntelVsrCopyback(bool on)
+{
+    if (on == m_intelCopyback)
+        return;
+    m_intelCopyback = on;
+    if (m_upscaler == Upscaler::IntelVsr)
+        applyVsrFilter();
+}
+
 // Off clears the shader list and the filter, so mpv frees what they used.
 void MpvTarget::setUpscaler(Upscaler upscaler, int targetHeight)
 {
@@ -965,7 +984,7 @@ void MpvTarget::setUpscaler(Upscaler upscaler, int targetHeight)
 
 void MpvTarget::applyVsrFilter()
 {
-    const QString filter = vsrFilter(m_upscaler, m_videoHeight, m_upscaleHeight, m_shownHeight);
+    const QString filter = vsrFilter(m_upscaler, m_videoHeight, m_upscaleHeight, m_shownHeight, m_intelCopyback);
     if (filter == m_vsrFilter)
         return;
     m_vsrFilter = filter;
@@ -1081,6 +1100,11 @@ void MpvTarget::processEvents()
             break;
         case MPV_EVENT_LOG_MESSAGE: {
             const auto* msg = static_cast<mpv_event_log_message*>(event->data);
+            if (msg->log_level > MPV_LOG_LEVEL_WARN && !qEnvironmentVariableIsSet("CJ_MPV_LOG")) {
+                if (std::strstr(msg->text, "d3d11-dxinterop"))
+                    qCInfo(lcTargets).noquote() << QString::fromUtf8(msg->text).trimmed();
+                break;
+            }
             const QString text = QString::fromUtf8(msg->text).trimmed();
             qCWarning(lcTargets).noquote() << "mpv" << msg->prefix << ":" << logging::redactText(text);
             // A graphics driver that cannot build the upscaler's shader would

@@ -5,6 +5,7 @@
 // protocol (see StremioProtocol.h).
 
 #include "JsonFetcher.h"
+#include "JspClient.h"
 #include "SourceAdapter.h"
 #include "StremioProtocol.h"
 
@@ -20,6 +21,11 @@ struct InstalledAddon
     QString lastError;        // the last failed request, in words; empty when fine
     bool disabled = false;    // switched off: kept, but never asked for anything
     QStringList hiddenCatalogs;   // "type/id" of lists switched off (kept, not shown anywhere)
+    bool jsp = false;             // speaks the Jackie Source Protocol (docs/PROTOCOL.md), not Stremio's
+    QStringList mirrors;          // other addresses of a Jackie source, tried when the first is slow or down
+    // The views (a list as "catalog/type/id", or "meta") whose latest answer was an older saved copy
+    // because the source did not answer. A newer answer for that same view clears it, and nothing else does.
+    QStringList cachedViews;
 };
 
 class StremioAdapter : public SourceAdapter
@@ -89,6 +95,7 @@ public:
     bool uninstallDefaults();
 
     JsonFetcher& fetcher() { return m_fetcher; }
+    JspClient& jspClient() { return m_jsp; }
 
 signals:
     void addonsChanged();
@@ -98,12 +105,19 @@ private:
     void save() const;
     void setManifest(const QUrl& url, const stremio::Manifest& manifest, const QJsonObject& raw);
     void noteResult(const QString& addonId, const QString& error);
+    void noteCached(const QString& addonId, const QString& view, bool cached);
     const InstalledAddon* find(const QString& addonId) const;
     QList<const InstalledAddon*> serving(const QString& resource, const QString& type, const QString& id) const;
     void tryMeta(QStringList addonIds, const MetaPreview& item, MetaDone done);
+    // One request to an add-on in its own protocol: `stremioUrl` for a Stremio
+    // add-on, `jspPath` for a Jackie source, whose answer is turned into the
+    // Stremio-shaped JSON by `asStremio`.
+    void ask(const InstalledAddon& addon, const QUrl& stremioUrl, const QString& jspPath,
+             QJsonObject (*asStremio)(const QJsonObject&), JsonFetcher::Done done);
 
     QString m_storeFile;
     JsonFetcher m_fetcher;
+    JspClient m_jsp;
     QList<InstalledAddon> m_addons;
 };
 

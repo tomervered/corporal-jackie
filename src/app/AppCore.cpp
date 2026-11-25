@@ -33,6 +33,7 @@ namespace {
 const QString kHwdec = QStringLiteral("playback/hwdec");
 const QString kUpscaler = QStringLiteral("playback/upscaler");
 const QString kUpscaleHeight = QStringLiteral("playback/upscaleHeight");
+const QString kIntelCopyback = QStringLiteral("playback/intelVsrCopyback");
 const QString kSubtitleStyle = QStringLiteral("subtitles/style");
 const QString kSubtitleScale = QStringLiteral("subtitles/scale");
 const QString kCinemetaRetired = QStringLiteral("addons/cinemetaRetired");
@@ -233,6 +234,7 @@ void AppCore::restorePlaybackSettings()
     Session* session = m_session.get();
     Storage* storage = m_storage.get();
     session->setHardwareDecoding(storage->setting(kHwdec, true).toBool());
+    session->setIntelVsrCopyback(storage->setting(kIntelCopyback, true).toBool());
     session->setUpscaleHeight(storage->setting(kUpscaleHeight, 0).toInt());
     session->setUpscaler(storage->setting(kUpscaler, QStringLiteral("off")).toString());
     session->setSubtitleStyle(styleFromMap(storage->setting(kSubtitleStyle).toMap()));
@@ -244,6 +246,8 @@ void AppCore::restorePlaybackSettings()
         storage->setSetting(kUpscaler, session->upscaler());
         storage->setSetting(kUpscaleHeight, session->upscaleHeight());
     });
+    connect(session, &Session::intelVsrCopybackChanged, this,
+            [session, storage] { storage->setSetting(kIntelCopyback, session->intelVsrCopyback()); });
     connect(session, &Session::subtitleStyleChanged, this,
             [session, storage] { storage->setSetting(kSubtitleStyle, styleToMap(session->subtitleStyle())); });
     connect(session, &Session::subtitleScaleChanged, this,

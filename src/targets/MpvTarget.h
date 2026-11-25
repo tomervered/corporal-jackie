@@ -84,6 +84,7 @@ public:
     void setVideoEqualizer(const VideoEqualizer& eq) override;
     void setHardwareDecoding(bool enabled) override;
     void setUpscaler(Upscaler upscaler, int targetHeight) override;
+    void setIntelVsrCopyback(bool on) override;
     bool keyEvent(int key, Qt::KeyboardModifiers modifiers, const QString& text, bool pressed) override;
     void setFullScreen(bool on) override;
 
@@ -95,7 +96,9 @@ public:
     static Capabilities vsrCapabilities(unsigned vendorId, const QString& adapterName);
     // mpv's vf for VSR: scale the video (videoHeight) up to targetHeight, or
     // to shownHeight when that is 0. Empty when there is nothing to do.
-    static QString vsrFilter(Upscaler upscaler, int videoHeight, int targetHeight, int shownHeight);
+    // intelCopyback: Intel VSR's compatibility mode, asked of the filter.
+    static QString vsrFilter(Upscaler upscaler, int videoHeight, int targetHeight, int shownHeight,
+                             bool intelCopyback = false);
     // The line upscalerStatusChanged sends. target: the height to reach (the
     // shown height for "screen size"); outHeight: the height the video
     // filters hand on (a VSR filter that works makes it bigger than
@@ -154,6 +157,7 @@ private:
     bool m_hwdecEnabled = true;
     Upscaler m_upscaler = Upscaler::Off;
     int m_upscaleHeight = 0;
+    bool m_intelCopyback = true;   // Intel VSR compatibility mode (the filter's intel-copyback); on until told otherwise
     Capabilities m_vsrCaps;       // VSR (Windows) or MetalFX (macOS), found once at start
     QString m_vsrFilter;          // the vf now set, empty for none
     int m_shownHeight = 0;        // physical height of the video framebuffer

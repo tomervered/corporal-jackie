@@ -61,6 +61,15 @@ QtObject {
                                           + 0.7152 * Math.pow((accent.g + 0.055) / 1.055, 2.4)
                                           + 0.0722 * Math.pow((accent.b + 0.055) / 1.055, 2.4)
     readonly property color accentText: accentLuminance > 0.179 ? "#000000" : "#ffffff"
+    // The accent for words and thin icons: the accent itself when it reads
+    // against the panel (contrast 4.5), else pulled toward the text colour.
+    function luminanceOf(c) {
+        return 0.2126 * Math.pow((c.r + 0.055) / 1.055, 2.4) + 0.7152 * Math.pow((c.g + 0.055) / 1.055, 2.4)
+             + 0.0722 * Math.pow((c.b + 0.055) / 1.055, 2.4)
+    }
+    readonly property real accentContrast: (Math.max(accentLuminance, luminanceOf(panel)) + 0.05)
+                                         / (Math.min(accentLuminance, luminanceOf(panel)) + 0.05)
+    readonly property color link: accentContrast >= 4.5 ? accent : mix(text, accent, 0.7)
     readonly property color line: mix(text, panel, 0.41)
     readonly property color muted: mix(text, panel, 0.78)
     readonly property color faint: mix(text, panel, 0.5)

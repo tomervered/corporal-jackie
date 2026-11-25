@@ -63,6 +63,7 @@ class Session : public QObject
     Q_PROPERTY(QStringList upscalers READ upscalers CONSTANT)
     // The height to upscale to, in pixels; 0 = the size the video is shown at.
     Q_PROPERTY(int upscaleHeight READ upscaleHeight WRITE setUpscaleHeight NOTIFY upscalerChanged)
+    Q_PROPERTY(bool intelVsrCopyback READ intelVsrCopyback WRITE setIntelVsrCopyback NOTIFY intelVsrCopybackChanged)
     // What the upscaler is doing, as the target says ("NVIDIA VSR on · 720p → 1440p");
     // empty when none runs. upscalerProblem: it could not run, and the line says so.
     Q_PROPERTY(QString upscalerStatus READ upscalerStatus NOTIFY upscalerStatusChanged)
@@ -124,6 +125,7 @@ public:
     QString upscaler() const { return upscalerName(m_upscaler); }
     QStringList upscalers() const;
     int upscaleHeight() const { return m_upscaleHeight; }
+    bool intelVsrCopyback() const { return m_intelVsrCopyback; }
     QString upscalerStatus() const { return m_upscalerStatus; }
     bool upscalerProblem() const { return m_upscalerProblem; }
     static QString upscalerName(Upscaler u);
@@ -215,6 +217,9 @@ public:
     void setUpscaler(const QString& name);
     // 0 or 480–4320; anything else is ignored.
     void setUpscaleHeight(int height);
+    // Intel VSR compatibility mode (copy-back); on by default. Kept even when
+    // this computer has no Intel VSR, so it is still there after a card change.
+    void setIntelVsrCopyback(bool on);
     // A key over the video, passed to the target's own bindings (mpv's).
     // modifiers is Qt::KeyboardModifiers. False if the target has none.
     Q_INVOKABLE bool keyEvent(int key, int modifiers, const QString& text, bool pressed);
@@ -241,6 +246,7 @@ signals:
     void hardwareDecodingChanged();
     void fullScreenChanged();
     void upscalerChanged();
+    void intelVsrCopybackChanged();
     void upscalerStatusChanged();
     // The target's key bindings asked the window for something ("stats").
     void appActionRequested(const QString& action);
@@ -289,6 +295,7 @@ private:
     bool m_fullScreen = false;
     Upscaler m_upscaler = Upscaler::Off;
     int m_upscaleHeight = 0;
+    bool m_intelVsrCopyback = true;
     QString m_upscalerStatus;
     bool m_upscalerProblem = false;
     QVariantMap m_stats;

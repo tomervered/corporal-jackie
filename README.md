@@ -115,4 +115,4 @@ Logs are written to the `logs` folder inside the app's data folder (for example 
 
 GPL-3.0-or-later. See [LICENSE](LICENSE) and [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md).
 
-Each package also holds `THIRD_PARTY_NOTICES.txt`, a `licenses` folder with the license files of every library it ships, and `SOURCE.txt`, which links the exact source of the build and of each library.
+Where borrowed code and assets come from: [docs/PROVENANCE.md](docs/PROVENANCE.md). Each package also holds `THIRD_PARTY_NOTICES.txt`, a `licenses` folder with the license files of every library it ships, and `SOURCE.txt`, which links the exact source of the build and of each library.
