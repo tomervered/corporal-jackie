@@ -130,6 +130,7 @@ QVariantList Browser::addons() const
                            {"description", a.manifest.description},
                            {"url", logging::redactUrl(a.manifestUrl)},  // its path can hold a login
                            {"offers", offers.join(QStringLiteral(", "))},
+                           {"protocol", a.jsp ? QStringLiteral("Jackie Source Protocol v1") : QStringLiteral("Stremio")},
                            {"error", a.lastError},
                            {"cached", !a.cachedViews.isEmpty()},
                            {"cachedIn", cachedIn.join(QStringLiteral(", "))},
