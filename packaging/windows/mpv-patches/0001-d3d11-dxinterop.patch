@@ -42,7 +42,7 @@ new file mode 100644
 index 0000000..0000001
 --- /dev/null
 +++ b/video/out/opengl/hwdec_d3d11gldx.c
-@@ -0,0 +1,535 @@
+@@ -0,0 +1,561 @@
 +/*
 + * This file is part of mpv.
 + *
@@ -91,6 +91,7 @@ index 0000000..0000001
 +#include <libavutil/hwcontext_d3d11va.h>
 +
 +#include "common/common.h"
++#include "osdep/timer.h"
 +#include "osdep/windows_utils.h"
 +#include "video/out/gpu/hwdec.h"
 +#include "ra_gl.h"
@@ -159,6 +160,7 @@ index 0000000..0000001
 +    int n_slots;        // 1, or RING_SLOTS in ring mode
 +    int next;           // the slot the next frame goes to
 +    int prev;           // the slot of the last frame, -1 at first
++    ID3D11Query *done;  // ring: tells when the converting pass has finished
 +};
 +
 +static void uninit(struct ra_hwdec *hw)
@@ -350,6 +352,7 @@ index 0000000..0000001
 +    mapper->tex[0] = NULL;   // one of the slots', freed with it
 +    for (int i = 0; i < RING_SLOTS; i++)
 +        slot_free(mapper, &p->slots[i]);
++    SAFE_RELEASE(p->done);
 +    SAFE_RELEASE(p->vp);
 +    SAFE_RELEASE(p->vp_enum);
 +}
@@ -458,6 +461,14 @@ index 0000000..0000001
 +    ID3D11VideoContext_VideoProcessorSetStreamColorSpace(o->video_ctx, p->vp, 0, &in_csp);
 +    ID3D11VideoContext_VideoProcessorSetOutputColorSpace(o->video_ctx, p->vp, &out_csp);
 +
++    // Ring mode also waits for the converting pass itself (see mapper_map).
++    // Without the query it carries on as before.
++    if (o->sync_mode == SYNC_RING) {
++        D3D11_QUERY_DESC qd = { .Query = D3D11_QUERY_EVENT };
++        if (FAILED(ID3D11Device_CreateQuery(o->device, &qd, &p->done)))
++            p->done = NULL;
++    }
++
 +    p->n_slots = o->sync_mode == SYNC_RING ? RING_SLOTS : 1;
 +    p->next = 0;
 +    p->prev = -1;
@@ -550,7 +561,22 @@ index 0000000..0000001
 +    // Hand the conversion to the GPU before OpenGL takes the texture: NVIDIA
 +    // does not flush the D3D11 queue on lock, and OpenGL would read a texture
 +    // that was never drawn (black).
++    if (p->done)
++        ID3D11DeviceContext_End(o->device_ctx, (ID3D11Asynchronous *)p->done);
 +    ID3D11DeviceContext_Flush(o->device_ctx);
++
++    // Only NVIDIA is known to wait for the D3D11 work when the texture is
++    // locked. Intel's driver may not, and OpenGL would then read a frame that
++    // is still being converted: wait here until the pass is done. It is the
++    // short colour conversion, not the upscaling, so the wait is brief; it is
++    // limited, so that a stuck driver cannot hang playback.
++    if (p->done) {
++        const int64_t until = mp_time_ns() + 20000000LL;
++        while (ID3D11DeviceContext_GetData(o->device_ctx, (ID3D11Asynchronous *)p->done,
++                                           NULL, 0, 0) == S_FALSE
++               && mp_time_ns() < until)
++            SwitchToThread();
++    }
 +
 +    // Locking for OpenGL waits for the D3D11 work above.
 +    if (!o->DXLockObjectsNV(o->gl_device, 1, &sl->gl_obj)) {
