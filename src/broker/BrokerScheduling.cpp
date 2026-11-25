@@ -3,6 +3,8 @@
 
 #include "BrokerEngine.h"
 
+#include <QVarLengthArray>
+
 namespace cj {
 namespace broker_detail {
 
@@ -39,24 +41,19 @@ void Engine::schedule(Torrent& t, bool force)
     // cover up to 600 s of video. Pieces that arrive in the meantime need no
     // new schedule; a dropped one the reader waits for comes back through
     // the forced call in StreamHandle::read.
-    struct Plan
+    struct ReaderPosition
     {
-        std::shared_ptr<Reader> r;
-        qint64 pos;
-        int first;
-        qint64 window;
-        qint64 ahead;
+        std::shared_ptr<Reader> reader;
+        qint64 byteOffset;
+        int firstPiece;
     };
-    std::vector<Plan> plans;
-    plans.reserve(t.readers.size());
+    // Playing a single video takes one reader. Keep that common case on the stack.
+    QVarLengthArray<ReaderPosition, 1> positions;
+    positions.reserve(t.readers.size());
     bool anyChange = force;
     for (const auto& weak : t.readers) {
         auto r = weak.lock();
         const qint64 pos = r->fileOffset + qMin(r->position.load(), qMax<qint64>(0, r->fileSize - 1));
-        const double bitrate = r->bitrate();
-        const qint64 window = qMin(readAheadBytes(bitrate, double(t.downloadRate), pieceLen),
-                                   qMax(aheadCap(), 4 * pieceLen));
-        const qint64 ahead = std::min({qint64(bitrate * kBackgroundSeconds), kBackgroundMaxBytes, aheadCap()});
         const int first = t.pieceAt(pos);
         if (first != r->scheduledPiece) {
             if (r->scheduledPiece < 0 || first != r->scheduledPiece + 1)
@@ -64,7 +61,7 @@ void Engine::schedule(Torrent& t, bool force)
             r->scheduledPiece = first;
             anyChange = true;
         }
-        plans.push_back({std::move(r), pos, first, window, ahead});
+        positions.push_back({std::move(r), pos, first});
     }
     if (!anyChange)
         return;
@@ -88,9 +85,13 @@ void Engine::schedule(Torrent& t, bool force)
             wanted[p] = prio;
     };
 
-    for (const Plan& plan : plans) {
-        const Reader& r = *plan.r;
-        const int first = plan.first;
+    for (const ReaderPosition& position : positions) {
+        const Reader& r = *position.reader;
+        const int first = position.firstPiece;
+        const double bitrate = r.bitrate();
+        const qint64 window = qMin(readAheadBytes(bitrate, double(t.downloadRate), pieceLen),
+                                   qMax(aheadCap(), 4 * pieceLen));
+        const qint64 ahead = std::min({qint64(bitrate * kBackgroundSeconds), kBackgroundMaxBytes, aheadCap()});
         const qint64 fileEnd = r.fileOffset + r.fileSize - 1;
         const int fileLast = t.pieceAt(fileEnd);
 
@@ -104,10 +105,10 @@ void Engine::schedule(Torrent& t, bool force)
             deadlines[r.nextReadPiece] = 0;
             want(r.nextReadPiece, lt::top_priority);
         }
-        const int last = t.pieceAt(qMin(plan.pos + plan.window, fileEnd));
+        const int last = t.pieceAt(qMin(position.byteOffset + window, fileEnd));
         for (int p = first; p <= last; ++p)
             want(p, lt::default_priority);
-        const int bgLast = t.pieceAt(qMin(plan.pos + qMax(plan.window, plan.ahead), fileEnd));
+        const int bgLast = t.pieceAt(qMin(position.byteOffset + qMax(window, ahead), fileEnd));
         for (int p = last + 1; p <= bgLast; ++p)
             if (!t.evicted.count(p))
                 want(p, lt::low_priority);
@@ -124,9 +125,8 @@ void Engine::schedule(Torrent& t, bool force)
 
     try {
         std::set<int> readerFiles;
-        for (const auto& weak : t.readers)
-            if (auto r = weak.lock())
-                readerFiles.insert(r->fileIndex);
+        for (const ReaderPosition& position : positions)
+            readerFiles.insert(position.reader->fileIndex);
         if (openFiles(t, readerFiles))
             t.wanted.clear();  // send every piece again
         std::vector<std::pair<lt::piece_index_t, lt::download_priority_t>> priorities;

@@ -46,6 +46,8 @@ class Session;
 class Storage;
 class TorrentDownloader;
 class TorrentTransport;
+class StreamHandle;
+struct OpenRequest;
 
 class Downloads : public QObject
 {
@@ -131,9 +133,12 @@ public:
 
 private:
     QString effectiveFolder() const;
+    void saveTorrentToFolder(const std::shared_ptr<Job>& job, const OpenRequest& request, const QString& folder);
+    static QString copyTorrentBytes(Job& job, StreamHandle& stream, const QString& part, qint64 size);
     QString startTorrent(const PlayableSource& source);
     QString startNormal(const std::shared_ptr<Job>& job, const QString& uri, int fileIndex);
     QString startWeb(const PlayableSource& source);
+    void cancelJob(const std::shared_ptr<Job>& job);
     void finish(const std::shared_ptr<Job>& job);
     void refresh();
     void save();   // the list, to the database

@@ -2,6 +2,7 @@
 
 #include "Browser.h"
 #include "Caches.h"
+#include "DownloadFiles.h"
 #include "LinkRules.h"
 #include "Logging.h"
 #include "Preferences.h"
@@ -23,7 +24,6 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPointer>
-#include <QRegularExpression>
 #include <QStorageInfo>
 
 #include <atomic>
@@ -39,7 +39,6 @@ enum class Mode { Stream, Normal, Web };
 constexpr auto kListKey = "downloads/list";
 constexpr int kMaxSavedDownloads = 200;
 constexpr qint64 kChunk = 1024 * 1024;
-constexpr int kMaxNameLength = 180;
 
 QString stateName(State s)
 {
@@ -62,69 +61,6 @@ QString modeName(Mode m)
 Mode modeFromName(const QString& name)
 {
     return name == QLatin1String("stream") ? Mode::Stream : name == QLatin1String("normal") ? Mode::Normal : Mode::Web;
-}
-
-// Names Windows keeps for devices, with or without an extension.
-bool reservedOnWindows(const QString& name)
-{
-    static const QRegularExpression re(QStringLiteral("^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\\..*)?$"),
-                                       QRegularExpression::CaseInsensitiveOption);
-    return re.match(name).hasMatch();
-}
-
-// Two downloads of the same name at once must not pick the same file.
-std::mutex& namesMutex()
-{
-    static std::mutex m;
-    return m;
-}
-
-// A name in `folder` that neither a file nor a download in progress uses:
-// "name.mkv", then "name (2).mkv" and so on. Creates "<name>.part" at once,
-// so the name is taken. Empty if the folder cannot be written.
-QString reservePart(const QString& folder, const QString& name)
-{
-    std::lock_guard lock(namesMutex());
-    const QFileInfo info(name);
-    const QString base = info.completeBaseName().isEmpty() ? name : info.completeBaseName();
-    const QString suffix = info.completeBaseName().isEmpty() || info.suffix().isEmpty() ? QString()
-                                                                                         : QLatin1Char('.') + info.suffix();
-    const QDir dir(folder);
-    for (int n = 1; n < 1000; ++n) {
-        const QString candidate = n == 1 ? base + suffix : QStringLiteral("%1 (%2)%3").arg(base).arg(n).arg(suffix);
-        const QString path = dir.filePath(candidate);
-        const QString part = path + QStringLiteral(".part");
-        if (QFileInfo::exists(path) || QFileInfo::exists(part))
-            continue;
-        QFile f(part);
-        if (!f.open(QIODevice::WriteOnly | QIODevice::NewOnly))
-            return {};
-        return part;
-    }
-    return {};
-}
-
-// Renames "<x>.part" to "<x>", or to "<x> (2)" and so on if a file of that
-// name appeared meanwhile. The final path, or empty.
-QString finishPart(const QString& part, const QString& wantedName = {})
-{
-    std::lock_guard lock(namesMutex());
-    const QFileInfo partInfo(part);
-    const QString name = wantedName.isEmpty() ? partInfo.completeBaseName() : wantedName;
-    const QFileInfo info(name);
-    const QString base = info.completeBaseName().isEmpty() ? name : info.completeBaseName();
-    const QString suffix = info.completeBaseName().isEmpty() || info.suffix().isEmpty() ? QString()
-                                                                                         : QLatin1Char('.') + info.suffix();
-    const QDir dir = partInfo.dir();
-    for (int n = 1; n < 1000; ++n) {
-        const QString candidate = n == 1 ? base + suffix : QStringLiteral("%1 (%2)%3").arg(base).arg(n).arg(suffix);
-        const QString path = dir.filePath(candidate);
-        const QString otherPart = path + QStringLiteral(".part");
-        if (QFileInfo::exists(path) || (otherPart != part && QFileInfo::exists(otherPart)))
-            continue;
-        return QFile::rename(part, path) ? path : QString();
-    }
-    return {};
 }
 
 QString sizeText(qint64 bytes)
@@ -323,36 +259,6 @@ void Downloads::openFolder() const
     QDesktopServices::openUrl(QUrl::fromLocalFile(effectiveFolder()));
 }
 
-QString Downloads::safeFileName(const QString& name, const QString& fallback)
-{
-    QString n = name;
-    n.replace(QLatin1Char('\\'), QLatin1Char('/'));
-    n = n.section(QLatin1Char('/'), -1);
-    QString out;
-    out.reserve(n.size());
-    for (const QChar c : n) {
-        if (c.unicode() < 32 || c == QChar(0x7f) || QStringLiteral("<>:\"|?*").contains(c))
-            out += QLatin1Char('_');
-        else
-            out += c;
-    }
-    // Windows drops trailing dots and spaces, which would change the name.
-    while (!out.isEmpty() && (out.endsWith(QLatin1Char('.')) || out.endsWith(QLatin1Char(' '))))
-        out.chop(1);
-    out = out.trimmed();
-    if (out.isEmpty() || out == QLatin1String("..") || out == QLatin1String("."))
-        out = fallback;
-    if (reservedOnWindows(out))
-        out.prepend(QLatin1Char('_'));
-    if (out.size() > kMaxNameLength) {
-        // Keep the extension.
-        const QFileInfo info(out);
-        const QString ext = info.suffix().size() <= 8 && !info.suffix().isEmpty() ? QLatin1Char('.') + info.suffix() : QString();
-        out = out.left(kMaxNameLength - ext.size()).trimmed() + ext;
-    }
-    return out;
-}
-
 bool Downloads::canDownload(const PlayableSource& source)
 {
     if (source.kind == PlayableSource::Kind::Torrent)
@@ -453,106 +359,113 @@ QString Downloads::startTorrent(const PlayableSource& source)
     OpenRequest request;
     request.uri = uri;
     request.fileIndex = fileIndex;
-    TorrentTransport* torrents = m_torrents;
     const QString folder = effectiveFolder();
-    job->thread = std::thread([this, job, torrents, request, folder] {
-        auto fail = [&](const QString& why) {
-            if (!job->cancelled)
-                job->set(&Job::error, why);
-            job->state = job->cancelled ? State::Cancelled : State::Failed;
-        };
-        auto report = [this, job] { QMetaObject::invokeMethod(this, [this, job] { finish(job); }, Qt::QueuedConnection); };
-
-        if (job->sharing)
-            torrents->broker().setSharing(job->hash, true);
-        BrokerError error = BrokerError::None;
-        std::shared_ptr<StreamHandle> handle =
-            torrents->broker().open(request, &error, [job] { return job->cancelled.load(); });
-        if (!handle) {
-            fail(error == BrokerError::MetadataTimeout ? tr("Nobody sharing this torrent was found in time.")
-                 : error == BrokerError::NoSuchFile    ? tr("That file is not in this torrent.")
-                 : error == BrokerError::InvalidUri    ? tr("This torrent link can't be read.")
-                                                       : tr("The torrent stopped with an error."));
-            report();
-            return;
-        }
-        {
-            std::lock_guard lock(job->mutex);
-            job->handle = handle;
-        }
-        if (job->cancelled)
-            handle->cancel();
-        const qint64 size = handle->size();
-        job->size = size;
-        const QString name = safeFileName(handle->fileName());
-        job->set(&Job::name, name);
-
-        const QStorageInfo disk(folder);
-        if (disk.isValid() && disk.bytesAvailable() >= 0 && disk.bytesAvailable() < size) {
-            fail(tr("Not enough free space in the download folder (%1 needed, %2 free).")
-                     .arg(sizeText(size), sizeText(disk.bytesAvailable())));
-            handle->close();
-            report();
-            return;
-        }
-        const QString part = reservePart(folder, name);
-        if (part.isEmpty()) {
-            fail(tr("The download folder can't be written to."));
-            handle->close();
-            report();
-            return;
-        }
-        job->set(&Job::part, part);
-        job->state = State::Running;
-
-        QFile out(part);
-        bool written = out.open(QIODevice::WriteOnly | QIODevice::Truncate);
-        std::vector<char> buffer(static_cast<std::size_t>(kChunk));
-        qint64 offset = 0;
-        QElapsedTimer statsClock;
-        statsClock.start();
-        qint64 readResult = 0;
-        while (written && offset < size && !job->cancelled) {
-            readResult = handle->read(offset, buffer.data(), qMin(kChunk, size - offset));
-            if (readResult <= 0)
-                break;
-            if (out.write(buffer.data(), readResult) != readResult) {
-                written = false;
-                break;
-            }
-            offset += readResult;
-            job->done = offset;
-            if (statsClock.elapsed() >= 1000) {
-                statsClock.restart();
-                const StreamStats st = handle->stats();
-                job->rate = st.downloadRate;
-                job->peers = st.peers;
-                job->uploaded = st.uploadedBytes;
-            }
-        }
-        out.close();
-        handle->close();
-        {
-            std::lock_guard lock(job->mutex);
-            job->handle.reset();
-        }
-        if (job->cancelled || offset < size) {
-            QFile::remove(part);
-            fail(!written ? tr("Could not write to the download folder (is the disk full?).")
-                          : tr("The torrent stopped with an error."));
-        } else {
-            const QString path = finishPart(part);
-            if (path.isEmpty()) {
-                QFile::remove(part);
-                fail(tr("Could not name the finished file."));
-            } else {
-                job->set(&Job::path, path);
-                job->set(&Job::name, QFileInfo(path).fileName());
-                job->state = State::Done;
-            }
-        }
-        report();
+    job->thread = std::thread([this, job, request, folder] {
+        saveTorrentToFolder(job, request, folder);
+        QMetaObject::invokeMethod(this, [this, job] { finish(job); }, Qt::QueuedConnection);
     });
+    return {};
+}
+
+void Downloads::saveTorrentToFolder(const std::shared_ptr<Job>& job, const OpenRequest& request, const QString& folder)
+{
+    auto fail = [&](const QString& why) {
+        if (!job->cancelled)
+            job->set(&Job::error, why);
+        job->state = job->cancelled ? State::Cancelled : State::Failed;
+    };
+
+    if (job->sharing)
+        m_torrents->broker().setSharing(job->hash, true);
+    BrokerError error = BrokerError::None;
+    std::shared_ptr<StreamHandle> handle =
+        m_torrents->broker().open(request, &error, [job] { return job->cancelled.load(); });
+    if (!handle) {
+        fail(error == BrokerError::MetadataTimeout ? tr("Nobody sharing this torrent was found in time.")
+             : error == BrokerError::NoSuchFile    ? tr("That file is not in this torrent.")
+             : error == BrokerError::InvalidUri    ? tr("This torrent link can't be read.")
+                                                   : tr("The torrent stopped with an error."));
+        return;
+    }
+    {
+        std::lock_guard lock(job->mutex);
+        job->handle = handle;
+    }
+    if (job->cancelled)
+        handle->cancel();
+    const qint64 size = handle->size();
+    job->size = size;
+    const QString name = safeFileName(handle->fileName());
+    job->set(&Job::name, name);
+
+    const QStorageInfo disk(folder);
+    if (disk.isValid() && disk.bytesAvailable() >= 0 && disk.bytesAvailable() < size) {
+        fail(tr("Not enough free space in the download folder (%1 needed, %2 free).")
+                 .arg(sizeText(size), sizeText(disk.bytesAvailable())));
+        handle->close();
+        return;
+    }
+    const QString part = downloadFiles::begin(folder, name);
+    if (part.isEmpty()) {
+        fail(tr("The download folder can't be written to."));
+        handle->close();
+        return;
+    }
+    job->set(&Job::part, part);
+    job->state = State::Running;
+
+    const QString copyError = copyTorrentBytes(*job, *handle, part, size);
+    handle->close();
+    {
+        std::lock_guard lock(job->mutex);
+        job->handle.reset();
+    }
+    if (job->cancelled || !copyError.isEmpty()) {
+        QFile::remove(part);
+        fail(copyError);
+    } else {
+        const QString path = downloadFiles::finish(part);
+        if (path.isEmpty()) {
+            QFile::remove(part);
+            fail(tr("Could not name the finished file."));
+        } else {
+            job->set(&Job::path, path);
+            job->set(&Job::name, QFileInfo(path).fileName());
+            job->state = State::Done;
+        }
+    }
+}
+
+QString Downloads::copyTorrentBytes(Job& job, StreamHandle& stream, const QString& part, qint64 size)
+{
+    QFile out(part);
+    bool written = out.open(QIODevice::WriteOnly | QIODevice::Truncate);
+    std::vector<char> buffer(static_cast<std::size_t>(kChunk));
+    qint64 offset = 0;
+    QElapsedTimer statsClock;
+    statsClock.start();
+    while (written && offset < size && !job.cancelled) {
+        const qint64 readResult = stream.read(offset, buffer.data(), qMin(kChunk, size - offset));
+        if (readResult <= 0)
+            break;
+        if (out.write(buffer.data(), readResult) != readResult) {
+            written = false;
+            break;
+        }
+        offset += readResult;
+        job.done = offset;
+        if (statsClock.elapsed() >= 1000) {
+            statsClock.restart();
+            const StreamStats st = stream.stats();
+            job.rate = st.downloadRate;
+            job.peers = st.peers;
+            job.uploaded = st.uploadedBytes;
+        }
+    }
+    if (!written || !out.flush())
+        return tr("Could not write to the download folder (is the disk full?).");
+    if (offset < size)
+        return tr("The torrent stopped with an error.");
     return {};
 }
 
@@ -589,7 +502,7 @@ QString Downloads::startWeb(const PlayableSource& source)
     const bool named = !QFileInfo(name).suffix().isEmpty() && name != QLatin1String("video");
     if (!named)
         name = safeFileName(source.title);
-    const QString part = reservePart(effectiveFolder(), name);
+    const QString part = downloadFiles::begin(effectiveFolder(), name);
     if (part.isEmpty())
         return tr("The download folder can't be written to.");
 
@@ -673,7 +586,7 @@ QString Downloads::startWeb(const PlayableSource& source)
             }
             job->state = State::Failed;
         } else {
-            const QString path = finishPart(part, job->text(&Job::name));
+            const QString path = downloadFiles::finish(part, job->text(&Job::name));
             if (path.isEmpty()) {
                 QFile::remove(part);
                 job->set(&Job::error, tr("Could not name the finished file."));
@@ -827,26 +740,34 @@ QVariantList Downloads::items() const
 
 void Downloads::cancel(int id)
 {
-    for (const auto& j : m_jobs) {
-        if (j->id != id || (j->state != State::Starting && j->state != State::Running))
-            continue;
-        j->cancelled = true;
-        std::shared_ptr<StreamHandle> handle;
-        {
-            std::lock_guard lock(j->mutex);
-            handle = j->handle;
+    for (const auto& job : m_jobs) {
+        if (job->id == id) {
+            cancelJob(job);
+            return;
         }
-        if (handle)
-            handle->cancel();
-        if (j->reply)
-            j->reply->abort();
-        if (j->mode == Mode::Normal && m_normalEngine) {
-            m_normalEngine->remove(j->engineId, true);
-            j->state = State::Cancelled;
-            qCInfo(lcApp) << "Download" << j->id << "cancelled";
-            save();
-            emit itemsChanged();
-        }
+    }
+}
+
+void Downloads::cancelJob(const std::shared_ptr<Job>& job)
+{
+    if (job->state != State::Starting && job->state != State::Running)
+        return;
+    job->cancelled = true;
+    std::shared_ptr<StreamHandle> handle;
+    {
+        std::lock_guard lock(job->mutex);
+        handle = job->handle;
+    }
+    if (handle)
+        handle->cancel();
+    if (job->reply)
+        job->reply->abort();
+    if (job->mode == Mode::Normal && m_normalEngine) {
+        m_normalEngine->remove(job->engineId, true);
+        job->state = State::Cancelled;
+        qCInfo(lcApp) << "Download" << job->id << "cancelled";
+        save();
+        emit itemsChanged();
     }
 }
 
@@ -889,8 +810,8 @@ void Downloads::stop()
     // Unfinished downloads are dropped with what they wrote: nothing picks
     // them up again next time (they stay on the list as interrupted).
     // Finished files stay.
-    for (const auto& j : m_jobs)
-        cancel(j->id);
+    for (const auto& job : m_jobs)
+        cancelJob(job);
     for (const auto& j : m_jobs)
         if (j->thread.joinable())
             j->thread.join();
