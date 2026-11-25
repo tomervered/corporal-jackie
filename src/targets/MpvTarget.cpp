@@ -331,8 +331,11 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
     }
 
     // CJ_MPV_LOG=v (or debug) shows more of mpv's own log, for troubleshooting.
+    // Without it mpv is asked for info, and only warnings and the one line the
+    // Windows video bridge writes about how it waits for OpenGL are kept, so a
+    // report shows which mode ran.
     const QByteArray mpvLog = qgetenv("CJ_MPV_LOG");
-    mpv_request_log_messages(m_mpv, mpvLog.isEmpty() ? "warn" : mpvLog.constData());
+    mpv_request_log_messages(m_mpv, mpvLog.isEmpty() ? "info" : mpvLog.constData());
 
     struct { PropertyId id; const char* name; mpv_format format; } observed[] = {
         {PropPause,          "pause",                  MPV_FORMAT_FLAG},
@@ -1081,6 +1084,11 @@ void MpvTarget::processEvents()
             break;
         case MPV_EVENT_LOG_MESSAGE: {
             const auto* msg = static_cast<mpv_event_log_message*>(event->data);
+            if (msg->log_level > MPV_LOG_LEVEL_WARN && !qEnvironmentVariableIsSet("CJ_MPV_LOG")) {
+                if (qstrstr(msg->text, "d3d11-dxinterop"))
+                    qCInfo(lcTargets).noquote() << QString::fromUtf8(msg->text).trimmed();
+                break;
+            }
             const QString text = QString::fromUtf8(msg->text).trimmed();
             qCWarning(lcTargets).noquote() << "mpv" << msg->prefix << ":" << logging::redactText(text);
             // A graphics driver that cannot build the upscaler's shader would
