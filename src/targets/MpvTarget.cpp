@@ -16,6 +16,7 @@
 #include <mpv/client.h>
 
 #include <algorithm>
+#include <cstring>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -1085,7 +1086,7 @@ void MpvTarget::processEvents()
         case MPV_EVENT_LOG_MESSAGE: {
             const auto* msg = static_cast<mpv_event_log_message*>(event->data);
             if (msg->log_level > MPV_LOG_LEVEL_WARN && !qEnvironmentVariableIsSet("CJ_MPV_LOG")) {
-                if (qstrstr(msg->text, "d3d11-dxinterop"))
+                if (std::strstr(msg->text, "d3d11-dxinterop"))
                     qCInfo(lcTargets).noquote() << QString::fromUtf8(msg->text).trimmed();
                 break;
             }
