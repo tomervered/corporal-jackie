@@ -214,7 +214,9 @@ void LocalLibrary::applyScan(ScanResult r)
 
 QString LocalLibrary::seriesKey(const QString& title)
 {
-    return title.toCaseFolded().remove(QRegularExpression(QStringLiteral("[^\\w]")));
+    // Built once: this runs for every video of a scan, and on every entry of a page.
+    static const QRegularExpression notWord(QStringLiteral("[^\\w]"));
+    return title.toCaseFolded().remove(notWord);
 }
 
 QList<CatalogRef> LocalLibrary::catalogs() const
