@@ -996,12 +996,22 @@ QStringList LibraryDatabase::importExtras(const QByteArray& json) const
     return lines;
 }
 
-QString LibraryDatabase::importJson(const QByteArray& json, ImportExtras extrasWanted)
+// --- Reading an export file ---------------------------------------------------------
+// Each function returns "" when the part is fine, or the sentence to show the
+// user. Nothing in the app changes until the whole file has been checked.
+
+namespace {
+
+QString damagedEntryMessage(const char* list, qsizetype index)
 {
-    // 1. Read and check all of it. Nothing changes unless the whole file is good.
-    QJsonParseError parseError;
-    const QJsonDocument doc = QJsonDocument::fromJson(json, &parseError);
-    const QJsonObject root = doc.object();
+    return QStringLiteral("That export is damaged (entry %1 of \"%2\"). Nothing was imported.")
+        .arg(index + 1).arg(QLatin1String(list));
+}
+
+// Is this a Corporal Jackie export, from a version this one understands,
+// whose four lists (if present) really are lists?
+QString checkExportShape(const QJsonDocument& doc, const QJsonObject& root)
+{
     if (doc.isNull() || root.value("format").toString() != QLatin1String("corporal-jackie-export"))
         return QStringLiteral("That file is not a Corporal Jackie export.");
     if (root.value("version").toInt() > 1)
@@ -1009,53 +1019,98 @@ QString LibraryDatabase::importJson(const QByteArray& json, ImportExtras extrasW
     for (const char* list : {"history", "library", "addons", "folders"})
         if (root.contains(QLatin1String(list)) && !root.value(QLatin1String(list)).isArray())
             return QStringLiteral("That export is damaged (\"%1\" is not a list).").arg(QLatin1String(list));
-    const auto damaged = [](const char* list, qsizetype index) {
-        return QStringLiteral("That export is damaged (entry %1 of \"%2\"). Nothing was imported.")
-            .arg(index + 1).arg(QLatin1String(list));
-    };
+    return {};
+}
 
-    // What is here already, by key: one lookup per imported entry instead of
-    // a scan of the whole history or library.
-    QHash<QString, qint64> mine;
+// A history entry the app can safely keep: it has a key, sane numbers, and
+// only links it would open itself.
+bool isAcceptableHistoryEntry(const HistoryEntry& e)
+{
+    if (e.key.isEmpty() || !std::isfinite(e.position) || !std::isfinite(e.duration))
+        return false;
+    if (e.position < 0 || e.duration < 0 || e.updatedAt < 0)
+        return false;
+    if (!isImportableLink(e.source.url.toString()) || !isImportableLink(e.source.origin))
+        return false;
+    for (const SubtitleSource& sub : e.source.subtitles)
+        if (!sub.url.isLocalFile() && !isWeb(sub.url))
+            return false;
+    return true;
+}
+
+// A video or subtitle on another computer's share. Playing it would send the
+// user's Windows sign-in to that server.
+bool isOnNetworkShare(const HistoryEntry& e)
+{
+    if (links::isNetworkPath(e.source.url.toString()) || links::isNetworkPath(e.source.origin))
+        return true;
+    return std::any_of(e.source.subtitles.begin(), e.source.subtitles.end(),
+                       [](const SubtitleSource& sub) { return links::isNetworkPath(sub.url.toString()); });
+}
+
+// The history entries in the file that are new here (or newer than ours).
+// `mine` maps each key already here to its time, so each imported entry
+// costs one lookup instead of a scan of the whole history.
+QString readNewHistory(const QJsonArray& in, const QHash<QString, qint64>& mine, QList<HistoryEntry>* out)
+{
+    for (qsizetype n = 0; n < in.size(); ++n) {
+        if (!in.at(n).isObject())
+            return damagedEntryMessage("history", n);
+        const HistoryEntry e = backup::readWatchHistoryEntry(in.at(n).toObject());
+        if (!isAcceptableHistoryEntry(e))
+            return damagedEntryMessage("history", n);
+        // Left out, not an error, so the rest of a file from a NAS user still imports.
+        if (isOnNetworkShare(e))
+            continue;
+        if (const auto it = mine.constFind(e.key); it == mine.cend() || *it < e.updatedAt)
+            out->append(e);
+    }
+    return {};
+}
+
+// The library items in the file that are not in the library yet.
+QString readNewLibraryItems(const QJsonArray& in, const QSet<QString>& haveKeys, QList<LibraryItem>* out)
+{
+    for (qsizetype n = 0; n < in.size(); ++n) {
+        if (!in.at(n).isObject())
+            return damagedEntryMessage("library", n);
+        const LibraryItem item = backup::readLibraryItem(in.at(n).toObject());
+        if (item.itemId.isEmpty() || item.addedAt < 0)
+            return damagedEntryMessage("library", n);
+        if (!haveKeys.contains(item.key()))
+            out->append(item);
+    }
+    return {};
+}
+
+} // namespace
+
+// Adds what an export file holds that is not here yet. All or nothing: a
+// damaged file changes nothing. Returns "" or the sentence to show.
+QString LibraryDatabase::importJson(const QByteArray& json, ImportExtras extrasWanted)
+{
+    // 1. Read and check all of it. Nothing changes unless the whole file is good.
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(json, &parseError);
+    const QJsonObject root = doc.object();
+    if (const QString problem = checkExportShape(doc, root); !problem.isEmpty())
+        return problem;
+
+    QHash<QString, qint64> mine;  // key -> time, of what is here
     for (const HistoryEntry& h : std::as_const(m_history))
         if (!mine.contains(h.key))
             mine.insert(h.key, h.updatedAt);
     QSet<QString> libraryKeys;
     for (const LibraryItem& i : std::as_const(m_library))
         libraryKeys.insert(i.key());
+
     QList<HistoryEntry> newHistory;
-    const QJsonArray historyIn = root.value("history").toArray();
-    for (qsizetype n = 0; n < historyIn.size(); ++n) {
-        if (!historyIn.at(n).isObject())
-            return damaged("history", n);
-        const HistoryEntry e = backup::readWatchHistoryEntry(historyIn.at(n).toObject());
-        if (e.key.isEmpty() || !std::isfinite(e.position) || !std::isfinite(e.duration) || e.position < 0
-            || e.duration < 0 || e.updatedAt < 0 || !isImportableLink(e.source.url.toString()) || !isImportableLink(e.source.origin))
-            return damaged("history", n);
-        for (const SubtitleSource& sub : e.source.subtitles)
-            if (!sub.url.isLocalFile() && !isWeb(sub.url))
-                return damaged("history", n);
-        // Never a video or subtitle on another computer's share: playing it
-        // would send the user's Windows sign-in to that server. Left out, not
-        // an error, so the rest of a file from a NAS user still imports.
-        if (links::isNetworkPath(e.source.url.toString()) || links::isNetworkPath(e.source.origin)
-            || std::any_of(e.source.subtitles.begin(), e.source.subtitles.end(),
-                           [](const SubtitleSource& sub) { return links::isNetworkPath(sub.url.toString()); }))
-            continue;
-        if (const auto it = mine.constFind(e.key); it == mine.cend() || *it < e.updatedAt)
-            newHistory.append(e);
-    }
+    if (const QString problem = readNewHistory(root.value("history").toArray(), mine, &newHistory); !problem.isEmpty())
+        return problem;
     QList<LibraryItem> newItems;
-    const QJsonArray libraryIn = root.value("library").toArray();
-    for (qsizetype n = 0; n < libraryIn.size(); ++n) {
-        if (!libraryIn.at(n).isObject())
-            return damaged("library", n);
-        const LibraryItem i = backup::readLibraryItem(libraryIn.at(n).toObject());
-        if (i.itemId.isEmpty() || i.addedAt < 0)
-            return damaged("library", n);
-        if (!libraryKeys.contains(i.key()))
-            newItems.append(i);
-    }
+    if (const QString problem = readNewLibraryItems(root.value("library").toArray(), libraryKeys, &newItems);
+        !problem.isEmpty())
+        return problem;
     // Add-ons and folders only with the user's yes (see the header).
     const ImportedExtras extras = newExtras(root, m_addons.value_or(QJsonArray()), m_folders.value_or(QStringList()));
     if (!extras.error.isEmpty())

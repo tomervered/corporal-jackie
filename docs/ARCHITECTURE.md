@@ -1,6 +1,6 @@
 # Architecture
 
-Corporal Jackie is one Qt process. The window is QML; the video is libmpv drawing into a Qt Quick item; torrents are libtorrent, run by the app itself with no local HTTP server. This page is the map. Each folder under `src/` has a README with the details, and the two contracts in this folder describe the boundaries that tests hold the code to.
+Corporal Jackie is one Qt process. The window is QML; the video is libmpv drawing into a Qt Quick item; torrents are libtorrent, run by the app itself with no local HTTP server. This page is the map; [HOW_IT_WORKS.md](HOW_IT_WORKS.md) is the same story without the jargon. Each folder under `src/` has a README with the details, and the two contracts in this folder describe the boundaries that tests hold the code to.
 
 ## Layers
 

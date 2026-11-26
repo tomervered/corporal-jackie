@@ -243,73 +243,13 @@ MpvPlayer::MpvPlayer(Mode mode, QObject* parent)
     if (!m_mpv)
         throw std::runtime_error("mpv_create failed");
 
-    if (mode == Mode::Video) {
-        setOption(m_mpv, "vo", "libmpv");
-        // mpv's defaults on purpose: its "high-quality" scaling and display
-        // sync with frame blending ("smooth motion") were tried on
-        // 2026-11-08 and each made playback stutter in this embedded
-        // Qt Quick output, even on an RTX 4060.
-    } else {
-        setOption(m_mpv, "vo", "null");
-        setOption(m_mpv, "ao", "null");
-    }
-    setOption(m_mpv, "hwdec", kHwdecOn);
-    if (mode == Mode::Video) {
-        m_vsrCaps = GraphicsCards::activeVsr();
-#ifdef Q_OS_MACOS
-        if (MetalFxUpscaler::available())
-            m_vsrCaps |= Capability::UpscaleMetalFx;
-        qCInfo(lcTargets) << "MetalFX upscaling" << (MetalFxUpscaler::available() ? "available" : "not available");
-#endif
-    }
-    m_vsrTimer = new QTimer(this);
-    m_vsrTimer->setSingleShot(true);
-    m_vsrTimer->setInterval(400);  // a window being resized settles first
-    connect(m_vsrTimer, &QTimer::timeout, this, &MpvPlayer::applyVsrFilter);
-    setOption(m_mpv, "volume-max", "130");      // PlaybackTarget::kMaxVolume
-    // mpv's own seek and volume bars and messages stay off: the app's bar
-    // shows both. (O still cycles mpv's OSD on for the position.)
-    setOption(m_mpv, "osd-bar", "no");
-    setOption(m_mpv, "osd-level", "0");
-    setOption(m_mpv, "keep-open", "yes");      // stay on the last frame at the end
-    setOption(m_mpv, "idle", "yes");
-    setOption(m_mpv, "terminal", "no");
-    // mpv's own key bindings (its input.conf defaults). The window passes
-    // every key over the video to mpv; the app has no shortcuts of its own
-    // there, so the two never disagree about a key.
-    setOption(m_mpv, "input-default-bindings", "yes");
-    setOption(m_mpv, "osc", "no");
-    setOption(m_mpv, "config", "no");          // ignore any mpv.conf on the user's machine
-    // Links come from add-ons and pasted text. Distro builds of libmpv (Homebrew,
-    // apt) include Lua: its ytdl hook would hand a link to a yt-dlp found on the
-    // PATH, and a script from the user's folders would run inside the player.
-    setOption(m_mpv, "ytdl", "no");
-    setOption(m_mpv, "load-scripts", "no");
-    // Untrusted media (security review 2026-11-15, docs/SECURITY.md).
-    // mpv does not check HTTPS certificates unless told to, so anyone on the
-    // network path could swap a stream for a crafted file. Links with
-    // credentials go through ScopedHttp, which uses Qt's checks.
-    setOption(m_mpv, "tls-verify", "yes");
-    // FFmpeg's HLS and DASH readers, and MP4 external references, open the
-    // links a file names by themselves. FFmpeg lets an HLS list from the web
-    // name file: segments, which on Windows can be a network share (a
-    // password-hash leak). Only network protocols may be opened that way.
-    setOption(m_mpv, "demuxer-lavf-o", kLavfProtocolWhitelist);
-    setOption(m_mpv, "screenshot-format", "png");
-    // mpv's S key saves here too (mpv makes the folder), named like the
-    // app's own screenshots: "<title> 01-02-03.png".
-    setOption(m_mpv, "screenshot-dir", PlaybackSession::screenshotFolder().toUtf8().constData());  // mpv takes UTF-8
-    setOption(m_mpv, "screenshot-template", "%{media-title} %wH-%wM-%wS");
-    // CJ_MPV_OPTS="name=value,name=value" sets extra mpv options, for troubleshooting.
-    for (const QByteArray& pair : qgetenv("CJ_MPV_OPTS").split(',')) {
-        if (const qsizetype eq = pair.indexOf('='); eq > 0) {
-            setOption(m_mpv, pair.left(eq).constData(), pair.mid(eq + 1).constData());
-            if (pair.startsWith("cache="))
-                m_cacheModeFromEnv = true;
-            if (pair.startsWith("demuxer-max-"))
-                m_cacheSizeFromEnv = true;
-        }
-    }
+    // The settings mpv reads once, before it starts.
+    chooseOutput(mode);
+    findUpscalers(mode);
+    setPlayerBehaviour();
+    setSafetyLimits();
+    setScreenshotNaming();
+    setOptionsFromEnvironment();
 
     if (mpv_initialize(m_mpv) < 0) {
         mpv_terminate_destroy(m_mpv);
@@ -327,22 +267,141 @@ MpvPlayer::MpvPlayer(Mode mode, QObject* parent)
     if (mode == Mode::Video)
         mpv_hook_add(m_mpv, kOnPreloadedHook, "on_preloaded", 0);
 
-    // The exact builds in use: the macOS package takes whatever Homebrew
-    // had, so the log is where a report shows which FFmpeg played a file.
+    logLibraryVersions();
+    startMpvLog();
+    observeProperties();
+    bindAppKeys();
+
+    mpv_set_wakeup_callback(m_mpv, [](void* context) {
+        static_cast<MpvPlayer*>(context)->queueEventDrain();
+    }, this);
+}
+
+// Video mode draws into the app's window; the other mode (tests) plays
+// nothing on screen or speakers.
+void MpvPlayer::chooseOutput(Mode mode)
+{
+    if (mode == Mode::Video) {
+        setOption(m_mpv, "vo", "libmpv");
+        // mpv's defaults on purpose: its "high-quality" scaling and display
+        // sync with frame blending ("smooth motion") were tried on
+        // 2026-11-08 and each made playback stutter in this embedded
+        // Qt Quick output, even on an RTX 4060.
+    } else {
+        setOption(m_mpv, "vo", "null");
+        setOption(m_mpv, "ao", "null");
+    }
+    setOption(m_mpv, "hwdec", kHwdecOn);
+}
+
+// Asks which upscalers this computer can run, and sets up the timer that
+// applies the vendor upscaler after a window resize.
+void MpvPlayer::findUpscalers(Mode mode)
+{
+    if (mode == Mode::Video) {
+        m_vsrCaps = GraphicsCards::activeVsr();
+#ifdef Q_OS_MACOS
+        if (MetalFxUpscaler::available())
+            m_vsrCaps |= Capability::UpscaleMetalFx;
+        qCInfo(lcTargets) << "MetalFX upscaling" << (MetalFxUpscaler::available() ? "available" : "not available");
+#endif
+    }
+    m_vsrTimer = new QTimer(this);
+    m_vsrTimer->setSingleShot(true);
+    m_vsrTimer->setInterval(400);  // a window being resized settles first
+    connect(m_vsrTimer, &QTimer::timeout, this, &MpvPlayer::applyVsrFilter);
+}
+
+// How mpv behaves inside the app: the app draws its own bars and buttons,
+// so mpv's are turned off.
+void MpvPlayer::setPlayerBehaviour()
+{
+    setOption(m_mpv, "volume-max", "130");      // PlaybackTarget::kMaxVolume
+    // mpv's own seek and volume bars and messages stay off: the app's bar
+    // shows both. (O still cycles mpv's OSD on for the position.)
+    setOption(m_mpv, "osd-bar", "no");
+    setOption(m_mpv, "osd-level", "0");
+    setOption(m_mpv, "keep-open", "yes");      // stay on the last frame at the end
+    setOption(m_mpv, "idle", "yes");
+    setOption(m_mpv, "terminal", "no");
+    // mpv's own key bindings (its input.conf defaults). The window passes
+    // every key over the video to mpv; the app has no shortcuts of its own
+    // there, so the two never disagree about a key.
+    setOption(m_mpv, "input-default-bindings", "yes");
+    setOption(m_mpv, "osc", "no");
+    setOption(m_mpv, "config", "no");          // ignore any mpv.conf on the user's machine
+}
+
+// Links come from add-ons and pasted text, so mpv is told not to trust them
+// (security review 2026-11-15, docs/SECURITY.md).
+void MpvPlayer::setSafetyLimits()
+{
+    // Distro builds of libmpv (Homebrew, apt) include Lua: its ytdl hook would
+    // hand a link to a yt-dlp found on the PATH, and a script from the user's
+    // folders would run inside the player.
+    setOption(m_mpv, "ytdl", "no");
+    setOption(m_mpv, "load-scripts", "no");
+    // mpv does not check HTTPS certificates unless told to, so anyone on the
+    // network path could swap a stream for a crafted file. Links with
+    // credentials go through ScopedHttp, which uses Qt's checks.
+    setOption(m_mpv, "tls-verify", "yes");
+    // FFmpeg's HLS and DASH readers, and MP4 external references, open the
+    // links a file names by themselves. FFmpeg lets an HLS list from the web
+    // name file: segments, which on Windows can be a network share (a
+    // password-hash leak). Only network protocols may be opened that way.
+    setOption(m_mpv, "demuxer-lavf-o", kLavfProtocolWhitelist);
+}
+
+void MpvPlayer::setScreenshotNaming()
+{
+    setOption(m_mpv, "screenshot-format", "png");
+    // mpv's S key saves here too (mpv makes the folder), named like the
+    // app's own screenshots: "<title> 01-02-03.png".
+    setOption(m_mpv, "screenshot-dir", PlaybackSession::screenshotFolder().toUtf8().constData());  // mpv takes UTF-8
+    setOption(m_mpv, "screenshot-template", "%{media-title} %wH-%wM-%wS");
+}
+
+// CJ_MPV_OPTS="name=value,name=value" sets extra mpv options, for troubleshooting.
+void MpvPlayer::setOptionsFromEnvironment()
+{
+    for (const QByteArray& pair : qgetenv("CJ_MPV_OPTS").split(',')) {
+        const qsizetype eq = pair.indexOf('=');
+        if (eq <= 0)
+            continue;
+        setOption(m_mpv, pair.left(eq).constData(), pair.mid(eq + 1).constData());
+        if (pair.startsWith("cache="))
+            m_cacheModeFromEnv = true;
+        if (pair.startsWith("demuxer-max-"))
+            m_cacheSizeFromEnv = true;
+    }
+}
+
+// The exact builds in use: the macOS package takes whatever Homebrew
+// had, so the log is where a report shows which FFmpeg played a file.
+void MpvPlayer::logLibraryVersions()
+{
     for (const char* name : {"mpv-version", "ffmpeg-version"}) {
         if (char* v = mpv_get_property_string(m_mpv, name)) {
             qCInfo(lcTargets).noquote() << name << QString::fromUtf8(v);
             mpv_free(v);
         }
     }
+}
 
-    // CJ_MPV_LOG=v (or debug) shows more of mpv's own log, for troubleshooting.
-    // Without it mpv is asked for info, and only warnings and the one line the
-    // Windows video bridge writes about how it waits for OpenGL are kept, so a
-    // report shows which mode ran.
+// CJ_MPV_LOG=v (or debug) shows more of mpv's own log, for troubleshooting.
+// Without it mpv is asked for info, and only warnings and the one line the
+// Windows video bridge writes about how it waits for OpenGL are kept, so a
+// report shows which mode ran.
+void MpvPlayer::startMpvLog()
+{
     const QByteArray mpvLog = qgetenv("CJ_MPV_LOG");
     mpv_request_log_messages(m_mpv, mpvLog.isEmpty() ? "info" : mpvLog.constData());
+}
 
+// Asks mpv to tell us whenever one of these properties changes; each change
+// arrives in handleProperty().
+void MpvPlayer::observeProperties()
+{
     struct { PropertyId id; const char* name; mpv_format format; } observed[] = {
         {PropPause,          "pause",                  MPV_FORMAT_FLAG},
         {PropTimePos,        "time-pos",               MPV_FORMAT_DOUBLE},
@@ -382,11 +441,6 @@ MpvPlayer::MpvPlayer(Mode mode, QObject* parent)
     };
     for (const auto& o : observed)
         mpv_observe_property(m_mpv, o.id, o.name, o.format);
-    bindAppKeys();
-
-    mpv_set_wakeup_callback(m_mpv, [](void* context) {
-        static_cast<MpvPlayer*>(context)->queueEventDrain();
-    }, this);
 }
 
 MpvPlayer::~MpvPlayer()
