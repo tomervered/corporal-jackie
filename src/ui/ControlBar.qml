@@ -173,9 +173,11 @@ Item {
 
         // The chapter a time falls in, or -1.
         function chapterAt(t) {
+            // session.chapters builds the whole list on every read, so read it once.
+            const list = session.chapters
             let found = -1
-            for (let i = 0; i < session.chapters.length; ++i)
-                if (session.chapters[i].start <= t) found = i
+            for (let i = 0; i < list.length; ++i)
+                if (list[i].start <= t) found = i
             return found
         }
         readonly property real hoverTime: seekHover.hovered
