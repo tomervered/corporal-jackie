@@ -52,10 +52,9 @@ fi
 # Windows: Boost 1.92's IOCP timer thread has crashed on freed memory when a
 # session ends (tests/diag/session_churn_probe.cpp reproduces it in seconds).
 # Use Asio's select-based reactor there instead; FD_SETSIZE lifts its default
-# limit of 64 sockets. One section per function lets the player's link drop
-# the parts of libtorrent it never calls (see the top CMakeLists.txt).
+# limit of 64 sockets.
 case "$(uname -s)" in
-    MINGW*|MSYS*|CYGWIN*) EXTRA+=("-DCMAKE_CXX_FLAGS=-DBOOST_ASIO_DISABLE_IOCP -DFD_SETSIZE=1024 -ffunction-sections -fdata-sections") ;;
+    MINGW*|MSYS*|CYGWIN*) EXTRA+=("-DCMAKE_CXX_FLAGS=-DBOOST_ASIO_DISABLE_IOCP -DFD_SETSIZE=1024") ;;
 esac
 rm -rf "$PREFIX/include/libtorrent" "$PREFIX"/lib/libtorrent-rasterbar* "$PREFIX"/lib/cmake/LibtorrentRasterbar
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
