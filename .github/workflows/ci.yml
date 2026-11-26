@@ -620,9 +620,9 @@ jobs:
           done
           ls "$plugins"
           # Our controls import Basic. Preserve the native macOS dialog
-          # support while dropping the optional themes for other appearances.
+          # support, including Fusion, which QtQuickControls2Macos links to.
           contents=dist/CorporalJackie.app/Contents
-          for style in Material Universal Imagine Fusion FluentWinUI3; do
+          for style in Material Universal Imagine FluentWinUI3; do
             rm -rf "$contents/Resources/qml/QtQuick/Controls/$style"
             rm -rf "$contents/Frameworks/QtQuickControls2$style.framework" \
                    "$contents/Frameworks/QtQuickControls2${style}StyleImpl.framework"
