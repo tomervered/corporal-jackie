@@ -7,6 +7,7 @@ set(CJ_QML_FILES
     SettingChoice.qml SettingActions.qml SettingRow.qml
     PictureSettings.qml TorrentPermissions.qml PrivacySettings.qml
     SubtitlePreview.qml SubtitleSettings.qml
+    TorrentStorageSettings.qml DownloadSettings.qml
     # player
     ControlBar.qml PlayerPanel.qml PanelRow.qml
     CornerMask.qml PanelChoices.qml BarButton.qml EpisodesPanel.qml LinkPopup.qml Toast.qml StatsOverlay.qml ShortcutsOverlay.qml Format.js Notices.js
