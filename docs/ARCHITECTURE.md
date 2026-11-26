@@ -5,12 +5,12 @@ Corporal Jackie is one Qt process. The window is QML; the video is libmpv drawin
 ## Layers
 
 ```
-ui (QML)  ──binds to──▶  app (AppCore)
+ui (QML)  ──binds to──▶  app (PlayerApplication)
                             │
      ┌──────────┬───────────┼────────────┬──────────┐
      ▼          ▼           ▼            ▼          ▼
   sources    storage     session      targets   transports
-  (add-ons,  (SQLite)   (Session,     (mpv)      (torrent://)
+  (add-ons,  (SQLite)   (PlaybackSession,     (mpv)      (torrent://)
   folders)                contract)                  │
                                                      ▼
                                                    broker (libtorrent)
@@ -31,8 +31,8 @@ An arrow means "links to and calls". Nothing calls upward, and the rules below a
 ## From a click to a picture
 
 1. The user picks a stream in Browse. `CatalogBrowser::play` hands its `PlayableSource` to `PlaybackSession::playSource`.
-2. For a magnet link, the Session asks its resolver, `TorrentTransport::resolve`, which returns `torrent://<info hash>/<file index>` and keeps the link's trackers and peers for the open.
-3. The Session tells `MpvPlayer` to load that URL. mpv calls the transport's open callback on its own stream thread, and the transport calls `StreamBroker::open`, which adds the torrent and blocks until the file list arrives.
+2. For a magnet link, the playback session asks its resolver, `TorrentTransport::resolve`, which returns `torrent://<info hash>/<file index>` and keeps the link's trackers and peers for the open.
+3. The playback session tells `MpvPlayer` to load that URL. mpv calls the transport's open callback on its own stream thread, and the transport calls `StreamBroker::open`, which adds the torrent and blocks until the file list arrives.
 4. mpv reads the file's start to probe the container. Each `StreamHandle::read` blocks until its piece is downloaded and verified, then copies the bytes out.
 
 ## How a byte gets from a peer to mpv
