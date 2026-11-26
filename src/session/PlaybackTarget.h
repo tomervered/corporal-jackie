@@ -92,7 +92,7 @@ signals:
     // "subtitleScale" (double); "abLoopA", "abLoopB" (seconds, -1 = unset);
     // "aspectRatio" (width/height, 0 = the file's own); "brightness",
     // "contrast", "saturation", "gamma", "hue" (int); "hardwareDecoding",
-    // "fullScreen" (bool); "upscaler" (its Session name: "off" when the
+    // "fullScreen" (bool); "upscaler" (its PlaybackSession name: "off" when the
     // target had to turn one off, a driver that cannot run it, say).
     void settingChanged(const QString& name, const QVariant& value);
     // What the upscaler is doing now, as one line for the screen

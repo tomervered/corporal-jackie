@@ -1,5 +1,5 @@
 # Everything but the window, as a library the tests link too.
-add_library(cj_app STATIC AppCore.cpp AppCore.h KeyedListModel.cpp KeyedListModel.h Preferences.cpp Preferences.h Caches.cpp Caches.h
+add_library(cj_app STATIC PlayerApplication.cpp PlayerApplication.h KeyedListModel.cpp KeyedListModel.h Preferences.cpp Preferences.h Caches.cpp Caches.h
             Downloads.cpp Downloads.h DownloadFiles.cpp DownloadFiles.h)
 target_include_directories(cj_app PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(cj_app PUBLIC cj_common cj_session cj_targets cj_transports cj_sources cj_storage

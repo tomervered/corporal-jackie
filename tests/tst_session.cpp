@@ -1,8 +1,8 @@
-// Session tests against the fake target: commands go out, events come in,
+// PlaybackSession tests against the fake target: commands go out, events come in,
 // optional features respect capabilities, and resume points are emitted.
 
 #include "FakeTarget.h"
-#include "Session.h"
+#include "PlaybackSession.h"
 
 #include <QFileInfo>
 #include <QSignalSpy>
@@ -15,7 +15,7 @@ class TestSession : public QObject
     Q_OBJECT
 
 private:
-    static void startItem(Session& s, FakeTarget& t, double duration = 100)
+    static void startItem(PlaybackSession& s, FakeTarget& t, double duration = 100)
     {
         s.open(QUrl(QStringLiteral("file:///videos/movie.mkv")));
         t.startPlaying(duration);
@@ -25,7 +25,7 @@ private slots:
     void heldArrowKeepsJumpingFromTheSeekTarget()
     {
         FakeTarget t;
-        Session s(&t);
+        PlaybackSession s(&t);
         startItem(s, t, 600);
         t.movePosition(100);
         // Three quick jumps while the target has not reported a new position
@@ -46,7 +46,7 @@ private slots:
     void resolversClaimInputFirst()
     {
         FakeTarget t;
-        Session s(&t);
+        PlaybackSession s(&t);
         s.addSourceResolver([](const QString& input) -> std::optional<PlayableSource> {
             if (!input.startsWith(QLatin1String("magnet:")))
                 return std::nullopt;
@@ -66,9 +66,9 @@ private slots:
     void streamStatusResetsOnLoad()
     {
         FakeTarget t;
-        Session s(&t);
+        PlaybackSession s(&t);
         startItem(s, t);
-        QSignalSpy spy(&s, &Session::streamStatusChanged);
+        QSignalSpy spy(&s, &PlaybackSession::streamStatusChanged);
         const QUrl src(QStringLiteral("file:///videos/movie.mkv"));
         s.setStreamStatus({StreamPhase::Buffering, 40, 7, 2048, 3.5, QUrl(QStringLiteral("torrent://old"))});
         QCOMPARE(s.streamPhase(), StreamPhase::Inactive);  // about another item: ignored
@@ -86,7 +86,7 @@ private slots:
     void loadSendsCommandAndResetsItem()
     {
         FakeTarget t;
-        Session s(&t);
+        PlaybackSession s(&t);
         QCOMPARE(s.state(), PlaybackState::Idle);
         s.open(QUrl(QStringLiteral("file:///videos/movie.mkv")), 42);
         QVERIFY(t.sent(QStringLiteral("load file:///videos/movie.mkv 42")));
@@ -99,7 +99,7 @@ private slots:
     void eventsUpdateProperties()
     {
         FakeTarget t;
-        Session s(&t);
+        PlaybackSession s(&t);
         startItem(s, t, 120);
         QVERIFY(s.hasMedia());
         QCOMPARE(s.duration(), 120.0);
@@ -127,7 +127,7 @@ private slots:
         QVERIFY(s.buffering());
         QCOMPARE(s.bufferPercent(), 40);
 
-        QSignalSpy ended(&s, &Session::ended);
+        QSignalSpy ended(&s, &PlaybackSession::ended);
         t.setState(PlaybackState::Ended);
         QCOMPARE(ended.count(), 1);
     }
@@ -135,7 +135,7 @@ private slots:
     void basicCommands()
     {
         FakeTarget t;
-        Session s(&t);
+        PlaybackSession s(&t);
         s.play();  // no media: nothing sent
         QVERIFY(!t.sent(QStringLiteral("play")));
 
@@ -174,7 +174,7 @@ private slots:
     void optionalFeaturesWhenSupported()
     {
         FakeTarget t;
-        Session s(&t);
+        PlaybackSession s(&t);
         startItem(s, t);
         QVERIFY(s.supports(QStringLiteral("FrameStep")));
         QVERIFY(!s.supports(QStringLiteral("NoSuchThing")));
@@ -230,7 +230,7 @@ private slots:
     void unsupportedFeaturesAreNotSent()
     {
         FakeTarget t(Capabilities{});  // e.g. a Cast device
-        Session s(&t);
+        PlaybackSession s(&t);
         startItem(s, t);
         const int before = t.commands.size();
         s.setSubtitleDelay(1);
@@ -257,12 +257,12 @@ private slots:
     void upscalerChoice()
     {
         FakeTarget t;  // FSR and NVIDIA VSR, no Intel VSR
-        Session s(&t);
+        PlaybackSession s(&t);
         QCOMPARE(s.upscalers(), (QStringList{QStringLiteral("off"), QStringLiteral("fsr"), QStringLiteral("nvidia")}));
         QCOMPARE(s.upscaler(), QStringLiteral("off"));
         QCOMPARE(s.upscaleHeight(), 0);
 
-        QSignalSpy changed(&s, &Session::upscalerChanged);
+        QSignalSpy changed(&s, &PlaybackSession::upscalerChanged);
         s.setUpscaler(QStringLiteral("fsr"));
         QCOMPARE(t.last(), QStringLiteral("upscaler 1 0"));
         QCOMPARE(s.upscaler(), QStringLiteral("fsr"));
@@ -296,9 +296,9 @@ private slots:
     void intelVsrCompatibilityMode()
     {
         FakeTarget t;
-        Session s(&t);
+        PlaybackSession s(&t);
         QVERIFY(s.intelVsrCopyback());
-        QSignalSpy changed(&s, &Session::intelVsrCopybackChanged);
+        QSignalSpy changed(&s, &PlaybackSession::intelVsrCopybackChanged);
         const int before = t.commands.size();
         s.setIntelVsrCopyback(true);  // the default: nothing to send
         QCOMPARE(t.commands.size(), before);
@@ -316,8 +316,8 @@ private slots:
     void upscalerStatusFromTheTarget()
     {
         FakeTarget t;
-        Session s(&t);
-        QSignalSpy changed(&s, &Session::upscalerStatusChanged);
+        PlaybackSession s(&t);
+        QSignalSpy changed(&s, &PlaybackSession::upscalerStatusChanged);
         emit t.upscalerStatusChanged(QStringLiteral("NVIDIA VSR on · 720p → 1440p"), false);
         QCOMPARE(s.upscalerStatus(), QStringLiteral("NVIDIA VSR on · 720p → 1440p"));
         QVERIFY(!s.upscalerProblem());
@@ -331,7 +331,7 @@ private slots:
     void abLoopCycle()
     {
         FakeTarget t;
-        Session s(&t);
+        PlaybackSession s(&t);
         startItem(s, t);
         t.movePosition(10);
         s.toggleAbLoop();
@@ -348,7 +348,7 @@ private slots:
     void chapters()
     {
         FakeTarget t;
-        Session s(&t);
+        PlaybackSession s(&t);
         startItem(s, t);
         emit t.chaptersChanged({{0, QStringLiteral("One")}, {30, QStringLiteral("Two")}, {60, QStringLiteral("Three")}});
         QCOMPARE(s.chapters().size(), 3);
@@ -375,15 +375,15 @@ private slots:
         QCOMPARE(t.last(), QStringLiteral("chapter 1"));
     }
 
-    // mpv's own keys change settings behind the Session's back: it follows
+    // mpv's own keys change settings behind the PlaybackSession's back: it follows
     // them, and does not send them back.
     void followsSettingsTheTargetChanged()
     {
         FakeTarget t;
-        Session s(&t);
+        PlaybackSession s(&t);
         startItem(s, t);
         t.commands.clear();
-        QSignalSpy speed(&s, &Session::speedChanged);
+        QSignalSpy speed(&s, &PlaybackSession::speedChanged);
         t.changeSetting(QStringLiteral("speed"), 1.1);
         QCOMPARE(s.speed(), 1.1);
         QCOMPARE(speed.count(), 1);
@@ -419,8 +419,8 @@ private slots:
     void keysGoToTheTarget()
     {
         FakeTarget t;
-        Session s(&t);
-        QSignalSpy actions(&s, &Session::appActionRequested);
+        PlaybackSession s(&t);
+        QSignalSpy actions(&s, &PlaybackSession::appActionRequested);
         QVERIFY(s.keyEvent(Qt::Key_F, 0, QStringLiteral("f"), true));
         QCOMPARE(t.last(), QStringLiteral("keydown %1 0").arg(int(Qt::Key_F)));
         // mpv's q closes the video; I asks the window for the stats.
@@ -432,7 +432,7 @@ private slots:
         QCOMPARE(actions.count(), 1);
 
         FakeTarget cast(Capabilities{});  // no keys of its own
-        Session c(&cast);
+        PlaybackSession c(&cast);
         QVERIFY(!c.keyEvent(Qt::Key_F, 0, QStringLiteral("f"), true));
         QVERIFY(cast.commands.filter(QStringLiteral("key")).isEmpty());
     }
@@ -440,9 +440,9 @@ private slots:
     void resumePoints()
     {
         FakeTarget t;
-        Session s(&t);
+        PlaybackSession s(&t);
         s.setResumeInterval(50);
-        QSignalSpy points(&s, &Session::resumePoint);
+        QSignalSpy points(&s, &PlaybackSession::resumePoint);
         startItem(s, t, 200);
         t.movePosition(12);
         QTRY_VERIFY_WITH_TIMEOUT(points.count() >= 2, 2000);
@@ -473,7 +473,7 @@ private slots:
     void perItemSettingsReset()
     {
         FakeTarget t;
-        Session s(&t);
+        PlaybackSession s(&t);
         startItem(s, t);
         s.setSubtitleDelay(1);
         s.cycleAspectRatio();
@@ -488,8 +488,8 @@ private slots:
     void errorsPassThrough()
     {
         FakeTarget t;
-        Session s(&t);
-        QSignalSpy errors(&s, &Session::errorOccurred);
+        PlaybackSession s(&t);
+        QSignalSpy errors(&s, &PlaybackSession::errorOccurred);
         emit t.errorOccurred(PlaybackError::UnsupportedFile, QStringLiteral("nope"));
         QCOMPARE(errors.count(), 1);
         QCOMPARE(errors.first().first().value<PlaybackError>(), PlaybackError::UnsupportedFile);

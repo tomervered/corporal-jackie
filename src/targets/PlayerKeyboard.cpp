@@ -1,4 +1,4 @@
-#include "MpvTarget.h"
+#include "MpvPlayer.h"
 #include "Logging.h"
 
 #include <mpv/client.h>
@@ -9,7 +9,7 @@ namespace cj {
 // script this build does not run. q and the other quit keys close the video
 // (in mpv they close the player, which here would leave a window with no
 // player in it); i shows the app's stats, as mpv's stats script would.
-void MpvTarget::bindAppKeys()
+void MpvPlayer::bindAppKeys()
 {
     const auto bind = [this](const char* key, const char* cmd) {
         const char* args[] = {"keybind", key, cmd, nullptr};
@@ -29,7 +29,7 @@ void MpvTarget::bindAppKeys()
         bind(key, "ignore");
 }
 
-QString MpvTarget::keyName(int key, Qt::KeyboardModifiers modifiers, const QString& text)
+QString MpvPlayer::keyName(int key, Qt::KeyboardModifiers modifiers, const QString& text)
 {
     // Keys mpv names in words. A keypad key counts only for digits and
     // operators: macOS marks the arrow keys as keypad keys too.
@@ -105,7 +105,7 @@ QString MpvTarget::keyName(int key, Qt::KeyboardModifiers modifiers, const QStri
     return name + base;
 }
 
-bool MpvTarget::keyEvent(int key, Qt::KeyboardModifiers modifiers, const QString& text, bool pressed)
+bool MpvPlayer::keyEvent(int key, Qt::KeyboardModifiers modifiers, const QString& text, bool pressed)
 {
     if (!pressed) {
         // Stops whatever mpv repeats while the key is held. Released under

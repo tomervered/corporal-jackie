@@ -1,7 +1,7 @@
 #pragma once
 // A playback target that plays nothing. It writes every command it receives
 // as one line of text in `commands`, and lets a test send any event the
-// contract allows. Session tests run against this, so they need no mpv.
+// contract allows. PlaybackSession tests run against this, so they need no mpv.
 
 #include "PlaybackTarget.h"
 

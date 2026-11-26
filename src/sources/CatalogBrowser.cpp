@@ -1,8 +1,8 @@
-#include "Browser.h"
+#include "CatalogBrowser.h"
 
 #include "LocalLibrary.h"
 #include "Logging.h"
-#include "Session.h"
+#include "PlaybackSession.h"
 #include "StremioAdapter.h"
 #include "WikiMazeSearch.h"
 
@@ -25,7 +25,7 @@ QVariantMap previewMap(const MetaPreview& m)
 
 } // namespace
 
-Browser::Browser(Session* session, QObject* parent)
+CatalogBrowser::CatalogBrowser(PlaybackSession* session, QObject* parent)
     : QObject(parent)
     , m_session(session)
     , m_wikimaze(new WikiMazeSearch(this))
@@ -36,7 +36,7 @@ Browser::Browser(Session* session, QObject* parent)
             searchAll(m_searchAllText, m_searchType);
     });
     if (m_session)
-        connect(m_session, &Session::sourceChanged, this, [this] {
+        connect(m_session, &PlaybackSession::sourceChanged, this, [this] {
             if (m_playingShow && m_session->source() != m_playingShowUrl) {
                 ++m_playingGen;
                 m_playingShow.reset();
@@ -45,27 +45,27 @@ Browser::Browser(Session* session, QObject* parent)
         });
 }
 
-void Browser::addAdapter(SourceAdapter* adapter)
+void CatalogBrowser::addAdapter(SourceAdapter* adapter)
 {
     m_adapters << adapter;
-    connect(adapter, &SourceAdapter::catalogsChanged, this, &Browser::rebuildCatalogs);
+    connect(adapter, &SourceAdapter::catalogsChanged, this, &CatalogBrowser::rebuildCatalogs);
     rebuildCatalogs();
 }
 
-void Browser::setStremio(StremioAdapter* stremio)
+void CatalogBrowser::setStremio(StremioAdapter* stremio)
 {
     m_stremio = stremio;
-    connect(stremio, &StremioAdapter::addonsChanged, this, &Browser::addonsChanged);
+    connect(stremio, &StremioAdapter::addonsChanged, this, &CatalogBrowser::addonsChanged);
     connect(stremio, &StremioAdapter::addonsChanged, this, [this] { m_wikimaze->setBase(m_stremio->wikimazeBase()); });
     m_wikimaze->setBase(stremio->wikimazeBase());
     addAdapter(stremio);
 }
 
-void Browser::setLocal(LocalLibrary* local)
+void CatalogBrowser::setLocal(LocalLibrary* local)
 {
     m_local = local;
-    connect(local, &LocalLibrary::foldersChanged, this, &Browser::foldersChanged);
-    connect(local, &LocalLibrary::scanningChanged, this, &Browser::foldersChanged);
+    connect(local, &LocalLibrary::foldersChanged, this, &CatalogBrowser::foldersChanged);
+    connect(local, &LocalLibrary::scanningChanged, this, &CatalogBrowser::foldersChanged);
     connect(local, &LocalLibrary::libraryChanged, this, [this] {
         emit foldersChanged();
         // An open local catalog shows new files at once.
@@ -77,14 +77,14 @@ void Browser::setLocal(LocalLibrary* local)
 
 // Who may hear an item's ids: every adapter, unless its own adapter's ids
 // are private (a local file's path), and then only that one.
-QList<SourceAdapter*> Browser::adaptersAskedAbout(const QString& owner) const
+QList<SourceAdapter*> CatalogBrowser::adaptersAskedAbout(const QString& owner) const
 {
     if (SourceAdapter* own = adapterFor(owner); own && own->idsArePrivate())
         return {own};
     return m_adapters;
 }
 
-SourceAdapter* Browser::adapterFor(const QString& id) const
+SourceAdapter* CatalogBrowser::adapterFor(const QString& id) const
 {
     for (SourceAdapter* a : m_adapters)
         if (a->id() == id)
@@ -94,7 +94,7 @@ SourceAdapter* Browser::adapterFor(const QString& id) const
 
 // --- Add-ons and folders ----------------------------------------------------
 
-QVariantList Browser::addons() const
+QVariantList CatalogBrowser::addons() const
 {
     QVariantList out;
     if (!m_stremio)
@@ -132,7 +132,7 @@ QVariantList Browser::addons() const
     return out;
 }
 
-void Browser::installAddon(const QString& link)
+void CatalogBrowser::installAddon(const QString& link)
 {
     if (!m_stremio)
         return;
@@ -145,46 +145,46 @@ void Browser::installAddon(const QString& link)
     });
 }
 
-void Browser::moveAddon(const QString& addonId, int delta)
+void CatalogBrowser::moveAddon(const QString& addonId, int delta)
 {
     if (m_stremio)
         m_stremio->move(addonId, delta);
 }
 
-void Browser::setCatalogEnabled(const QString& addonId, const QString& type, const QString& catalogId, bool enabled)
+void CatalogBrowser::setCatalogEnabled(const QString& addonId, const QString& type, const QString& catalogId, bool enabled)
 {
     if (m_stremio)
         m_stremio->setCatalogEnabled(addonId, type, catalogId, enabled);
 }
 
-void Browser::setAddonEnabled(const QString& addonId, bool enabled)
+void CatalogBrowser::setAddonEnabled(const QString& addonId, bool enabled)
 {
     if (m_stremio && m_stremio->setEnabled(addonId, enabled))
         emit notice(enabled ? QStringLiteral("Add-on switched on") : QStringLiteral("Add-on switched off"), false);
 }
 
-void Browser::removeAddon(const QString& addonId)
+void CatalogBrowser::removeAddon(const QString& addonId)
 {
     if (m_stremio && m_stremio->uninstall(addonId))
         emit notice(QStringLiteral("Add-on removed"), false);
 }
 
-QStringList Browser::folders() const
+QStringList CatalogBrowser::folders() const
 {
     return m_local ? m_local->folders() : QStringList{};
 }
 
-bool Browser::scanning() const
+bool CatalogBrowser::scanning() const
 {
     return m_local && m_local->scanning();
 }
 
-int Browser::localVideoCount() const
+int CatalogBrowser::localVideoCount() const
 {
     return m_local ? int(m_local->videos().size()) : 0;
 }
 
-bool Browser::addFolder(const QUrl& folder)
+bool CatalogBrowser::addFolder(const QUrl& folder)
 {
     if (!m_local)
         return false;
@@ -195,13 +195,13 @@ bool Browser::addFolder(const QUrl& folder)
     return added;
 }
 
-void Browser::removeFolder(const QString& path)
+void CatalogBrowser::removeFolder(const QString& path)
 {
     if (m_local)
         m_local->removeFolder(path);
 }
 
-void Browser::rescanFolders()
+void CatalogBrowser::rescanFolders()
 {
     if (m_local)
         m_local->rescan();
@@ -209,7 +209,7 @@ void Browser::rescanFolders()
 
 // --- Catalogs and items -------------------------------------------------------
 
-void Browser::rebuildCatalogs()
+void CatalogBrowser::rebuildCatalogs()
 {
     const CatalogRef current = m_catalogs.value(m_catalogIndex);
     m_catalogs.clear();
@@ -229,7 +229,7 @@ void Browser::rebuildCatalogs()
     for (const CatalogRef& c : std::as_const(m_catalogs))
         keys << c.adapter + c.provider + c.type + c.id;
     if (m_homeLoaded && keys != m_homeKeys)
-        QTimer::singleShot(0, this, &Browser::loadHome);
+        QTimer::singleShot(0, this, &CatalogBrowser::loadHome);
     if (lost) {
         ++m_itemsGen;
         m_items.clear();
@@ -239,7 +239,7 @@ void Browser::rebuildCatalogs()
     }
 }
 
-QVariantList Browser::catalogs() const
+QVariantList CatalogBrowser::catalogs() const
 {
     QVariantList out;
     for (const CatalogRef& c : m_catalogs)
@@ -249,7 +249,7 @@ QVariantList Browser::catalogs() const
     return out;
 }
 
-QVariantList Browser::items() const
+QVariantList CatalogBrowser::items() const
 {
     QVariantList out;
     for (const MetaPreview& m : m_items)
@@ -257,7 +257,7 @@ QVariantList Browser::items() const
     return out;
 }
 
-void Browser::openCatalog(int index, const QString& search, const QString& genre, const QString& year)
+void CatalogBrowser::openCatalog(int index, const QString& search, const QString& genre, const QString& year)
 {
     if (index < 0 || index >= m_catalogs.size())
         return;
@@ -270,7 +270,7 @@ void Browser::openCatalog(int index, const QString& search, const QString& genre
 
 // --- Home and search rows -----------------------------------------------------------
 
-QVariantList Browser::rowsMap(const QList<Row>& rows)
+QVariantList CatalogBrowser::rowsMap(const QList<Row>& rows)
 {
     QVariantList out;
     for (const Row& r : rows) {
@@ -283,7 +283,7 @@ QVariantList Browser::rowsMap(const QList<Row>& rows)
     return out;
 }
 
-void Browser::fetchRows(QList<Row>* rows, quint64* gen, const QString& search, void (Browser::*changed)())
+void CatalogBrowser::fetchRows(QList<Row>* rows, quint64* gen, const QString& search, void (CatalogBrowser::*changed)())
 {
     const quint64 mine = ++*gen;
     for (int i = 0; i < rows->size(); ++i) {
@@ -307,7 +307,7 @@ void Browser::fetchRows(QList<Row>* rows, quint64* gen, const QString& search, v
     emit (this->*changed)();
 }
 
-void Browser::loadHome()
+void CatalogBrowser::loadHome()
 {
     m_homeLoaded = true;
     m_homeRows.clear();
@@ -325,10 +325,10 @@ void Browser::loadHome()
         row.type = c.type;
         m_homeRows << row;
     }
-    fetchRows(&m_homeRows, &m_homeGen, {}, &Browser::homeChanged);
+    fetchRows(&m_homeRows, &m_homeGen, {}, &CatalogBrowser::homeChanged);
 }
 
-void Browser::searchAll(const QString& text, const QString& type)
+void CatalogBrowser::searchAll(const QString& text, const QString& type)
 {
     m_searchRows.clear();
     m_searchAllText = text.trimmed();
@@ -351,10 +351,10 @@ void Browser::searchAll(const QString& text, const QString& type)
             m_searchRows << row;
         }
     }
-    fetchRows(&m_searchRows, &m_searchGen, m_searchAllText, &Browser::searchRowsChanged);
+    fetchRows(&m_searchRows, &m_searchGen, m_searchAllText, &CatalogBrowser::searchRowsChanged);
 }
 
-void Browser::openRowItem(bool searchRow, int row, int index)
+void CatalogBrowser::openRowItem(bool searchRow, int row, int index)
 {
     const QList<Row>& rows = searchRow ? m_searchRows : m_homeRows;
     if (row < 0 || row >= rows.size() || index < 0 || index >= rows[row].items.size())
@@ -362,22 +362,22 @@ void Browser::openRowItem(bool searchRow, int row, int index)
     openPreview(rows[row].items[index]);
 }
 
-void Browser::openWikimazeItem(int index)
+void CatalogBrowser::openWikimazeItem(int index)
 {
     const QList<MetaPreview> items = m_wikimaze->items();
     if (index >= 0 && index < items.size())
         openPreview(items[index]);
 }
 
-QObject* Browser::wikimaze() const { return m_wikimaze; }
+QObject* CatalogBrowser::wikimaze() const { return m_wikimaze; }
 
-void Browser::loadMore()
+void CatalogBrowser::loadMore()
 {
     if (m_canLoadMore && !m_itemsLoading)
         fetchItems(true);
 }
 
-void Browser::fetchItems(bool append)
+void CatalogBrowser::fetchItems(bool append)
 {
     CatalogRef catalog = m_catalogs.value(m_catalogIndex);
     catalog.genre = m_genre;
@@ -420,14 +420,14 @@ void Browser::fetchItems(bool append)
 
 // --- Details --------------------------------------------------------------------
 
-void Browser::openItem(int index)
+void CatalogBrowser::openItem(int index)
 {
     if (index < 0 || index >= m_items.size())
         return;
     openPreview(m_items[index]);
 }
 
-void Browser::openPreview(const MetaPreview& item)
+void CatalogBrowser::openPreview(const MetaPreview& item)
 {
     SourceAdapter* adapter = adapterFor(item.adapter);
     if (!adapter)
@@ -454,7 +454,7 @@ void Browser::openPreview(const MetaPreview& item)
     });
 }
 
-QVariantMap Browser::detail() const
+QVariantMap CatalogBrowser::detail() const
 {
     if (!m_detail)
         return {};
@@ -466,7 +466,7 @@ QVariantMap Browser::detail() const
     return out;
 }
 
-QVariantList Browser::videos() const
+QVariantList CatalogBrowser::videos() const
 {
     QVariantList out;
     if (!m_detail)

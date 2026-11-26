@@ -25,7 +25,7 @@ struct sqlite3;
 namespace cj {
 
 // Where the user got to in one video. `key` is "<adapter>:<item>:<video>" for
-// items from a source adapter, or "url:" + Storage::sourceKey() for anything
+// items from a source adapter, or "url:" + LibraryDatabase::sourceKey() for anything
 // opened directly (a file, a link, a magnet).
 struct HistoryEntry
 {
@@ -65,7 +65,7 @@ struct LibraryItem
     QString key() const { return adapter + QLatin1Char(':') + itemId; }
 };
 
-class Storage : public QObject
+class LibraryDatabase : public QObject
 {
     Q_OBJECT
 
@@ -78,8 +78,8 @@ public:
     // Opens (or creates and migrates) the database and loads the in-memory
     // copy; returns once that is done. With an empty path, an in-memory
     // database (for tests).
-    explicit Storage(const QString& file, QObject* parent = nullptr);
-    ~Storage() override;  // waits for pending writes
+    explicit LibraryDatabase(const QString& file, QObject* parent = nullptr);
+    ~LibraryDatabase() override;  // waits for pending writes
 
     bool isOpen() const { return m_open; }
     // Why the database could not be opened, or why the last write failed,

@@ -1,7 +1,7 @@
 #include "Preferences.h"
 
 #include "Logging.h"
-#include "Storage.h"
+#include "LibraryDatabase.h"
 
 #include <QDir>
 #include <QFile>
@@ -92,7 +92,7 @@ QString cleanName(const QString& name)
 
 } // namespace
 
-Preferences::Preferences(Storage& storage, const QString& defaultCacheFolder, QObject* parent)
+Preferences::Preferences(LibraryDatabase& storage, const QString& defaultCacheFolder, QObject* parent)
     : QObject(parent)
     , m_storage(storage)
     , m_defaultFolder(defaultCacheFolder)
@@ -237,7 +237,7 @@ void Preferences::choosePrivacy(bool catalogAddon, bool dht, bool publicTrackers
                                 bool uploads)
 {
     // Before the first answer the built-in add-ons follow the screen's
-    // starting switch (AppCore installs them), so that is what changes.
+    // starting switch (PlayerApplication installs them), so that is what changes.
     const bool catalogBefore = m_privacyChosen ? m_catalogAddon : m_earlier.value(QStringLiteral("catalogAddon")).toBool();
     m_catalogAddon = catalogAddon;
     m_dht = dht;

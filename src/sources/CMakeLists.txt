@@ -11,7 +11,7 @@ add_library(cj_sources STATIC
     LocalNames.cpp LocalNames.h
     LocalLibrary.cpp LocalLibrary.h
     WikiMazeSearch.cpp WikiMazeSearch.h
-    Browser.cpp Browser.h PlayFromCatalog.cpp
+    CatalogBrowser.cpp CatalogBrowser.h PlayFromCatalog.cpp
 )
 target_include_directories(cj_sources PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(cj_sources PUBLIC cj_common cj_session Qt6::Core Qt6::Network)

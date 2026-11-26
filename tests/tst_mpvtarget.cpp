@@ -1,12 +1,12 @@
 // Integration test for the mpv target: real mpv, no video or audio output.
 // Plays a tiny bundled test clip (tests/data, made with FFmpeg's testsrc), so it
-// needs no GPU. Everything is checked through the Session, the way the UI sees it.
+// needs no GPU. Everything is checked through the PlaybackSession, the way the UI sees it.
 
 #include "FakeHttpServer.h"
 #include "GraphicsCards.h"
-#include "MpvTarget.h"
+#include "MpvPlayer.h"
 #include "ScopedHttp.h"
-#include "Session.h"
+#include "PlaybackSession.h"
 
 #include <QSignalSpy>
 #include <QTcpSocket>
@@ -30,7 +30,7 @@ class TestMpvTarget : public QObject
 {
     Q_OBJECT
 
-    static QStringList shaders(MpvTarget& target)
+    static QStringList shaders(MpvPlayer& target)
     {
         QStringList list;
         mpv_node node;
@@ -56,7 +56,7 @@ private slots:
     // Links come from add-ons: mpv must not run yt-dlp or Lua scripts for them.
     void playerRunsNoScriptsAndNoYtdl()
     {
-        MpvTarget target(MpvTarget::Mode::Headless);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
         // A libmpv built without Lua (ours on Windows) has no ytdl or osc
         // option at all, which is as good as "no": nothing can run.
         char* osc = mpv_get_property_string(target.handle(), "osc");
@@ -75,8 +75,8 @@ private slots:
 
     void loadsAndReportsDuration()
     {
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session s(&target);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession s(&target);
         s.openPath(kTestPattern);
         QTRY_VERIFY_WITH_TIMEOUT(s.hasMedia(), 10000);
         QTRY_COMPARE_WITH_TIMEOUT(qRound(s.duration()), 10, 5000);
@@ -86,8 +86,8 @@ private slots:
 
     void staleFramebufferCannotStartAReplacedOrClosedLoad()
     {
-        MpvTarget target(MpvTarget::Mode::Video);
-        Session session(&target);
+        MpvPlayer target(MpvPlayer::Mode::Video);
+        PlaybackSession session(&target);
         session.openPath(kTestPattern);
         const auto first = target.pendingRenderLoad();
         QVERIFY(first != 0);
@@ -106,8 +106,8 @@ private slots:
 
     void pausesAndSeeks()
     {
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session s(&target);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession s(&target);
         s.openPath(kTestPattern);
         QTRY_VERIFY_WITH_TIMEOUT(s.hasMedia(), 10000);
 
@@ -125,8 +125,8 @@ private slots:
 
     void startsAtResumePosition()
     {
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session s(&target);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession s(&target);
         s.openPath(kTestPattern, 5);
         QTRY_VERIFY_WITH_TIMEOUT(s.hasMedia(), 10000);
         QTRY_VERIFY_WITH_TIMEOUT(s.position() >= 4.5, 5000);
@@ -134,9 +134,9 @@ private slots:
 
     void reportsTracks()
     {
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session s(&target);
-        QSignalSpy tracks(&s, &Session::tracksChanged);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession s(&target);
+        QSignalSpy tracks(&s, &PlaybackSession::tracksChanged);
         s.openPath(kTestPattern);
         QTRY_VERIFY_WITH_TIMEOUT(!s.tracks().isEmpty(), 10000);
         QCOMPARE(s.tracks().first().type, Track::Type::Video);
@@ -145,9 +145,9 @@ private slots:
 
     void playsToTheEnd()
     {
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session s(&target);
-        QSignalSpy ended(&s, &Session::ended);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession s(&target);
+        QSignalSpy ended(&s, &PlaybackSession::ended);
         s.openPath(kTestPattern, 9);
         QTRY_COMPARE_WITH_TIMEOUT(ended.count(), 1, 10000);
         QCOMPARE(s.state(), PlaybackState::Ended);
@@ -155,8 +155,8 @@ private slots:
 
     void optionalFeaturesReachMpv()
     {
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session s(&target);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession s(&target);
         s.openPath(kTestPattern);
         QTRY_VERIFY_WITH_TIMEOUT(s.hasMedia(), 10000);
         s.pause();
@@ -178,8 +178,8 @@ private slots:
     // FSR is a shader file mpv loads; off must leave nothing loaded or on disk.
     void upscalerLoadsAndUnloadsTheShader()
     {
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session s(&target);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession s(&target);
         QVERIFY(s.upscalers().contains(QStringLiteral("fsr")));
         QVERIFY(shaders(target).isEmpty());
 
@@ -245,7 +245,7 @@ private slots:
     void videoSuperResolutionRules()
     {
         const auto caps = [](unsigned vendor, const char* name) {
-            return MpvTarget::vsrCapabilities(vendor, QString::fromLatin1(name));
+            return MpvPlayer::vsrCapabilities(vendor, QString::fromLatin1(name));
         };
         QCOMPARE(caps(0x10DE, "NVIDIA GeForce RTX 4060"), Capabilities(Capability::UpscaleNvidiaVsr));
         QCOMPARE(caps(0x10DE, "NVIDIA GeForce GTX 1660"), Capabilities());
@@ -262,7 +262,7 @@ private slots:
         QCOMPARE(caps(0x1414, "Microsoft Basic Render Driver"), Capabilities());
 
         const auto vf = [](Upscaler u, int videoHeight, int target, int shown, bool intelCopyback = false) {
-            return MpvTarget::vsrFilter(u, videoHeight, target, shown, intelCopyback);
+            return MpvPlayer::vsrFilter(u, videoHeight, target, shown, intelCopyback);
         };
         QCOMPARE(vf(Upscaler::NvidiaVsr, 720, 1440, 0), QStringLiteral("d3d11vpp=scaling-mode=nvidia:scale=2.00"));
         QCOMPARE(vf(Upscaler::IntelVsr, 1080, 2160, 0), QStringLiteral("d3d11vpp=scaling-mode=intel:scale=2.00"));
@@ -285,7 +285,7 @@ private slots:
 
         // The line on screen: VSR says "on" only once the filter hands on
         // bigger frames, which is what shows the driver did the work.
-        const auto status = MpvTarget::upscalerStatus;
+        const auto status = MpvPlayer::upscalerStatus;
         QCOMPARE(status(Upscaler::NvidiaVsr, 720, 1440, 0, true), QStringLiteral("NVIDIA VSR starting…"));
         QCOMPARE(status(Upscaler::NvidiaVsr, 720, 1440, 720, true), QStringLiteral("NVIDIA VSR starting…"));
         QCOMPARE(status(Upscaler::NvidiaVsr, 720, 1440, 1440, true), QStringLiteral("NVIDIA VSR on · 720p → 1440p"));
@@ -318,7 +318,7 @@ private slots:
     void namesKeysTheWayMpvDoes()
     {
         const auto name = [](int key, Qt::KeyboardModifiers m, const char* text) {
-            return MpvTarget::keyName(key, m, QString::fromUtf8(text));
+            return MpvPlayer::keyName(key, m, QString::fromUtf8(text));
         };
         QCOMPARE(name(Qt::Key_Space, {}, " "), QStringLiteral("SPACE"));
         QCOMPARE(name(Qt::Key_F, {}, "f"), QStringLiteral("f"));
@@ -343,11 +343,11 @@ private slots:
     }
 
     // The keys run mpv's own bindings, and what they change reaches the
-    // Session. q closes the video instead of ending mpv.
+    // PlaybackSession. q closes the video instead of ending mpv.
     void keysRunMpvsBindings()
     {
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session s(&target);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession s(&target);
         s.openPath(kTestPattern);
         QTRY_VERIFY_WITH_TIMEOUT(s.hasMedia(), 10000);
         const auto press = [&](int key, const char* text, Qt::KeyboardModifiers m = {}) {
@@ -364,7 +364,7 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(s.fullScreen(), 5000);
         press(Qt::Key_Escape, "");
         QTRY_VERIFY_WITH_TIMEOUT(!s.fullScreen(), 5000);
-        QSignalSpy actions(&s, &Session::appActionRequested);
+        QSignalSpy actions(&s, &PlaybackSession::appActionRequested);
         press(Qt::Key_I, "i");
         QTRY_COMPARE_WITH_TIMEOUT(actions.count(), 1, 5000);
         QCOMPARE(actions.first().first().toString(), QStringLiteral("stats"));
@@ -377,9 +377,9 @@ private slots:
 
     void missingFileIsATypedError()
     {
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session s(&target);
-        QSignalSpy errors(&s, &Session::errorOccurred);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession s(&target);
+        QSignalSpy errors(&s, &PlaybackSession::errorOccurred);
         s.openPath(QStringLiteral("/definitely/not/here.mkv"));
         QTRY_COMPARE_WITH_TIMEOUT(errors.count(), 1, 10000);
         QCOMPARE(errors.first().first().value<PlaybackError>(), PlaybackError::LoadFailed);
@@ -388,8 +388,8 @@ private slots:
 
     void reusesOneInstanceForManyItems()
     {
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session s(&target);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession s(&target);
         for (int i = 0; i < 3; ++i) {
             s.openPath(kTestPattern, i);
             QTRY_VERIFY_WITH_TIMEOUT(s.hasMedia(), 10000);
@@ -417,8 +417,8 @@ private slots:
         source.headers.insert(QStringLiteral("User-Agent"), QStringLiteral("Custom/1"));
         source.subtitles = {{QUrl(video.base() + QStringLiteral("/same.srt")), QStringLiteral("en"), QString()}};
 
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session s(&target);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession s(&target);
         s.playSource(source);
         QTRY_VERIFY_WITH_TIMEOUT(s.hasMedia(), 10000);
         s.addSubtitleTracks({{QUrl(elsewhere.base() + QStringLiteral("/other.srt")), QStringLiteral("fr"), QString()}},
@@ -443,7 +443,7 @@ private slots:
     void playbackLogsOmitSignedQuery()
     {
         FakeHttpServer server;
-        MpvTarget target(MpvTarget::Mode::Headless);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
         capturedMessages.clear();
         const auto previous = qInstallMessageHandler([](QtMsgType, const QMessageLogContext&, const QString& message) {
             QMutexLocker lock(&capturedMutex);
@@ -483,8 +483,8 @@ private slots:
         source.headers.insert("Cookie", "audit=dummy");
         if (subtitle)
             source.subtitles = {{QUrl(origin.base() + "/redirect"), "en", {}}};
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session session(&target);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession session(&target);
         session.playSource(source);
         QTRY_VERIFY_WITH_TIMEOUT(session.hasMedia(), 10000);
         if (subtitle)
@@ -510,8 +510,8 @@ private slots:
         origin.set("/redirect", redirectTo("/clip.mkv"));
         auto source = PlayableSource::fromUrl(QUrl(origin.base() + "/redirect"), "Clip");
         source.headers.insert("Authorization", "Bearer kept");
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session session(&target);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession session(&target);
         session.playSource(source);
         QTRY_VERIFY_WITH_TIMEOUT(session.hasMedia(), 10000);
         session.pause();
@@ -532,8 +532,8 @@ private slots:
         other.set("/bounce", redirectTo(origin.base() + "/clip.mkv"));
         auto source = PlayableSource::fromUrl(QUrl(origin.base() + "/start"), "Clip");
         source.headers.insert("Authorization", "Bearer once");
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session session(&target);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession session(&target);
         session.playSource(source);
         QTRY_VERIFY_WITH_TIMEOUT(session.hasMedia(), 10000);
         for (const auto& request : std::as_const(origin.requests))
@@ -552,8 +552,8 @@ private slots:
         QUrl url(origin.base() + "/clip.mkv");
         url.setUserName("someone");
         url.setPassword("pw");
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session session(&target);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession session(&target);
         session.playSource(PlayableSource::fromUrl(url, "Clip"));
         QTRY_VERIFY_WITH_TIMEOUT(session.hasMedia(), 10000);
         QCOMPARE(origin.requests.first().headers.value("authorization"), "Basic " + QByteArray("someone:pw").toBase64());
@@ -624,9 +624,9 @@ private slots:
         origin.set("/clip.mkv", redirectTo(QUrl::fromLocalFile(kTestPattern).toString()));
         auto source = PlayableSource::fromUrl(QUrl(origin.base() + "/clip.mkv"), "Clip");
         source.headers.insert("Authorization", "Bearer x");
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session session(&target);
-        QSignalSpy errors(&session, &Session::errorOccurred);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession session(&target);
+        QSignalSpy errors(&session, &PlaybackSession::errorOccurred);
         session.playSource(source);
         QTRY_COMPARE_WITH_TIMEOUT(errors.count(), 1, 10000);
         QVERIFY(!session.hasMedia());
@@ -650,8 +650,8 @@ private slots:
         source.subtitles = {{QUrl(server.base() + "/huge.srt"), "en", {}},
                             {QUrl(server.base() + "/stalled.srt"), "fr", {}},
                             {QUrl(server.base() + "/good.srt"), "de", {}}};
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session session(&target);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession session(&target);
         session.playSource(source);
         QTRY_VERIFY_WITH_TIMEOUT(session.hasMedia(), 10000);
         QTRY_COMPARE_WITH_TIMEOUT(subtitleTracks(session), 1, 10000);
@@ -674,8 +674,8 @@ private slots:
         server.set("/clip.mkv", clipAnswer());
         auto source = PlayableSource::fromUrl(QUrl(server.base() + "/clip.mkv"), "Clip");
         source.headers.insert("Authorization", "Bearer x");
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session session(&target);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession session(&target);
         session.playSource(source);
         QTRY_VERIFY_WITH_TIMEOUT(session.hasMedia(), 10000);
         session.addExternalSubtitle(QUrl::fromLocalFile(srt.fileName()));
@@ -690,8 +690,8 @@ private slots:
         server.set("/clip.mkv", clipAnswer());
         auto source = PlayableSource::fromUrl(QUrl(server.base() + "/clip.mkv"), "Clip");
         source.subtitles = {{QUrl("ftp://127.0.0.1:1/x.srt"), "en", {}}, {QUrl("data:text/plain,hi"), "fr", {}}};
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session session(&target);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession session(&target);
         session.playSource(source);
         QTRY_VERIFY_WITH_TIMEOUT(session.hasMedia(), 10000);
         QTest::qWait(500);
@@ -713,8 +713,8 @@ private slots:
         origin.set("/list.m3u8", playlist);
         auto source = PlayableSource::fromUrl(QUrl(origin.base() + "/list.m3u8"), "Clip");
         source.headers.insert("Authorization", "Bearer hls");
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session session(&target);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession session(&target);
         session.playSource(source);
         QTRY_VERIFY_WITH_TIMEOUT(origin.paths().contains("/seg.mkv"), 15000);
         for (const auto& request : std::as_const(origin.requests))
@@ -729,7 +729,7 @@ private slots:
     // network protocols for the links inside a file.
     void networkOptionsAreSafe()
     {
-        MpvTarget target(MpvTarget::Mode::Headless);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
         char* verify = mpv_get_property_string(target.handle(), "tls-verify");
         QVERIFY(verify);
         QCOMPARE(QByteArray(verify), QByteArray("yes"));
@@ -758,9 +758,9 @@ private slots:
         list.write(header + QFile::encodeName(kTestPattern) + '\n');
         list.close();
 
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session s(&target);
-        QSignalSpy errors(&s, &Session::errorOccurred);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession s(&target);
+        QSignalSpy errors(&s, &PlaybackSession::errorOccurred);
         s.openPath(list.fileName());
         QTRY_VERIFY_WITH_TIMEOUT(errors.count() >= 1, 10000);
         QTest::qWait(1000);
@@ -778,8 +778,8 @@ private slots:
         QVERIFY(list.open(QIODevice::WriteOnly));
         list.write("#EXTM3U\n" + QFile::encodeName(kTestPattern) + '\n');
         list.close();
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session s(&target);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession s(&target);
         s.openPath(list.fileName());
         QTRY_VERIFY_WITH_TIMEOUT(s.hasMedia(), 10000);
     }
@@ -795,9 +795,9 @@ private slots:
         origin.set("/list.m3u", list);
         auto source = PlayableSource::fromUrl(QUrl(origin.base() + "/list.m3u"), "List");
         source.headers.insert("Authorization", "Bearer x");
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session s(&target);
-        QSignalSpy errors(&s, &Session::errorOccurred);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession s(&target);
+        QSignalSpy errors(&s, &PlaybackSession::errorOccurred);
         s.playSource(source);
         QTRY_VERIFY_WITH_TIMEOUT(errors.count() >= 1, 10000);
         QTest::qWait(1000);
@@ -823,9 +823,9 @@ private slots:
         origin.set("/film.mkv", list);
         auto source = PlayableSource::fromUrl(QUrl(origin.base() + "/film.mkv"), "Film");
         source.headers.insert("Authorization", "Bearer x");
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session s(&target);
-        QSignalSpy errors(&s, &Session::errorOccurred);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession s(&target);
+        QSignalSpy errors(&s, &PlaybackSession::errorOccurred);
         s.playSource(source);
         QTRY_VERIFY_WITH_TIMEOUT(errors.count() >= 1, 10000);
         QTest::qWait(1000);
@@ -845,9 +845,9 @@ private slots:
         playlist.body = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:0\n"
                         "#EXTINF:10.0,\n" + QUrl::fromLocalFile(kTestPattern).toEncoded() + "\n#EXT-X-ENDLIST\n";
         origin.set("/list.m3u8", playlist);
-        MpvTarget target(MpvTarget::Mode::Headless);
-        Session s(&target);
-        QSignalSpy errors(&s, &Session::errorOccurred);
+        MpvPlayer target(MpvPlayer::Mode::Headless);
+        PlaybackSession s(&target);
+        QSignalSpy errors(&s, &PlaybackSession::errorOccurred);
         auto source = PlayableSource::fromUrl(QUrl(origin.base() + "/list.m3u8"), "List");
         source.headers.insert("Authorization", "Bearer x");
         s.playSource(source);
@@ -903,7 +903,7 @@ private:
         return redirect;
     }
 
-    static int subtitleTracks(const Session& s)
+    static int subtitleTracks(const PlaybackSession& s)
     {
         int n = 0;
         for (const Track& t : s.tracks())

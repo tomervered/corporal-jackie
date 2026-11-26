@@ -11,7 +11,7 @@ QJsonObject writeWatchHistoryEntry(const HistoryEntry& entry)
     return {{"key", entry.key}, {"adapter", entry.adapter}, {"provider", entry.provider}, {"itemId", entry.itemId},
             {"itemType", entry.itemType}, {"itemName", entry.itemName}, {"poster", entry.poster}, {"videoId", entry.videoId},
             {"videoTitle", entry.videoTitle}, {"season", entry.season}, {"episode", entry.episode},
-            {"source", Storage::sourceToJson(entry.source)}, {"position", entry.position}, {"duration", entry.duration},
+            {"source", LibraryDatabase::sourceToJson(entry.source)}, {"position", entry.position}, {"duration", entry.duration},
             {"updatedAt", double(entry.updatedAt)}, {"finished", entry.finished}};
 }
 
@@ -41,7 +41,7 @@ HistoryEntry readWatchHistoryEntry(const QJsonObject& json)
     entry.videoTitle = json.value("videoTitle").toString();
     entry.season = json.value("season").toInt();
     entry.episode = json.value("episode").toInt();
-    entry.source = Storage::sourceFromJson(json.value("source").toObject());
+    entry.source = LibraryDatabase::sourceFromJson(json.value("source").toObject());
     entry.position = json.value("position").toDouble();
     entry.duration = json.value("duration").toDouble();
     entry.updatedAt = readTimestamp(json.value("updatedAt"));
@@ -71,7 +71,7 @@ LibraryItem readLibraryItem(const QJsonObject& json)
 
 } // namespace backup
 
-QJsonObject Storage::sourceToJson(const PlayableSource& source)
+QJsonObject LibraryDatabase::sourceToJson(const PlayableSource& source)
 {
     QJsonObject headers;
     for (auto it = source.headers.begin(); it != source.headers.end(); ++it)
@@ -92,7 +92,7 @@ QJsonObject Storage::sourceToJson(const PlayableSource& source)
     return json;
 }
 
-PlayableSource Storage::sourceFromJson(const QJsonObject& json)
+PlayableSource LibraryDatabase::sourceFromJson(const QJsonObject& json)
 {
     PlayableSource source;
     source.url = QUrl(json.value("url").toString());

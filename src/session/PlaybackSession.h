@@ -15,10 +15,10 @@
 namespace cj {
 
 // The single source of truth for playback. The UI binds only to this object;
-// it never sees the target behind it (rule 1). The Session owns the current
+// it never sees the target behind it (rule 1). The PlaybackSession owns the current
 // item and every playback setting, sends commands to the current target, and
 // turns the target's events into the properties below.
-class Session : public QObject
+class PlaybackSession : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(cj::PlaybackState state READ state NOTIFY stateChanged)
@@ -77,8 +77,8 @@ class Session : public QObject
     Q_PROPERTY(double streamBufferedSeconds READ streamBufferedSeconds NOTIFY streamStatusChanged)
 
 public:
-    // The Session does not own the target; it must outlive the Session.
-    explicit Session(PlaybackTarget* target, QObject* parent = nullptr);
+    // The PlaybackSession does not own the target; it must outlive the PlaybackSession.
+    explicit PlaybackSession(PlaybackTarget* target, QObject* parent = nullptr);
 
     PlaybackTarget* target() const { return m_target; }
 

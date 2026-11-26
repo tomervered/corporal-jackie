@@ -9,7 +9,7 @@
 
 #include "Logging.h"
 #include "LocalNames.h"
-#include "Storage.h"
+#include "LibraryDatabase.h"
 #include "StreamRanking.h"
 #include "StremioProtocol.h"
 
@@ -30,7 +30,7 @@ namespace {
 // created after these, are already gone: deleting the app there crashed.
 QCoreApplication* g_app = nullptr;
 QTemporaryDir* g_dir = nullptr;
-Storage* g_storage = nullptr;
+LibraryDatabase* g_storage = nullptr;
 
 void quiet(QtMsgType, const QMessageLogContext&, const QString&) {}
 
@@ -47,9 +47,9 @@ void parseJson(const QByteArray& bytes)
         ranking::fillFromLabels(s);
     ranking::sortBest(streams);
     (void)stremio::parseSubtitles(json);
-    const PlayableSource source = Storage::sourceFromJson(json);
-    (void)Storage::sourceKey(source);
-    (void)Storage::sourceToJson(source);
+    const PlayableSource source = LibraryDatabase::sourceFromJson(json);
+    (void)LibraryDatabase::sourceKey(source);
+    (void)LibraryDatabase::sourceToJson(source);
 }
 
 void parseText(const QString& text)
@@ -76,7 +76,7 @@ extern "C" int LLVMFuzzerInitialize(int* argc, char*** argv)
     qInstallMessageHandler(quiet);
     g_app = new QCoreApplication(*argc, *argv);
     g_dir = new QTemporaryDir();
-    g_storage = new Storage(g_dir->filePath(QStringLiteral("fuzz.sqlite")));
+    g_storage = new LibraryDatabase(g_dir->filePath(QStringLiteral("fuzz.sqlite")));
     return 0;
 }
 

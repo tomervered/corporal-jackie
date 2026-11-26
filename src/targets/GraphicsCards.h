@@ -48,7 +48,7 @@ public:
     QString activeName() const { return m_activeName; }
     QString vsrHint() const { return m_vsrHint; }
 
-    // The VSR this run's card has (what MpvTarget offers). Looked up once.
+    // The VSR this run's card has (what MpvPlayer offers). Looked up once.
     static Capabilities activeVsr();
 
     // Windows keeps "GpuPreference=2;" (with other "key=value;" pairs, at

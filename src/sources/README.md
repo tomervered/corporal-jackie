@@ -4,7 +4,7 @@ Turns something to watch into one `PlayableSource` (see `src/session/PlaybackTyp
 
 ## The adapter list
 
-Every adapter implements `SourceAdapter`: catalogs, items in a catalog, one item's details and episodes, stream choices for one video, and extra subtitles. `Browser` asks every adapter in its list, in order, and merges the answers. v1 has two adapters. A YouTube adapter is one more `browser.addAdapter()` call in `main.cpp`; nothing else changes.
+Every adapter implements `SourceAdapter`: catalogs, items in a catalog, one item's details and episodes, stream choices for one video, and extra subtitles. `CatalogBrowser` asks every adapter in its list, in order, and merges the answers. v1 has two adapters. A YouTube adapter is one more `browser.addAdapter()` call in `main.cpp`; nothing else changes.
 
 | Adapter | Id | Catalogs | Streams |
 |---|---|---|---|
@@ -36,9 +36,9 @@ A local stream id is `local:<path>`, and only paths from the last scan are playe
 
 ## Browser
 
-The object the browse panel binds to (`browser` in QML). It lists catalogs, items (100 at a time, more on scroll), details with episodes, and ranked stream choices. A newer request makes older answers stale; they are dropped when they arrive. `play()` hands the choice to `Session::playSource`, then asks subtitle add-ons and adds their files as tracks to that item.
+The object the browse panel binds to (`browser` in QML). It lists catalogs, items (100 at a time, more on scroll), details with episodes, and ranked stream choices. A newer request makes older answers stale; they are dropped when they arrive. `play()` hands the choice to `PlaybackSession::playSource`, then asks subtitle add-ons and adds their files as tracks to that item.
 
 ## Tests
 
-- `tests/tst_sources.cpp`: protocol, ranking, file names, subtitle matching, the local library (scan, watch, restart), and the add-on adapter and `Browser` against a fake add-on server: install errors, a timeout, an HTTP 500, an add-on that is not asked, stale answers and the size limit.
+- `tests/tst_sources.cpp`: protocol, ranking, file names, subtitle matching, the local library (scan, watch, restart), and the add-on adapter and `CatalogBrowser` against a fake add-on server: install errors, a timeout, an HTTP 500, an add-on that is not asked, stale answers and the size limit.
 - `tests/tst_browseplay.cpp`: an add-on movie and a series episode each play from a web stream (with the add-on's header) and a torrent (local seeder, found through the add-on's tracker) in a headless mpv, and a local file plays with its subtitle.

@@ -24,7 +24,7 @@ class ScopedHttp;
 //
 // Implements docs/TARGET_CONTRACT.md. Must be used from the thread that
 // created it; mpv's events are hopped onto that thread before being emitted.
-class MpvTarget : public PlaybackTarget
+class MpvPlayer : public PlaybackTarget
 {
     Q_OBJECT
 
@@ -34,8 +34,8 @@ public:
         Headless,  // no video or audio output; for tests
     };
 
-    explicit MpvTarget(Mode mode = Mode::Video, QObject* parent = nullptr);
-    ~MpvTarget() override;
+    explicit MpvPlayer(Mode mode = Mode::Video, QObject* parent = nullptr);
+    ~MpvPlayer() override;
 
     // The raw handle, only for the render bridge in this layer.
     mpv_handle* handle() const { return m_mpv; }

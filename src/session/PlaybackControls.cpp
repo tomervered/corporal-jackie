@@ -1,4 +1,4 @@
-#include "Session.h"
+#include "PlaybackSession.h"
 
 #include <QDir>
 #include <QHash>
@@ -26,7 +26,7 @@ QString codecName(const QString& codec)
 
 // --- Tracks ------------------------------------------------------------------
 
-QVariantList Session::tracksOf(Track::Type type) const
+QVariantList PlaybackSession::tracksOf(Track::Type type) const
 {
     QVariantList list;
     for (const Track& t : m_tracks) {
@@ -68,7 +68,7 @@ QVariantList Session::tracksOf(Track::Type type) const
     return list;
 }
 
-int Session::selectedOf(Track::Type type) const
+int PlaybackSession::selectedOf(Track::Type type) const
 {
     for (const Track& t : m_tracks)
         if (t.type == type && t.selected)
@@ -76,16 +76,16 @@ int Session::selectedOf(Track::Type type) const
     return -1;
 }
 
-void Session::setAudioTrack(int id)     { if (hasMedia()) m_target->setAudioTrack(id); }
-void Session::setSubtitleTrack(int id)  { if (hasMedia()) m_target->setSubtitleTrack(id); }
+void PlaybackSession::setAudioTrack(int id)     { if (hasMedia()) m_target->setAudioTrack(id); }
+void PlaybackSession::setSubtitleTrack(int id)  { if (hasMedia()) m_target->setSubtitleTrack(id); }
 
-void Session::addExternalSubtitle(const QUrl& url)
+void PlaybackSession::addExternalSubtitle(const QUrl& url)
 {
     if (hasMedia() && url.isValid())
         m_target->addExternalSubtitle(url);
 }
 
-void Session::addExternalAudio(const QUrl& url)
+void PlaybackSession::addExternalAudio(const QUrl& url)
 {
     if (hasMedia() && url.isLocalFile())
         m_target->addExternalAudio(url);
@@ -93,7 +93,7 @@ void Session::addExternalAudio(const QUrl& url)
 
 // --- Output ------------------------------------------------------------------
 
-void Session::setVolume(double volume)
+void PlaybackSession::setVolume(double volume)
 {
     volume = qBound(0.0, volume, PlaybackTarget::kMaxVolume);
     if (qFuzzyCompare(volume, m_volume))
@@ -103,7 +103,7 @@ void Session::setVolume(double volume)
     emit volumeChanged();
 }
 
-void Session::setMuted(bool muted)
+void PlaybackSession::setMuted(bool muted)
 {
     if (muted == m_muted)
         return;
@@ -112,7 +112,7 @@ void Session::setMuted(bool muted)
     emit volumeChanged();
 }
 
-void Session::setSpeed(double factor)
+void PlaybackSession::setSpeed(double factor)
 {
     factor = qBound(0.25, factor, 4.0);
     if (qFuzzyCompare(factor, m_speed))
@@ -124,7 +124,7 @@ void Session::setSpeed(double factor)
 
 // --- Optional features ---------------------------------------------------------
 
-void Session::setSubtitleDelay(double seconds)
+void PlaybackSession::setSubtitleDelay(double seconds)
 {
     if (!require(Capability::SubtitleDelay, "Subtitle delay") || qFuzzyCompare(1 + seconds, 1 + m_subtitleDelay))
         return;
@@ -133,7 +133,7 @@ void Session::setSubtitleDelay(double seconds)
     emit subtitleDelayChanged();
 }
 
-void Session::setSubtitleScale(double factor)
+void PlaybackSession::setSubtitleScale(double factor)
 {
     factor = qBound(0.3, factor, 3.0);
     if (!require(Capability::SubtitleStyle, "Subtitle size") || qFuzzyCompare(factor, m_subtitleScale))
@@ -143,7 +143,7 @@ void Session::setSubtitleScale(double factor)
     emit subtitleScaleChanged();
 }
 
-void Session::setSubtitleStyle(const SubtitleStyle& style)
+void PlaybackSession::setSubtitleStyle(const SubtitleStyle& style)
 {
     SubtitleStyle s = style;
     s.outline = qBound(0.0, s.outline, 10.0);
@@ -158,7 +158,7 @@ void Session::setSubtitleStyle(const SubtitleStyle& style)
     emit subtitleStyleChanged();
 }
 
-void Session::setAudioDelay(double seconds)
+void PlaybackSession::setAudioDelay(double seconds)
 {
     if (!require(Capability::AudioDelay, "Audio delay") || qFuzzyCompare(1 + seconds, 1 + m_audioDelay))
         return;
@@ -167,7 +167,7 @@ void Session::setAudioDelay(double seconds)
     emit audioDelayChanged();
 }
 
-QVariantList Session::chapters() const
+QVariantList PlaybackSession::chapters() const
 {
     QVariantList list;
     for (const Chapter& c : m_chapters)
@@ -175,7 +175,7 @@ QVariantList Session::chapters() const
     return list;
 }
 
-int Session::currentChapter() const
+int PlaybackSession::currentChapter() const
 {
     int current = -1;
     for (int i = 0; i < m_chapters.size(); ++i)
@@ -184,7 +184,7 @@ int Session::currentChapter() const
     return current;
 }
 
-void Session::nextChapter()
+void PlaybackSession::nextChapter()
 {
     if (!require(Capability::Chapters, "Chapters") || m_chapters.isEmpty())
         return;
@@ -192,14 +192,14 @@ void Session::nextChapter()
         m_target->seekChapter(next);
 }
 
-void Session::goToChapter(int index)
+void PlaybackSession::goToChapter(int index)
 {
     if (!require(Capability::Chapters, "Chapters") || index < 0 || index >= m_chapters.size())
         return;
     m_target->seekChapter(index);
 }
 
-void Session::previousChapter()
+void PlaybackSession::previousChapter()
 {
     if (!require(Capability::Chapters, "Chapters") || m_chapters.isEmpty())
         return;
@@ -211,13 +211,13 @@ void Session::previousChapter()
     m_target->seekChapter(qMax(0, index));
 }
 
-void Session::frameStep(bool forward)
+void PlaybackSession::frameStep(bool forward)
 {
     if (hasMedia() && require(Capability::FrameStep, "Frame step"))
         m_target->frameStep(forward);
 }
 
-QString Session::screenshotFolder()
+QString PlaybackSession::screenshotFolder()
 {
     QString dir = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
     if (dir.isEmpty())
@@ -225,7 +225,7 @@ QString Session::screenshotFolder()
     return QDir(dir).filePath(QStringLiteral("Corporal Jackie"));
 }
 
-void Session::screenshot()
+void PlaybackSession::screenshot()
 {
     if (!hasMedia() || !require(Capability::Screenshot, "Screenshots"))
         return;
@@ -242,7 +242,7 @@ void Session::screenshot()
     m_target->screenshot(QDir(dir).filePath(file));
 }
 
-void Session::toggleAbLoop()
+void PlaybackSession::toggleAbLoop()
 {
     if (!hasMedia() || !require(Capability::AbLoop, "A-B repeat"))
         return;

@@ -2,7 +2,7 @@
 # history in one SQLite file, queried on a worker thread; and the Library the
 # UI uses for history, Continue Watching and saved items.
 add_library(cj_storage STATIC
-    Storage.cpp Storage.h
+    LibraryDatabase.cpp LibraryDatabase.h
     LibraryBackupFormat.cpp LibraryBackupFormat.h
     Library.cpp Library.h
 )

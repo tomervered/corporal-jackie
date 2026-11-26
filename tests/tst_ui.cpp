@@ -5,16 +5,16 @@
 //
 // Set CJ_UI_SHOTS to a folder to save a picture of each page there.
 
-#include "AppCore.h"
-#include "Browser.h"
+#include "PlayerApplication.h"
+#include "CatalogBrowser.h"
 #include "Downloads.h"
 #include "FakeHttpServer.h"
 #include "FakeTarget.h"
 #include "KeyedListModel.h"
 #include "Library.h"
 #include "Preferences.h"
-#include "Session.h"
-#include "Storage.h"
+#include "PlaybackSession.h"
+#include "LibraryDatabase.h"
 #include "StremioAdapter.h"
 #include "TorrentTransport.h"
 
@@ -46,13 +46,13 @@ namespace {
 class FakeVideoSurface : public QQuickItem
 {
     Q_OBJECT
-    Q_PROPERTY(cj::Session* playbackSession MEMBER m_session NOTIFY sessionChanged)
+    Q_PROPERTY(cj::PlaybackSession* playbackSession MEMBER m_session NOTIFY sessionChanged)
     Q_PROPERTY(bool covered MEMBER m_covered)
 signals:
     void sessionChanged();
 
 private:
-    Session* m_session = nullptr;
+    PlaybackSession* m_session = nullptr;
     bool m_covered = false;
 };
 
@@ -76,13 +76,13 @@ private slots:
         // As on a Windows set to Hebrew: the app must still read left to right.
         QLocale::setDefault(QLocale(QLocale::Hebrew, QLocale::Israel));
         QGuiApplication::setLayoutDirection(Qt::RightToLeft);
-        AppCore::useLeftToRight();
+        PlayerApplication::useLeftToRight();
 
         // No GPU needed, and pictures can be taken of the window.
         QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
         qmlRegisterType<FakeVideoSurface>("CorporalJackie.Player", 1, 0, "VideoSurface");
         qmlRegisterType<KeyedListModel>("CorporalJackie.Player", 1, 0, "KeyedList");
-        qmlRegisterUncreatableType<Session>("CorporalJackie.Player", 1, 0, "Session", QStringLiteral("Use the app's session"));
+        qmlRegisterUncreatableType<PlaybackSession>("CorporalJackie.Player", 1, 0, "Session", QStringLiteral("Use the app's session"));
         qmlRegisterUncreatableMetaObject(cj::staticMetaObject, "CorporalJackie.Player", 1, 0, "Playback",
                                          QStringLiteral("Enums only"));
 
@@ -110,7 +110,7 @@ private slots:
                                         {"name":"Films\n720p","title":"small.mkv\n💾 2 GB","url":"http:\/\/127.0.0.1:1\/small.mkv"}]})");
 
         QVERIFY(m_root.isValid());
-        m_core = std::make_unique<AppCore>(m_root.filePath(QStringLiteral("data")), m_root.filePath(QStringLiteral("cache")));
+        m_core = std::make_unique<PlayerApplication>(m_root.filePath(QStringLiteral("data")), m_root.filePath(QStringLiteral("cache")));
         BrokerSettings s = m_core->brokerSettings();
         s.loopbackOnly = true;
         m_torrents = std::make_unique<TorrentTransport>(s);
@@ -119,7 +119,7 @@ private slots:
         // Only the fake add-on: the built-in ones would go to the internet.
         QCOMPARE(m_core->addons().addons().size(), 2);
         m_core->addons().uninstallDefaults();
-        Browser& browser = m_core->browser();
+        CatalogBrowser& browser = m_core->browser();
         browser.installAddon(m_server.base() + QStringLiteral("/films/manifest.json"));
         QTRY_COMPARE(browser.addons().size(), 1);
 
@@ -254,7 +254,7 @@ private slots:
     void discoverShowsAListByGenre()
     {
         call("goTop", "discover");
-        Browser& browser = m_core->browser();
+        CatalogBrowser& browser = m_core->browser();
         browser.openCatalog(0);
         QTRY_COMPARE(browser.items().size(), 2);
         QCOMPARE(browser.genres(), (QStringList{"Drama", "Comedy"}));
@@ -531,7 +531,7 @@ private slots:
 
     void playerKeys()
     {
-        Session& session = m_core->session();
+        PlaybackSession& session = m_core->session();
         QQuickItem* video = m_window->findChild<QQuickItem*>(QStringLiteral("videoSurface"));
         QVERIFY(video);
         session.openPath(QStringLiteral("http://127.0.0.1:1/clip.mkv"));
@@ -744,8 +744,8 @@ private slots:
     // stream plays it.
     void episodesInThePlayer()
     {
-        Browser& browser = m_core->browser();
-        Session& session = m_core->session();
+        CatalogBrowser& browser = m_core->browser();
+        PlaybackSession& session = m_core->session();
         const QVariantMap first = rows("homeRows").value(0).toMap().value("items").toList().value(0).toMap();
         browser.openPreview(MetaPreview{first.value("adapter").toString(), first.value("provider").toString(),
                                         QStringLiteral("tt9"), QStringLiteral("series"), QStringLiteral("A Show"), {}, {}, {}});
@@ -847,10 +847,10 @@ private:
     FakeHttpServer m_server;
     QTemporaryDir m_root;
     FakeTarget m_target;
-    // Gone in reverse: the window, the core (whose Session uses the target
+    // Gone in reverse: the window, the core (whose PlaybackSession uses the target
     // and whose caches use the transport), then the transport.
     std::unique_ptr<TorrentTransport> m_torrents;
-    std::unique_ptr<AppCore> m_core;
+    std::unique_ptr<PlayerApplication> m_core;
     std::unique_ptr<QQmlApplicationEngine> m_engine;
     QQuickWindow* m_window = nullptr;
     QQuickItem* m_pages = nullptr;
