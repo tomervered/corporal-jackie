@@ -190,11 +190,14 @@ void Library::resume(const QString& key)
             open(e->itemKey());
         return;
     }
-    if (!e->adapter.isEmpty())
-        m_pending = *e;
+    const auto rememberEpisode = [&] {
+        if (!e->adapter.isEmpty())
+            m_pending = *e;
+    };
     // An item finished or barely started plays from the beginning.
     const double start = !e->finished && e->position >= Storage::kMinResumeSeconds ? e->position : 0;
-    m_session.playSource(e->source, start);
+    if (!m_session.playSource(e->source, start, rememberEpisode))
+        return;
     // The player's episode list.
     if (!e->adapter.isEmpty())
         m_browser.setPlaying(MetaPreview{e->adapter, e->provider, e->itemId, e->itemType, e->itemName, e->poster, {}, {}},

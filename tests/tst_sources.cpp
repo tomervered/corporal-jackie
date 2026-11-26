@@ -600,6 +600,18 @@ private slots:
 
         // Playing hands the source to the Session, then adds subtitle add-on
         // files as tracks to that item.
+        // A refused stream must leave the playing episode and watch history alone.
+        QSignalSpy historySelection(&browser, &Browser::aboutToPlay);
+        QSignalSpy started(&browser, &Browser::playStarted);
+        session.setSourceCheck([](const PlayableSource&) -> Session::SourceCheck::result_type {
+            return std::pair{PlaybackError::TorrentsOff, QStringLiteral("Torrents are off")};
+        });
+        browser.play(1);
+        QCOMPARE(started.count(), 0);
+        QCOMPARE(historySelection.count(), 0);
+        QVERIFY(browser.playingEpisodes().isEmpty());
+        session.setSourceCheck({});
+
         browser.play(1);  // the torrent
         QVERIFY(target.sent("load magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"));
         QTRY_VERIFY(target.sent("subtitleTrack+ http://127.0.0.1:1/en.srt eng"));

@@ -176,7 +176,8 @@ public:
     void load(const PlayableSource& source, double startSeconds = 0);
     // Plays what a source adapter produced. Unlike load(), a magnet link in
     // it is resolved first (to the torrent transport's own URL).
-    void playSource(const PlayableSource& source, double startSeconds = 0);
+    bool playSource(const PlayableSource& source, double startSeconds = 0,
+                    const std::function<void()>& onAccepted = {});
     // Subtitles that arrived after the item started loading (from subtitle
     // add-ons). Ignored if `forSource` is no longer the current item.
     void addSubtitleTracks(const QList<SubtitleSource>& subtitles, const QUrl& forSource);
@@ -260,6 +261,7 @@ signals:
     void resumePoint(const cj::PlayableSource& source, double position, double duration);
 
 private:
+    bool startPlayback(const PlayableSource& source, double startSeconds, const std::function<void()>& onAccepted);
     bool require(Capability c, const char* what) const;
     void emitResumePoint();
     void setState(PlaybackState s);

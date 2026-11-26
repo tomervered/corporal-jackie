@@ -4,7 +4,9 @@
 // owns the libtorrent session. Not for use outside src/broker.
 //
 //   BrokerEngine.cpp     the session, adding torrents, metadata, alerts
-//   BrokerScheduling.cpp which pieces to ask for and when; RAM trimming
+//   BrokerScheduling.cpp which pieces to ask for and when
+//   TrimTorrentMemory.cpp which pieces to discard when memory is full
+//   TorrentNetworkSettings.cpp peer discovery, tracker and upload settings
 //   BrokerUpkeep.cpp     reloads, resume data, the disk cache cap, stats
 //   StreamBroker.cpp     the public StreamBroker and StreamHandle
 
