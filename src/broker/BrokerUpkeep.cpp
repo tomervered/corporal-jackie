@@ -6,6 +6,11 @@
 namespace cj {
 namespace broker_detail {
 
+// RAM only: a reader needs pieces dropped from memory, which libtorrent still
+// counts as had. Remove the torrent and add it again at once, telling it only
+// the pieces still held; it then downloads the rest again. Peers and trackers
+// carry over, so it reconnects within a second or two. t.mutex is held all the
+// way, so no reader uses the old handle in between.
 void Engine::reload(const std::shared_ptr<Torrent>& tp)
 {
     Torrent& t = *tp;

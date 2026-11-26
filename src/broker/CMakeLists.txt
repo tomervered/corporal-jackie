@@ -10,6 +10,8 @@ add_library(cj_broker STATIC
     StreamBroker.h
     TorrentDownloader.cpp
     TorrentDownloader.h
+    TorrentNetworkSettings.cpp
+    TrimTorrentMemory.cpp
     UploadGuard.h
 )
 target_include_directories(cj_broker PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

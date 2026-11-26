@@ -6,7 +6,9 @@ Turns one file inside a torrent into seekable bytes: piece deadlines per reader,
 - `StreamBroker.h/.cpp`: the public side. `StreamBroker` opens torrents and hands out `StreamHandle`s.
 - `BrokerEngine.h`: the inside, shared by the parts below: tuning constants, the `Torrent` and `Reader` records, and the `Engine` that owns the libtorrent session.
 - `BrokerEngine.cpp`: the session, adding torrents, metadata, and the one thread that handles libtorrent's alerts.
-- `BrokerScheduling.cpp`: which pieces to ask for and by when as readers move; in RAM-only mode, which pieces to drop.
+- `BrokerScheduling.cpp`: which pieces to ask for and by when as readers move.
+- `TrimTorrentMemory.cpp` chooses which pieces to discard when memory is full.
+- `TorrentNetworkSettings.cpp` applies peer discovery, tracker and upload settings.
 - `BrokerUpkeep.cpp`: reloads, resume data, the disk cache cap, and the numbers the UI shows.
 - `MemoryStorage.h/.cpp`: RAM-only piece storage.
 - `TorrentDownloader.h/.cpp`: downloads for the "normal torrent" setting, in a libtorrent session of its own: rarest pieces first, straight into the download folder, seeding while the person shares it. Not used for playback.
