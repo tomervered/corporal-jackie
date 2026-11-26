@@ -16,7 +16,8 @@ Item {
     function takeFocus() { appearanceGroup.focusHeader() }
     // Opens one group (by its title) and scrolls to it.
     function openGroup(title) {
-        for (const group of body.children) {
+        for (let index = 0; index < body.children.length; ++index) {
+            const group = body.children[index]
             if (group.title !== title) continue
             group.expanded = true
             Qt.callLater(() => {

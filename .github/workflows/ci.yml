@@ -23,7 +23,7 @@ on:
         required: false
         default: ""
       bench_baseline:
-        description: "Compare the Windows playback benchmark with libraries built from this ref (a branch, tag or commit such as main) instead of the latest main run's numbers"
+        description: "Baseline ref for the same-runner Windows playback comparison (defaults to main on manual runs)"
         required: false
         default: ""
       bench_engines:
@@ -210,88 +210,46 @@ jobs:
           export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
           ./build/src/app/CorporalJackie.exe --smoke-test
 
-      # Playback benchmark on every run: libmpv decodes three 1080p clips
-      # (H.264, HEVC 10-bit, AV1) and seeks, headless, three times each
-      # (tests/bench/bench_decode.cpp). The numbers go to the job summary and
-      # are compared with the latest main run's, so a change to mpv, FFmpeg or
-      # their build flags that makes playback slower or heavier shows up here.
-      # It reports but does not fail the job: shared runners are noisy.
-      - name: Playback benchmark
-        run: |
-          export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
-          tests/bench/run_decode.sh build/tests/bench_decode.exe bench-decode/new | tee decode-summary.txt
-          {
-            echo '### Playback benchmark (median of 3 runs)'
-            echo '```'
-            cat decode-summary.txt
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      # With bench_baseline: the same benchmark with mpv, FFmpeg and libplacebo
-      # built from that ref (cached by their build files), for an exact
-      # before/after of a change to those libraries.
-      - name: Baseline libraries
-        id: baseline-src
-        if: github.event_name == 'workflow_dispatch' && inputs.bench_baseline != ''
+      - name: Select baseline playback libraries
         env:
-          BASELINE_REF: ${{ inputs.bench_baseline }}
+          BASELINE_REF: ${{ inputs.bench_baseline || github.event.pull_request.base.sha || github.event.before || 'main' }}
         run: |
-          git fetch --depth 1 origin "$BASELINE_REF"
-          rm -rf baseline && mkdir baseline
+          set -euo pipefail
+          git fetch --no-tags --depth 1 origin "$BASELINE_REF"
+          mkdir -p baseline
           git archive FETCH_HEAD packaging/windows | tar -x -C baseline
+          echo "Comparing decoder builds from $(git rev-parse FETCH_HEAD) and $(git rev-parse HEAD) on $RUNNER_NAME" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Restore the baseline libraries
-        id: baseline-cache
-        if: steps.baseline-src.outcome == 'success'
+      - name: Restore baseline playback libraries
         uses: actions/cache@v6
         with:
           path: .deps-baseline
           key: mpv-baseline-${{ runner.os }}-${{ hashFiles('baseline/packaging/windows/build-mpv.sh', 'baseline/packaging/windows/mpv-patches/**') }}
 
-      - name: Build the baseline libraries
-        if: steps.baseline-src.outcome == 'success' && steps.baseline-cache.outputs.cache-hit != 'true'
+      - name: Build baseline playback libraries
         run: baseline/packaging/windows/build-mpv.sh "$(cygpath -u "$GITHUB_WORKSPACE")/.deps-baseline"
 
-      - name: Playback benchmark of the baseline
-        if: steps.baseline-src.outcome == 'success'
+      - name: Benchmark both decoder builds on this runner
         run: |
-          export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps-baseline/bin:$PATH"
-          tests/bench/run_decode.sh build/tests/bench_decode.exe bench-decode/main
-
-      - name: Get main's playback benchmark
-        if: steps.baseline-src.outcome != 'success'
-        continue-on-error: true
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          run=$(gh api "repos/${{ github.repository }}/actions/artifacts?name=bench-decode-windows&per_page=30" \
-            --jq '[.artifacts[] | select(.expired | not) | select(.workflow_run.head_branch == "main")
-                   | select(.workflow_run.id != ${{ github.run_id }})] | sort_by(.created_at) | last | .workflow_run.id // empty')
-          if [ -z "$run" ]; then echo "No earlier playback benchmark on main"; exit 0; fi
-          echo "Comparing with main's run $run"
-          gh run download "$run" -R "${{ github.repository }}" -n bench-decode-windows -D bench-decode/main
-
-      - name: Compare with main
-        continue-on-error: true
-        run: |
-          if [ ! -d bench-decode/main ]; then echo "Nothing to compare with yet."; exit 0; fi
-          export PATH="$(cygpath -u "$GITHUB_WORKSPACE")/.deps/bin:$PATH"
+          set -euo pipefail
+          tests/bench/run_decode.sh build/tests/bench_decode.exe bench-decode .deps-baseline/bin .deps/bin
           status=0
-          tests/bench/compare_decode.sh bench-decode/main bench-decode/new 0.25 | tee decode-compare.txt || status=$?
+          tests/bench/compare_decode.sh bench-decode/main bench-decode/new 0.25 > decode-compare.txt || status=$?
+          cat decode-compare.txt
           {
-            echo '### Playback benchmark against main'
+            echo '### Windows playback benchmark (paired runs, median of three)'
             echo '```'
             cat decode-compare.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          exit $status
+          exit "$status"
 
-      - name: Save the playback benchmark
+      - name: Save both sets of playback measurements
+        if: always() && hashFiles('bench-decode/new/*.json') != ''
         uses: actions/upload-artifact@v7
         with:
           name: bench-decode-windows
-          path: bench-decode/new
+          path: bench-decode/
           retention-days: 90
 
       # The shipped folder: the small launcher and the license at the top, and

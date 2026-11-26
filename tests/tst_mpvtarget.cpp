@@ -183,17 +183,26 @@ private slots:
         QVERIFY(s.upscalers().contains(QStringLiteral("fsr")));
         QVERIFY(shaders(target).isEmpty());
 
+        // mpv clears the old list before publishing the replacement.
+        // Check one snapshot per poll and keep the path that passed.
+        const auto changedShader = [&target](const QString& previous, QString& path) {
+            const QStringList active = shaders(target);
+            if (active.size() != 1 || active.first().isEmpty() || active.first() == previous)
+                return false;
+            path = active.first();
+            return true;
+        };
         s.setUpscaler(QStringLiteral("fsr"));
-        QTRY_COMPARE_WITH_TIMEOUT(shaders(target).size(), 1, 5000);
-        const QString screenSized = shaders(target).first();
+        QString screenSized;
+        QTRY_VERIFY_WITH_TIMEOUT(changedShader({}, screenSized), 5000);
         QByteArray text = readFile(screenSized);
         QVERIFY(text.contains("FSR 1 EASU"));
         QVERIFY(text.contains("//!WIDTH OUTPUT.w\n"));
         QVERIFY(!text.contains("@WHEN@") && !text.contains("@WIDTH@") && !text.contains("@HEIGHT@"));
 
         s.setUpscaleHeight(1440);
-        QTRY_VERIFY_WITH_TIMEOUT(shaders(target).size() == 1 && shaders(target).first() != screenSized, 5000);
-        const QString fixed = shaders(target).first();
+        QString fixed;
+        QTRY_VERIFY_WITH_TIMEOUT(changedShader(screenSized, fixed), 5000);
         text = readFile(fixed);
         QVERIFY(text.contains("//!WHEN 1440 LUMA.h / 1.0 >\n"));
         QVERIFY(text.contains("//!WIDTH LUMA.w 1440 * LUMA.h /\n"));
@@ -203,8 +212,8 @@ private slots:
 
         // SGSR, the light one: its own file, the same sizes.
         s.setUpscaler(QStringLiteral("sgsr"));
-        QTRY_VERIFY_WITH_TIMEOUT(shaders(target).size() == 1 && shaders(target).first() != fixed, 5000);
-        const QString light = shaders(target).first();
+        QString light;
+        QTRY_VERIFY_WITH_TIMEOUT(changedShader(fixed, light), 5000);
         text = readFile(light);
         QVERIFY(text.contains("Snapdragon GSR 1"));
         QVERIFY(text.contains("//!HEIGHT 1440\n"));
@@ -213,15 +222,17 @@ private slots:
 
         // CAS and Anime4K: their own files; Anime4K gets only its WHEN.
         s.setUpscaler(QStringLiteral("cas"));
-        QTRY_VERIFY_WITH_TIMEOUT(shaders(target).size() == 1 && shaders(target).first() != light, 5000);
-        QVERIFY(readFile(shaders(target).first()).contains("AMD CAS"));
+        QString cas;
+        QTRY_VERIFY_WITH_TIMEOUT(changedShader(light, cas), 5000);
+        QVERIFY(readFile(cas).contains("AMD CAS"));
         QVERIFY(!QFile::exists(light));
         s.setUpscaler(QStringLiteral("anime4k"));
-        QTRY_VERIFY_WITH_TIMEOUT(shaders(target).size() == 1 && readFile(shaders(target).first()).contains("Anime4K"), 5000);
-        text = readFile(shaders(target).first());
+        QString cartoon;
+        QTRY_VERIFY_WITH_TIMEOUT(changedShader(cas, cartoon), 5000);
+        text = readFile(cartoon);
+        QVERIFY(text.contains("Anime4K"));
         QCOMPARE(text.count("//!WHEN 1440 MAIN.h / 1.200 >\n"), 5);
         QVERIFY(!text.contains("@WHEN@"));
-        const QString cartoon = shaders(target).first();
 
         s.setUpscaler(QStringLiteral("off"));
         QTRY_VERIFY_WITH_TIMEOUT(shaders(target).isEmpty(), 5000);
