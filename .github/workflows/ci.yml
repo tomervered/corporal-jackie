@@ -330,6 +330,7 @@ jobs:
           done | sort -u | xargs -r -I{} cp -n {} dist/app/
           # Point Qt at the bundled plugins and QML modules instead of /ucrt64.
           printf '[Paths]\nPrefix = .\nPlugins = .\nQmlImports = qml\n' > dist/app/qt.conf
+          python3 packaging/windows/describe-libraries.py dist/app
           cp build/launcher/CorporalJackie.exe dist/
           # The launcher must not need any DLL that is not part of Windows.
           if ldd dist/CorporalJackie.exe | grep -i ucrt64; then echo "launcher depends on MSYS2 DLLs"; exit 1; fi
