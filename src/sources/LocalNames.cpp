@@ -124,7 +124,7 @@ ParsedName parseVideoPath(const QString& path)
         ParsedName title = parseTitle(base.left(int(m.capturedStart())));
         p.title = title.title;
         p.year = title.year;
-        p.episodeTitle = cleanTitle(parseTitle(base.mid(int(m.capturedEnd()))).title);
+        p.episodeTitle = parseTitle(base.mid(int(m.capturedEnd()))).title;
     } else if (const auto season = kSeasonFolder.match(parent.dirName());
                season.hasMatch() || kSpecialsFolder.match(parent.dirName()).hasMatch()) {
         // "Show/Season 2/03 - Title.mkv": the episode number is the file's.
@@ -132,7 +132,7 @@ ParsedName parseVideoPath(const QString& path)
         if (bare.hasMatch()) {
             p.season = season.hasMatch() ? season.captured(1).toInt() : 0;
             p.episode = bare.captured(1).toInt();
-            p.episodeTitle = cleanTitle(parseTitle(bare.captured(2)).title);
+            p.episodeTitle = parseTitle(bare.captured(2)).title;
         } else {
             const ParsedName t = parseTitle(base);
             p.title = t.title;
@@ -170,15 +170,16 @@ QList<SubtitleSource> findSubtitlesFor(const QString& videoPath)
     QList<SubtitleSource> out;
 
     auto add = [&](const QFileInfo& f, const QString& rest) {
-        if (out.size() >= kMaxSubtitles)
-            return;
         SubtitleSource s;
         s.url = QUrl::fromLocalFile(f.absoluteFilePath());
         // "en", "English.forced", "2_English" -> language "en"/"English", label the rest.
+        static const QRegularExpression leadingSeparators(QStringLiteral(R"(^[ ._-]+)"));
+        static const QRegularExpression trackNumber(QStringLiteral(R"(^\d+[ _-]+)"));
+        static const QRegularExpression separator(QStringLiteral("[ ._-]"));
         QString tags = rest;
-        tags.remove(QRegularExpression(QStringLiteral(R"(^[ ._-]+)")));
-        tags.remove(QRegularExpression(QStringLiteral(R"(^\d+[ _-]+)")));
-        const QStringList parts = tags.split(QRegularExpression(QStringLiteral("[ ._-]")), Qt::SkipEmptyParts);
+        tags.remove(leadingSeparators);
+        tags.remove(trackNumber);
+        const QStringList parts = tags.split(separator, Qt::SkipEmptyParts);
         s.language = parts.value(0);
         s.label = tags.isEmpty() ? f.fileName() : tags;
         out << s;
@@ -189,6 +190,8 @@ QList<SubtitleSource> findSubtitlesFor(const QString& videoPath)
         if (!isSubtitleFile(f.fileName()) || !f.completeBaseName().startsWith(stem, Qt::CaseInsensitive))
             continue;
         add(f, f.completeBaseName().mid(stem.size()));
+        if (out.size() == kMaxSubtitles)
+            return out;
     }
 
     // A Subs/ folder: "Subs/<video name>/*.srt" for a season pack, or the
@@ -200,14 +203,19 @@ QList<SubtitleSource> findSubtitlesFor(const QString& videoPath)
         const QDir subs(sub.absoluteFilePath());
         const QDir own(subs.filePath(stem));
         if (own.exists()) {
-            for (const QFileInfo& f : own.entryInfoList(QDir::Files | QDir::Readable, QDir::Name | QDir::IgnoreCase))
+            for (const QFileInfo& f : own.entryInfoList(QDir::Files | QDir::Readable, QDir::Name | QDir::IgnoreCase)) {
                 if (isSubtitleFile(f.fileName()))
                     add(f, f.completeBaseName());
+                if (out.size() == kMaxSubtitles)
+                    return out;
+            }
             continue;
         }
         int videos = 0;
-        for (const QFileInfo& f : dir.entryInfoList(QDir::Files))
-            videos += isVideoFile(f.fileName()) ? 1 : 0;
+        for (const QFileInfo& file : dir.entryInfoList(QDir::Files)) {
+            if (isVideoFile(file.fileName()) && ++videos == 2)
+                break;
+        }
         for (const QFileInfo& f : subs.entryInfoList(QDir::Files | QDir::Readable, QDir::Name | QDir::IgnoreCase)) {
             if (!isSubtitleFile(f.fileName()))
                 continue;
@@ -215,6 +223,8 @@ QList<SubtitleSource> findSubtitlesFor(const QString& videoPath)
                 add(f, f.completeBaseName().mid(stem.size()));
             else if (videos <= 1)
                 add(f, f.completeBaseName());
+            if (out.size() == kMaxSubtitles)
+                return out;
         }
     }
     return out;

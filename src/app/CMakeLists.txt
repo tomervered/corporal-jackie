@@ -20,6 +20,13 @@ set_target_properties(corporal-jackie PROPERTIES
 
 target_link_libraries(corporal-jackie PRIVATE cj_app Qt6::Gui Qt6::Qml Qt6::Quick)
 
+# Remove unreachable code from the shipped player at link time.
+if(APPLE)
+    target_link_options(corporal-jackie PRIVATE "$<$<CONFIG:Release>:LINKER:-dead_strip>")
+elseif(MINGW)
+    target_link_options(corporal-jackie PRIVATE "$<$<CONFIG:Release>:LINKER:--gc-sections>")
+endif()
+
 if(WIN32)
     find_package(Qt6 REQUIRED COMPONENTS GuiPrivate)
     target_link_libraries(corporal-jackie PRIVATE Qt6::GuiPrivate)
