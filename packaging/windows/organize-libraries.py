@@ -1,7 +1,10 @@
-"""Write a guide to the DLLs beside the packaged Windows player."""
+"""Group Windows libraries by purpose and teach the player where to find them."""
 from fnmatch import fnmatchcase
 from pathlib import Path
 import sys
+import subprocess
+from tempfile import TemporaryDirectory
+from xml.etree import ElementTree as XML
 
 # A pattern also matches future version numbers in filenames.
 groups = {
@@ -73,7 +76,25 @@ groups = {
 }
 
 
-def write_guide(folder):
+folders = {
+    "Playing video and audio": "VideoAndAudio",
+    "Subtitles, fonts and languages": "SubtitlesAndFonts",
+    "Windows, menus and artwork": "InterfaceAndArtwork",
+    "Saved data, secure connections and shared tools": "SharedTools",
+    "Other libraries": "OtherLibraries",
+}
+
+
+def manifest():
+    return XML.Element("assembly", xmlns="urn:schemas-microsoft-com:asm.v1", manifestVersion="1.0")
+
+
+def identify(parent, name):
+    XML.SubElement(parent, "assemblyIdentity", name=name, version="1.0.0.0", type="win32", processorArchitecture="amd64")
+
+
+def organize(folder, manifest_tool):
+    player = folder / "CorporalJackie.exe"
     sections = {}
     for dll in sorted(folder.glob("*.dll"), key=lambda file: file.name.lower()):
         section, description = next(
@@ -81,18 +102,39 @@ def write_guide(folder):
              for pattern, purpose in patterns.items() if fnmatchcase(dll.stem, pattern)),
             ("Other libraries", "See the third-party notices for this build."),
         )
-        sections.setdefault(section, []).append(f"  {dll.name} - {description}")
-    if not sections:
-        raise SystemExit(f"No DLLs found in {folder}")
+        sections.setdefault(section, []).append((dll, description))
+    if not sections or not player.is_file():
+        raise SystemExit("Expected a freshly staged Windows player and its DLLs.")
 
-    lines = ["What these files do", "",
-             "A DLL contains compiled code that the player or another library loads.",
-             "Windows uses these filenames to find the right library.", ""]
-    for group in [*groups, "Other libraries"]:
-        if group in sections:
-            lines.extend([group, *sections[group], ""])
+    # Windows reads these private assembly manifests before it loads the player.
+    # This works for both app entry points and does not depend on the user's PATH.
+    dependencies = manifest()
+    lines = ["What these files do", "", "Each folder contains libraries used for the tasks listed below.", ""]
+    for group, name in folders.items():
+        if group not in sections:
+            continue
+        destination = folder / name
+        destination.mkdir()
+        assembly = manifest()
+        identify(assembly, name)
+        identify(XML.SubElement(XML.SubElement(dependencies, "dependency"), "dependentAssembly"), name)
+        lines.append(f"{name} - {group}")
+        for dll, purpose in sections[group]:
+            XML.SubElement(assembly, "file", name=dll.name)
+            dll.rename(destination / dll.name)
+            lines.append(f"  {dll.name} - {purpose}")
+        lines.append("")
+        XML.ElementTree(assembly).write(destination / f"{name}.manifest", encoding="utf-8", xml_declaration=True)
+
+    with TemporaryDirectory() as temp:
+        original = Path(temp) / "original.xml"
+        additions = Path(temp) / "libraries.xml"
+        XML.ElementTree(dependencies).write(additions, encoding="utf-8", xml_declaration=True)
+        subprocess.run([manifest_tool, "-nologo", f"-inputresource:{player};#1", f"-out:{original}"], check=True)
+        subprocess.run([manifest_tool, "-nologo", "-manifest", original, additions,
+                        f"-outputresource:{player};#1"], check=True)
     (folder / "What these files do.txt").write_text("\n".join(lines), encoding="utf-8")
 
 
 if __name__ == "__main__":
-    write_guide(Path(sys.argv[1]))
+    organize(Path(sys.argv[1]).resolve(), sys.argv[2])

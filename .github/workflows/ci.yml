@@ -330,7 +330,6 @@ jobs:
           done | sort -u | xargs -r -I{} cp -n {} dist/app/
           # Point Qt at the bundled plugins and QML modules instead of /ucrt64.
           printf '[Paths]\nPrefix = .\nPlugins = .\nQmlImports = qml\n' > dist/app/qt.conf
-          python3 packaging/windows/describe-libraries.py dist/app
           cp build/launcher/CorporalJackie.exe dist/
           # The launcher must not need any DLL that is not part of Windows.
           if ldd dist/CorporalJackie.exe | grep -i ucrt64; then echo "launcher depends on MSYS2 DLLs"; exit 1; fi
@@ -349,6 +348,14 @@ jobs:
           # The full list, to check against docs/DEPENDENCIES.md.
           echo "DLLs shipped:"; (cd dist/app && ls *.dll | tr '\n' ' '); echo
           echo "Biggest files:"; find dist -type f -printf '%s %p\n' | sort -rn | awk 'NR <= 60 {printf "%7.1f MB  %s\n", $1/1048576, $2}'
+
+      - name: Organize the packaged Windows libraries
+        shell: pwsh
+        run: |
+          $kits = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
+          $mt = Get-ChildItem "$kits\*\x64\mt.exe" | Sort-Object { [version]$_.Directory.Parent.Name } -Descending | Select-Object -First 1
+          if (!$mt) { throw "Windows SDK manifest tool missing" }
+          python packaging/windows/organize-libraries.py dist/app $mt.FullName
 
       # build.txt names the build; manifest.txt lists every file with its
       # SHA-256. The next build compares against it to make an update package.
