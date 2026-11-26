@@ -2,9 +2,10 @@
 # Adds the third-party notices, every bundled library's license files and
 # SOURCE.txt to the macOS package. Runs after macdeployqt.
 #
-# Usage: collect-licenses.sh <dist> <libtorrent-prefix>
+# Usage: collect-licenses.sh <dist> <libtorrent-prefix> <mpv-prefix>
 #   <dist>              the folder that holds CorporalJackie.app
 #   <libtorrent-prefix> where third_party/libtorrent/build.sh installed libtorrent
+#   <mpv-prefix>        where build-mpv.sh installed the playback libraries
 set -euo pipefail
 
 DIST=$1
@@ -24,14 +25,10 @@ for doc in COPYRIGHT_POLICY THIRD_PARTY_CONTENT COPYRIGHT_COMPLAINTS; do
     cp "$ROOT/docs/$doc.md" "$DIST/$doc.md"
 done
 
-# Which Homebrew formula each bundled dylib or framework came from:
-# Cellar/<formula>/<version>/lib/<name>.
-index=$(find "$BREW/Cellar" -mindepth 4 -maxdepth 4 -path '*/lib/*' 2>/dev/null)
-formulae=$(
-    ls "$DIST/CorporalJackie.app/Contents/Frameworks" | while read -r name; do
-        printf '%s\n' "$index" | grep -F "/lib/$name" | head -1 | sed -E "s|^$BREW/Cellar/([^/]+)/.*|\1|" || true
-    done | sort -u
-)
+# Resolve Qt's umbrella symlinks to the packages that supplied the files.
+# The custom mpv, FFmpeg and libplacebo builds are credited separately below.
+formulae=$(python3 "$HERE/bundled-formulae.py" "$DIST/CorporalJackie.app/Contents" \
+    "$(brew --cellar)" "$3/lib")
 
 # libtorrent is linked into the app (static), patched by us.
 LIBTORRENT_VERSION=v$(sed -n 's/^VERSION=//p' "$ROOT/third_party/libtorrent/build.sh")
