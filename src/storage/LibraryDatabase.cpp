@@ -438,6 +438,168 @@ private:
     std::thread m_thread;
 };
 
+// --- Opening the database ----------------------------------------------------------
+// The steps the constructor runs on the worker thread, in order.
+
+namespace {
+
+// Brings an older database file up to kSchemaVersion, one version at a time.
+// Returns "" on success, or what went wrong.
+QString updateSchema(sqlite3* db)
+{
+    int version = 0;
+    {
+        Statement s(db, "PRAGMA user_version");
+        if (s.step())
+            version = sqlite3_column_int(s.get(), 0);
+    }
+    if (version > LibraryDatabase::kSchemaVersion)
+        return QStringLiteral("The database is from a newer version of the app (schema %1).").arg(version);
+    for (int v = version; v < LibraryDatabase::kSchemaVersion; ++v) {
+        exec(db, "BEGIN");
+        const QByteArray bump = "PRAGMA user_version=" + QByteArray::number(v + 1);
+        if (!exec(db, kMigrations[v]) || !exec(db, bump.constData())) {
+            exec(db, "ROLLBACK");
+            return QStringLiteral("Updating the database to schema %1 failed.").arg(v + 1);
+        }
+        exec(db, "COMMIT");
+        qCInfo(lcStorage) << "Database schema now at version" << v + 1;
+    }
+    return {};
+}
+
+QVariantMap loadSettings(sqlite3* db)
+{
+    QVariantMap settings;
+    Statement s(db, "SELECT key, value FROM settings");
+    while (s.step())
+        settings.insert(text(s.get(), 0), settingFromText(text(s.get(), 1)));
+    return settings;
+}
+
+// Which lists were ever saved ("stored.addons", "stored.folders"). A list
+// never saved is left unset, so the app uses its defaults; a list saved
+// empty stays empty.
+QSet<QString> listsEverSaved(sqlite3* db)
+{
+    QSet<QString> stored;
+    Statement s(db, "SELECT key FROM meta WHERE key LIKE 'stored.%'");
+    while (s.step())
+        stored.insert(text(s.get(), 0));
+    return stored;
+}
+
+QJsonArray loadAddons(sqlite3* db)
+{
+    QJsonArray list;
+    Statement s(db, "SELECT transport_url, manifest, disabled FROM addons ORDER BY position");
+    while (s.step()) {
+        QJsonObject entry{{"transportUrl", text(s.get(), 0)},
+                          {"manifest", QJsonDocument::fromJson(text(s.get(), 1).toUtf8()).object()}};
+        if (sqlite3_column_int(s.get(), 2) != 0)
+            entry.insert("disabled", true);
+        list.append(entry);
+    }
+    return list;
+}
+
+QStringList loadFolders(sqlite3* db)
+{
+    QStringList list;
+    Statement s(db, "SELECT path FROM folders ORDER BY position");
+    while (s.step())
+        list << text(s.get(), 0);
+    return list;
+}
+
+QList<HistoryEntry> loadHistory(sqlite3* db)
+{
+    QList<HistoryEntry> history;
+    Statement s(db, "SELECT key, adapter, provider, item_id, item_type, item_name, poster, video_id,"
+                    " video_title, season, episode, source, position, duration, updated_at, finished"
+                    " FROM history ORDER BY updated_at DESC");
+    while (s.step()) {
+        HistoryEntry e;
+        e.key = text(s.get(), 0);
+        e.adapter = text(s.get(), 1);
+        e.provider = text(s.get(), 2);
+        e.itemId = text(s.get(), 3);
+        e.itemType = text(s.get(), 4);
+        e.itemName = text(s.get(), 5);
+        // Rows saved before posters were checked may hold any link.
+        e.poster = links::imageLinkOrEmpty(text(s.get(), 6));
+        e.videoId = text(s.get(), 7);
+        e.videoTitle = text(s.get(), 8);
+        e.season = sqlite3_column_int(s.get(), 9);
+        e.episode = sqlite3_column_int(s.get(), 10);
+        e.source = LibraryDatabase::sourceFromJson(QJsonDocument::fromJson(text(s.get(), 11).toUtf8()).object());
+        e.position = sqlite3_column_double(s.get(), 12);
+        e.duration = sqlite3_column_double(s.get(), 13);
+        e.updatedAt = sqlite3_column_int64(s.get(), 14);
+        e.finished = sqlite3_column_int(s.get(), 15) != 0;
+        history.append(e);
+    }
+    return history;
+}
+
+QList<LibraryItem> loadLibrary(sqlite3* db)
+{
+    QList<LibraryItem> library;
+    Statement s(db, "SELECT adapter, provider, item_id, type, name, poster, release_info, added_at"
+                    " FROM library ORDER BY added_at DESC");
+    while (s.step()) {
+        LibraryItem i;
+        i.adapter = text(s.get(), 0);
+        i.provider = text(s.get(), 1);
+        i.itemId = text(s.get(), 2);
+        i.type = text(s.get(), 3);
+        i.name = text(s.get(), 4);
+        i.poster = links::imageLinkOrEmpty(text(s.get(), 5));
+        i.releaseInfo = text(s.get(), 6);
+        i.addedAt = sqlite3_column_int64(s.get(), 7);
+        library.append(i);
+    }
+    return library;
+}
+
+// Magnet keys used to be the whole link, trackers and all; now they are the
+// info hash and file (sourceKey). Moves old rows over, in the file and in
+// `history`. Does nothing once every row has the new key.
+void moveOldMagnetKeys(sqlite3* db, QList<HistoryEntry>& history)
+{
+    QList<std::pair<QString, QString>> renames;  // old key, new key
+    for (HistoryEntry& e : history) {
+        if (!e.key.startsWith(QLatin1String("url:")) || !isMagnet(e.source.origin))
+            continue;
+        const QString key = QStringLiteral("url:") + LibraryDatabase::sourceKey(e.source);
+        if (key != e.key)
+            renames.append({std::exchange(e.key, key), key});
+    }
+    if (renames.isEmpty())
+        return;
+
+    const bool moved = transaction(db, [&] {
+        // Two old links to one video, or an old link and a new key:
+        // the newest row wins, whatever order the renames come in.
+        for (const auto& [from, to] : renames) {
+            if (!Statement(db, "DELETE FROM history WHERE key = ?1 AND updated_at <="
+                               " (SELECT max(updated_at) FROM history WHERE key = ?2)")
+                     .bind(1, from).bind(2, to).run()
+                || !Statement(db, "UPDATE OR REPLACE history SET key = ?2 WHERE key = ?1").bind(1, from).bind(2, to).run())
+                return false;
+        }
+        return true;
+    });
+    qCInfo(lcStorage) << "Moved" << renames.size() << "magnet history keys to info hashes" << (moved ? "" : "(failed)");
+    // The same in memory: `history` is newest first, so keep the first of each key.
+    QHash<QString, bool> seen;
+    history.erase(std::remove_if(history.begin(), history.end(),
+                                 [&](const HistoryEntry& e) { return std::exchange(seen[e.key], true); }),
+                  history.end());
+}
+
+} // namespace
+
 // --- LibraryDatabase ---------------------------------------------------------------------
 
 LibraryDatabase::LibraryDatabase(const QString& file, QObject* parent)
@@ -447,137 +609,26 @@ LibraryDatabase::LibraryDatabase(const QString& file, QObject* parent)
         QDir().mkpath(QFileInfo(file).absolutePath());
     m_worker = std::make_unique<Worker>(file);
 
-    // Open, migrate and load the in-memory copy: the one time the caller
+    // Open, update and load the in-memory copy: the one time the caller
     // waits for the database, at start.
     m_worker->run([this](sqlite3* db) {
         if (!db) {
             m_error = QStringLiteral("The database could not be opened.");
             return;
         }
-        int version = 0;
-        {
-            Statement s(db, "PRAGMA user_version");
-            if (s.step())
-                version = sqlite3_column_int(s.get(), 0);
-        }
-        if (version > kSchemaVersion) {
-            m_error = QStringLiteral("The database is from a newer version of the app (schema %1).").arg(version);
+        if (const QString problem = updateSchema(db); !problem.isEmpty()) {
+            m_error = problem;
             return;
         }
-        for (int v = version; v < kSchemaVersion; ++v) {
-            exec(db, "BEGIN");
-            const QByteArray bump = "PRAGMA user_version=" + QByteArray::number(v + 1);
-            if (!exec(db, kMigrations[v]) || !exec(db, bump.constData())) {
-                exec(db, "ROLLBACK");
-                m_error = QStringLiteral("Updating the database to schema %1 failed.").arg(v + 1);
-                return;
-            }
-            exec(db, "COMMIT");
-            qCInfo(lcStorage) << "Database schema now at version" << v + 1;
-        }
-
-        {
-            Statement s(db, "SELECT key, value FROM settings");
-            while (s.step())
-                m_settings.insert(text(s.get(), 0), settingFromText(text(s.get(), 1)));
-        }
-        QSet<QString> stored;
-        {
-            Statement s(db, "SELECT key FROM meta WHERE key LIKE 'stored.%'");
-            while (s.step())
-                stored.insert(text(s.get(), 0));
-        }
-        if (stored.contains(QStringLiteral("stored.addons"))) {
-            QJsonArray list;
-            Statement s(db, "SELECT transport_url, manifest, disabled FROM addons ORDER BY position");
-            while (s.step()) {
-                QJsonObject entry{{"transportUrl", text(s.get(), 0)},
-                                  {"manifest", QJsonDocument::fromJson(text(s.get(), 1).toUtf8()).object()}};
-                if (sqlite3_column_int(s.get(), 2) != 0)
-                    entry.insert("disabled", true);
-                list.append(entry);
-            }
-            m_addons = list;
-        }
-        if (stored.contains(QStringLiteral("stored.folders"))) {
-            QStringList list;
-            Statement s(db, "SELECT path FROM folders ORDER BY position");
-            while (s.step())
-                list << text(s.get(), 0);
-            m_folders = list;
-        }
-        {
-            Statement s(db, "SELECT key, adapter, provider, item_id, item_type, item_name, poster, video_id,"
-                            " video_title, season, episode, source, position, duration, updated_at, finished"
-                            " FROM history ORDER BY updated_at DESC");
-            while (s.step()) {
-                HistoryEntry e;
-                e.key = text(s.get(), 0);
-                e.adapter = text(s.get(), 1);
-                e.provider = text(s.get(), 2);
-                e.itemId = text(s.get(), 3);
-                e.itemType = text(s.get(), 4);
-                e.itemName = text(s.get(), 5);
-                // Rows saved before posters were checked may hold any link.
-                e.poster = links::imageLinkOrEmpty(text(s.get(), 6));
-                e.videoId = text(s.get(), 7);
-                e.videoTitle = text(s.get(), 8);
-                e.season = sqlite3_column_int(s.get(), 9);
-                e.episode = sqlite3_column_int(s.get(), 10);
-                e.source = sourceFromJson(QJsonDocument::fromJson(text(s.get(), 11).toUtf8()).object());
-                e.position = sqlite3_column_double(s.get(), 12);
-                e.duration = sqlite3_column_double(s.get(), 13);
-                e.updatedAt = sqlite3_column_int64(s.get(), 14);
-                e.finished = sqlite3_column_int(s.get(), 15) != 0;
-                m_history.append(e);
-            }
-        }
-        {
-            Statement s(db, "SELECT adapter, provider, item_id, type, name, poster, release_info, added_at"
-                            " FROM library ORDER BY added_at DESC");
-            while (s.step()) {
-                LibraryItem i;
-                i.adapter = text(s.get(), 0);
-                i.provider = text(s.get(), 1);
-                i.itemId = text(s.get(), 2);
-                i.type = text(s.get(), 3);
-                i.name = text(s.get(), 4);
-                i.poster = links::imageLinkOrEmpty(text(s.get(), 5));
-                i.releaseInfo = text(s.get(), 6);
-                i.addedAt = sqlite3_column_int64(s.get(), 7);
-                m_library.append(i);
-            }
-        }
-        // Magnet keys used to be the whole link, trackers and all; now they
-        // are the info hash and file (sourceKey). Move old rows over once.
-        QList<std::pair<QString, QString>> renames;
-        for (HistoryEntry& e : m_history) {
-            if (!e.key.startsWith(QLatin1String("url:")) || !isMagnet(e.source.origin))
-                continue;
-            const QString key = QStringLiteral("url:") + sourceKey(e.source);
-            if (key != e.key)
-                renames.append({std::exchange(e.key, key), key});
-        }
-        if (!renames.isEmpty()) {
-            const bool moved = transaction(db, [&] {
-                // Two old links to one video, or an old link and a new key:
-                // the newest row wins, whatever order the renames come in.
-                for (const auto& [from, to] : renames) {
-                    if (!Statement(db, "DELETE FROM history WHERE key = ?1 AND updated_at <="
-                                       " (SELECT max(updated_at) FROM history WHERE key = ?2)")
-                             .bind(1, from).bind(2, to).run()
-                        || !Statement(db, "UPDATE OR REPLACE history SET key = ?2 WHERE key = ?1").bind(1, from).bind(2, to).run())
-                        return false;
-                }
-                return true;
-            });
-            qCInfo(lcStorage) << "Moved" << renames.size() << "magnet history keys to info hashes" << (moved ? "" : "(failed)");
-            // Two old links to one video: keep the newest.
-            QHash<QString, bool> seen;
-            m_history.erase(std::remove_if(m_history.begin(), m_history.end(),
-                                           [&](const HistoryEntry& e) { return std::exchange(seen[e.key], true); }),
-                            m_history.end());
-        }
+        m_settings = loadSettings(db);
+        const QSet<QString> saved = listsEverSaved(db);
+        if (saved.contains(QStringLiteral("stored.addons")))
+            m_addons = loadAddons(db);
+        if (saved.contains(QStringLiteral("stored.folders")))
+            m_folders = loadFolders(db);
+        m_history = loadHistory(db);
+        m_library = loadLibrary(db);
+        moveOldMagnetKeys(db, m_history);
         m_open = true;
     });
     if (m_open)
