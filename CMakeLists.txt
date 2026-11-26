@@ -17,7 +17,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # App identity, used by the code and by packaging.
 # The version people see. project(VERSION) takes numbers only, so a
 # pre-release letter goes here; keep the numbers in step with it.
-set(CJ_VERSION_LABEL   "0.4.1r")
+set(CJ_VERSION_LABEL   "0.4.1s")
 set(CJ_APP_NAME        "Corporal Jackie")
 set(CJ_APP_ID          "corporal-jackie")
 set(CJ_ORG_DOMAIN      "tomervered.com")

@@ -124,7 +124,7 @@ ParsedName parseVideoPath(const QString& path)
         ParsedName title = parseTitle(base.left(int(m.capturedStart())));
         p.title = title.title;
         p.year = title.year;
-        p.episodeTitle = cleanTitle(parseTitle(base.mid(int(m.capturedEnd()))).title);
+        p.episodeTitle = parseTitle(base.mid(int(m.capturedEnd()))).title;
     } else if (const auto season = kSeasonFolder.match(parent.dirName());
                season.hasMatch() || kSpecialsFolder.match(parent.dirName()).hasMatch()) {
         // "Show/Season 2/03 - Title.mkv": the episode number is the file's.
@@ -132,7 +132,7 @@ ParsedName parseVideoPath(const QString& path)
         if (bare.hasMatch()) {
             p.season = season.hasMatch() ? season.captured(1).toInt() : 0;
             p.episode = bare.captured(1).toInt();
-            p.episodeTitle = cleanTitle(parseTitle(bare.captured(2)).title);
+            p.episodeTitle = parseTitle(bare.captured(2)).title;
         } else {
             const ParsedName t = parseTitle(base);
             p.title = t.title;
@@ -206,8 +206,10 @@ QList<SubtitleSource> findSubtitlesFor(const QString& videoPath)
             continue;
         }
         int videos = 0;
-        for (const QFileInfo& f : dir.entryInfoList(QDir::Files))
-            videos += isVideoFile(f.fileName()) ? 1 : 0;
+        for (const QFileInfo& file : dir.entryInfoList(QDir::Files)) {
+            if (isVideoFile(file.fileName()) && ++videos == 2)
+                break;
+        }
         for (const QFileInfo& f : subs.entryInfoList(QDir::Files | QDir::Readable, QDir::Name | QDir::IgnoreCase)) {
             if (!isSubtitleFile(f.fileName()))
                 continue;

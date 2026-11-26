@@ -286,6 +286,12 @@ jobs:
           for f in dist/app/CorporalJackie.exe $(find dist/app -name '*.dll'); do
             ldd "$f" | awk '/\/ucrt64\/|\/\.deps\// {print $3}'
           done | sort -u | xargs -r -I{} cp -n {} dist/app/
+          # Type descriptions serve Qt Creator and qmllint. The player uses
+          # qmldir, the QML files and their plugins.
+          find dist/app/qml -name '*.qmltypes' -type f -delete
+          # Keep debugging symbols in the build used by tests. These two
+          # libraries are built here and have no vendor signature to preserve.
+          strip --strip-unneeded dist/app/libmpv-*.dll dist/app/libplacebo-*.dll
           # Point Qt at the bundled plugins and QML modules instead of /ucrt64.
           printf '[Paths]\nPrefix = .\nPlugins = .\nQmlImports = qml\n' > dist/app/qt.conf
           cp build/launcher/CorporalJackie.exe dist/
@@ -339,6 +345,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: CorporalJackie-windows-x64
+          compression-level: 9
           path: dist/
 
       - uses: actions/upload-artifact@v7
@@ -612,6 +619,19 @@ jobs:
             if [ ! -f "$plugins/$f.dylib" ]; then echo "imageformats/$f.dylib missing: posters would not load"; exit 1; fi
           done
           ls "$plugins"
+          # Our controls import Basic. Preserve the native macOS dialog
+          # support while dropping the optional themes for other appearances.
+          contents=dist/CorporalJackie.app/Contents
+          for style in Material Universal Imagine Fusion FluentWinUI3; do
+            rm -rf "$contents/Resources/qml/QtQuick/Controls/$style"
+            rm -rf "$contents/Frameworks/QtQuickControls2$style.framework" \
+                   "$contents/Frameworks/QtQuickControls2${style}StyleImpl.framework"
+            lower=$(printf '%s' "$style" | tr '[:upper:]' '[:lower:]')
+            rm -f "$contents/PlugIns/quick/libqtquickcontrols2${lower}styleplugin.dylib" \
+                  "$contents/PlugIns/quick/libqtquickcontrols2${lower}styleimplplugin.dylib"
+          done
+          find "$contents/Resources/qml" -name '*.qmltypes' -type f -delete
+          codesign --force --sign - dist/CorporalJackie.app
           # The bundle ships only the cocoa platform plugin; the runner has a GUI session.
           ./dist/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test
           # The FSR shader on Apple's OpenGL, playing the test clip.
@@ -623,7 +643,7 @@ jobs:
           CJ_SMOKE_UPSCALER=metalfx ./dist/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test tests/data/testsrc-10s.mkv
           cp LICENSE dist/LICENSE.txt
           packaging/macos/collect-licenses.sh dist "$CJ_LT_PREFIX" "$GITHUB_WORKSPACE/.deps"
-          ditto -c -k --keepParent dist CorporalJackie-macos-arm64.zip
+          ditto -c -k --zlibCompressionLevel 9 --keepParent dist CorporalJackie-macos-arm64.zip
 
       - uses: actions/upload-artifact@v7
         with:
@@ -986,7 +1006,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.release_tag }}
         run: |
-          (cd windows && zip -qr ../CorporalJackie-windows-x64.zip .)
+          (cd windows && 7z a -tzip -mm=Deflate -mx=9 ../CorporalJackie-windows-x64.zip .)
           cat > notes.md <<EOF
           Corporal Jackie $TAG, a hobby media player (GPL-3.0). Commit ${GITHUB_SHA::7}.
 
