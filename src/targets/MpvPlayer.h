@@ -112,6 +112,17 @@ signals:
     void renderLoadRequested();
 
 private:
+    // The steps of the constructor, in order.
+    void chooseOutput(Mode mode);
+    void findUpscalers(Mode mode);
+    void setPlayerBehaviour();
+    void setSafetyLimits();
+    void setScreenshotNaming();
+    void setOptionsFromEnvironment();
+    void logLibraryVersions();
+    void startMpvLog();
+    void observeProperties();
+
     void queueEventDrain();
     // Reads what mpv reported since the last call, a few events at a time.
     void processEvents();

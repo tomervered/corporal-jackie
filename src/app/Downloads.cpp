@@ -489,19 +489,135 @@ QString Downloads::startNormal(const std::shared_ptr<Job>& job, const QString& u
 
 // --- Web links, on the UI thread with Qt's network stack ----------------------------
 
+namespace {
+
+// The name to save under: the link's own file name if it has an extension,
+// else the title. `*fromLink` says which one it was; when it was not, the
+// extension comes later, from the server's content type.
+QString webFileName(const PlayableSource& source, bool* fromLink)
+{
+    const QString name = Downloads::safeFileName(QUrl::fromPercentEncoding(source.url.fileName().toUtf8()));
+    *fromLink = !QFileInfo(name).suffix().isEmpty() && name != QLatin1String("video");
+    return *fromLink ? name : Downloads::safeFileName(source.title);
+}
+
+QNetworkRequest webRequest(const PlayableSource& source)
+{
+    QNetworkRequest request(source.url);
+    for (auto it = source.headers.cbegin(); it != source.headers.cend(); ++it)
+        request.setRawHeader(it.key().toUtf8(), it.value().toUtf8());
+    // Headers and a user:password are for the server the link names: a
+    // redirect elsewhere is refused rather than handed them.
+    const bool hasSecret = !source.headers.isEmpty() || !source.url.userInfo().isEmpty();
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         hasSecret ? QNetworkRequest::SameOriginRedirectPolicy : QNetworkRequest::NoLessSafeRedirectPolicy);
+    request.setTransferTimeout(30000);   // nothing arriving for 30 s
+    return request;
+}
+
+// The server's first answer is in: refuse a playlist, note the size, and
+// add the extension if the link had none.
+void onWebAnswerStarted(Downloads::Job& job, QNetworkReply& reply, bool nameCameFromLink)
+{
+    const QString type = reply.header(QNetworkRequest::ContentTypeHeader).toString();
+    if (isPlaylist(reply.url(), type)) {
+        job.set(&Downloads::Job::error, Downloads::tr("This link is a streaming playlist, which can't be saved as one file."));
+        reply.abort();
+        return;
+    }
+    const qint64 length = reply.header(QNetworkRequest::ContentLengthHeader).toLongLong();
+    if (length > 0)
+        job.size = length;
+    if (!nameCameFromLink)
+        job.set(&Downloads::Job::name, job.text(&Downloads::Job::name) + extensionFor(type));
+}
+
+// More bytes arrived: write them to the file, and refresh the speed once a second.
+void onWebBytesArrived(Downloads::Job& job, QNetworkReply& reply)
+{
+    const QByteArray bytes = reply.readAll();
+    if (!job.file || job.file->write(bytes) != bytes.size()) {
+        job.set(&Downloads::Job::error, Downloads::tr("Could not write to the download folder (is the disk full?)."));
+        reply.abort();
+        return;
+    }
+    job.done += bytes.size();
+    if (job.clock.elapsed() >= 1000) {
+        job.rate = (job.done - job.rateMark) * 1000 / qMax<qint64>(1, job.clock.restart());
+        job.rateMark = job.done;
+    }
+}
+
+// The transfer is over: write the last bytes (if it ended well) and close the file.
+void closeWebFile(Downloads::Job& job, QNetworkReply& reply)
+{
+    if (!job.file)
+        return;
+    if (reply.error() == QNetworkReply::NoError) {
+        const QByteArray rest = reply.readAll();
+        if (job.file->write(rest) != rest.size())
+            job.set(&Downloads::Job::error, Downloads::tr("Could not write to the download folder (is the disk full?)."));
+        job.done += rest.size();
+    }
+    job.file->close();
+    job.file.reset();
+}
+
+QString webFailureMessage(const QNetworkReply& reply)
+{
+    const int status = reply.attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const bool refusedRedirect = reply.error() == QNetworkReply::InsecureRedirectError
+                                 || reply.error() == QNetworkReply::TooManyRedirectsError;
+    if (refusedRedirect)
+        return Downloads::tr("The server sent the download somewhere else, which was refused.");
+    if (status > 0)
+        return Downloads::tr("The server answered %1.").arg(status);
+    return Downloads::tr("The download stopped: %1.").arg(reply.errorString());
+}
+
+// Decides how the download ended: cancelled, failed (the half file is
+// deleted) or done (the half file gets its final name).
+void settleWebJob(Downloads::Job& job, const QNetworkReply& reply)
+{
+    using Job = Downloads::Job;
+    const QString part = job.text(&Job::part);
+    if (job.cancelled) {
+        QFile::remove(part);
+        job.state = State::Cancelled;
+        return;
+    }
+    if (reply.error() != QNetworkReply::NoError || !job.text(&Job::error).isEmpty()) {
+        QFile::remove(part);
+        if (job.text(&Job::error).isEmpty())
+            job.set(&Job::error, webFailureMessage(reply));
+        job.state = State::Failed;
+        return;
+    }
+    const QString path = downloadFiles::finish(part, job.text(&Job::name));
+    if (path.isEmpty()) {
+        QFile::remove(part);
+        job.set(&Job::error, Downloads::tr("Could not name the finished file."));
+        job.state = State::Failed;
+        return;
+    }
+    job.set(&Job::path, path);
+    job.set(&Job::name, QFileInfo(path).fileName());
+    job.size = job.done.load();
+    job.state = State::Done;
+}
+
+} // namespace
+
+// Starts saving a web link to a file. Returns "" or why it could not start.
 QString Downloads::startWeb(const PlayableSource& source)
 {
-    const QUrl url = source.url;
-    if (isPlaylist(url, {}))
+    if (isPlaylist(source.url, {}))
         return tr("This link is a streaming playlist, which can't be saved as one file.");
     if (!m_network)
         m_network = new QNetworkAccessManager(this);
 
-    // The link's own file name if it has an extension, else the title.
-    QString name = safeFileName(QUrl::fromPercentEncoding(url.fileName().toUtf8()));
-    const bool named = !QFileInfo(name).suffix().isEmpty() && name != QLatin1String("video");
-    if (!named)
-        name = safeFileName(source.title);
+    bool nameCameFromLink = false;
+    const QString name = webFileName(source, &nameCameFromLink);
     const QString part = downloadFiles::begin(effectiveFolder(), name);
     if (part.isEmpty())
         return tr("The download folder can't be written to.");
@@ -518,86 +634,18 @@ QString Downloads::startWeb(const PlayableSource& source)
     m_jobs.push_back(job);
     qCInfo(lcApp) << "Download" << job->id << "started (web)";
 
-    QNetworkRequest request(url);
-    for (auto it = source.headers.cbegin(); it != source.headers.cend(); ++it)
-        request.setRawHeader(it.key().toUtf8(), it.value().toUtf8());
-    // Headers and a user:password are for the server the link names: a
-    // redirect elsewhere is refused rather than handed them.
-    const bool secret = !source.headers.isEmpty() || !url.userInfo().isEmpty();
-    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                         secret ? QNetworkRequest::SameOriginRedirectPolicy : QNetworkRequest::NoLessSafeRedirectPolicy);
-    request.setTransferTimeout(30000);   // nothing arriving for 30 s
-    QNetworkReply* reply = m_network->get(request);
+    QNetworkReply* reply = m_network->get(webRequest(source));
     job->reply = reply;
     job->clock.start();
     job->state = State::Running;
 
-    connect(reply, &QNetworkReply::metaDataChanged, this, [job, reply, named] {
-        const QString type = reply->header(QNetworkRequest::ContentTypeHeader).toString();
-        if (isPlaylist(reply->url(), type)) {
-            job->set(&Job::error, tr("This link is a streaming playlist, which can't be saved as one file."));
-            reply->abort();
-            return;
-        }
-        const qint64 length = reply->header(QNetworkRequest::ContentLengthHeader).toLongLong();
-        if (length > 0)
-            job->size = length;
-        if (!named)
-            job->set(&Job::name, job->text(&Job::name) + extensionFor(type));
-    });
-    connect(reply, &QNetworkReply::readyRead, this, [job, reply] {
-        const QByteArray bytes = reply->readAll();
-        if (!job->file || job->file->write(bytes) != bytes.size()) {
-            job->set(&Job::error, tr("Could not write to the download folder (is the disk full?)."));
-            reply->abort();
-            return;
-        }
-        job->done += bytes.size();
-        if (job->clock.elapsed() >= 1000) {
-            job->rate = (job->done - job->rateMark) * 1000 / qMax<qint64>(1, job->clock.restart());
-            job->rateMark = job->done;
-        }
-    });
+    connect(reply, &QNetworkReply::metaDataChanged, this,
+            [job, reply, nameCameFromLink] { onWebAnswerStarted(*job, *reply, nameCameFromLink); });
+    connect(reply, &QNetworkReply::readyRead, this, [job, reply] { onWebBytesArrived(*job, *reply); });
     connect(reply, &QNetworkReply::finished, this, [this, job, reply] {
         reply->deleteLater();
-        if (job->file) {
-            if (reply->error() == QNetworkReply::NoError) {
-                const QByteArray rest = reply->readAll();
-                if (job->file->write(rest) != rest.size())
-                    job->set(&Job::error, tr("Could not write to the download folder (is the disk full?)."));
-                job->done += rest.size();
-            }
-            job->file->close();
-            job->file.reset();
-        }
-        const QString part = job->text(&Job::part);
-        if (job->cancelled) {
-            QFile::remove(part);
-            job->state = State::Cancelled;
-        } else if (reply->error() != QNetworkReply::NoError || !job->text(&Job::error).isEmpty()) {
-            QFile::remove(part);
-            if (job->text(&Job::error).isEmpty()) {
-                const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-                job->set(&Job::error, reply->error() == QNetworkReply::InsecureRedirectError
-                                              || reply->error() == QNetworkReply::TooManyRedirectsError
-                                          ? tr("The server sent the download somewhere else, which was refused.")
-                                      : status > 0 ? tr("The server answered %1.").arg(status)
-                                                   : tr("The download stopped: %1.").arg(reply->errorString()));
-            }
-            job->state = State::Failed;
-        } else {
-            const QString path = downloadFiles::finish(part, job->text(&Job::name));
-            if (path.isEmpty()) {
-                QFile::remove(part);
-                job->set(&Job::error, tr("Could not name the finished file."));
-                job->state = State::Failed;
-            } else {
-                job->set(&Job::path, path);
-                job->set(&Job::name, QFileInfo(path).fileName());
-                job->size = job->done.load();
-                job->state = State::Done;
-            }
-        }
+        closeWebFile(*job, *reply);
+        settleWebJob(*job, *reply);
         finish(job);
     });
     return {};

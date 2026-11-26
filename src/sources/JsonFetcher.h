@@ -69,6 +69,7 @@ public:
 
 private:
     void fetch(const QUrl& url, Done done, int attemptsLeft);
+    QString refusalReason(const QUrl& url, int budgetMs, const UrlCheck& allowed) const;
 
     QNetworkAccessManager* m_net;
     Mailbox m_mailbox;
