@@ -292,6 +292,16 @@ jobs:
           # Keep debugging symbols in the build used by tests. These two
           # libraries are built here and have no vendor signature to preserve.
           strip --strip-unneeded dist/app/libmpv-*.dll dist/app/libplacebo-*.dll
+          # ICU's data without the parts Qt never reads (32 MB -> 15 MB, see
+          # packaging/trim-icu-data.py), wrapped in a DLL of the same name.
+          icu=$(ls dist/app/libicudt*.dll)
+          [ "$(echo "$icu" | wc -l)" = 1 ] || { echo "expected one ICU data DLL, found: $icu"; exit 1; }
+          symbol=$(python3 packaging/trim-icu-data.py "$icu" icudata.dat)
+          # The assembler is a Windows program: give it a Windows path.
+          printf '%s\n' '    .section .rdata,"dr"' "    .globl $symbol" '    .balign 16' "$symbol:" \
+            "    .incbin \"$(cygpath -m "$PWD")/icudata.dat\"" '    .section .drectve' "    .ascii \" -export:$symbol,data\"" > icudata.S
+          gcc -shared -s -o "$icu" icudata.S
+          rm icudata.S icudata.dat
           # Point Qt at the bundled plugins and QML modules instead of /ucrt64.
           printf '[Paths]\nPrefix = .\nPlugins = .\nQmlImports = qml\n' > dist/app/qt.conf
           cp build/launcher/CorporalJackie.exe dist/
@@ -341,6 +351,21 @@ jobs:
         run: |
           if (-not $env:UPDATE_SIGNING_KEY) { Write-Host "No UPDATE_SIGNING_KEY secret: build not signed, its update package will be refused"; exit 0 }
           packaging/windows/updater/sign-manifest.ps1 -Folder dist -KeyXml $env:UPDATE_SIGNING_KEY
+
+      # The release ships a .7z (LZMA2, about 30% smaller than a zip of the
+      # same files) next to the .zip. This shows both sizes on every build.
+      - name: Compare download sizes
+        shell: pwsh
+        run: |
+          Push-Location dist
+          7z a -tzip -mx=9 ..\size-check.zip . | Out-Null
+          7z a -t7z -m0=lzma2 -mx=9 -ms=on ..\size-check.7z . | Out-Null
+          Pop-Location
+          foreach ($f in 'size-check.zip', 'size-check.7z') {
+            "{0}: {1:N1} MB" -f $f, ((Get-Item $f).Length / 1MB)
+          }
+          7z t size-check.7z | Select-Object -Last 3
+          Remove-Item size-check.zip, size-check.7z
 
       - uses: actions/upload-artifact@v7
         with:
@@ -406,6 +431,7 @@ jobs:
         env:
           GALLIUM_DRIVER: llvmpipe
           CJ_MPV_OPTS: gpu-dumb-mode=yes
+          CJ_SMOKE_ICU: "1"  # this package has trimmed ICU data
         run: |
           $env:PATH = "$env:SystemRoot\system32;$env:SystemRoot"
           $clip = Resolve-Path tests\data\testsrc-10s.mkv
@@ -631,9 +657,25 @@ jobs:
                   "$contents/PlugIns/quick/libqtquickcontrols2${lower}styleimplplugin.dylib"
           done
           find "$contents/Resources/qml" -name '*.qmltypes' -type f -delete
+          # ICU's data without the parts Qt never reads (see
+          # packaging/trim-icu-data.py), as a library with the same name and versions.
+          icu=$(ls "$contents"/Frameworks/libicudata*.dylib)
+          [ "$(echo "$icu" | wc -l | tr -d ' ')" = 1 ] || { echo "expected one ICU data library, found: $icu"; exit 1; }
+          symbol=$(python3 packaging/trim-icu-data.py "$icu" "$PWD/icudata.dat")
+          id=$(otool -D "$icu" | tail -1)
+          versions=$(otool -L "$icu" | sed -n 2p)
+          compat=$(echo "$versions" | sed -E 's/.*compatibility version ([0-9.]+).*/\1/')
+          current=$(echo "$versions" | sed -E 's/.*current version ([0-9.]+).*/\1/')
+          printf '%s\n' '    .section __TEXT,__const' "    .globl _$symbol" '    .p2align 4' "_$symbol:" \
+            "    .incbin \"$PWD/icudata.dat\"" > icudata.S
+          clang -dynamiclib -o icudata.dylib icudata.S -install_name "$id" \
+            -compatibility_version "$compat" -current_version "$current"
+          mv icudata.dylib "$icu"
+          rm icudata.S icudata.dat
           codesign --force --sign - dist/CorporalJackie.app
           # The bundle ships only the cocoa platform plugin; the runner has a GUI session.
-          ./dist/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test
+          # CJ_SMOKE_ICU: also check sorting, time zones and encodings with the trimmed ICU data.
+          CJ_SMOKE_ICU=1 ./dist/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test
           # The FSR shader on Apple's OpenGL, playing the test clip.
           CJ_SMOKE_UPSCALER=fsr ./dist/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test tests/data/testsrc-10s.mkv
           for u in sgsr cas anime4k; do
@@ -1006,17 +1048,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.release_tag }}
         run: |
+          # The .7z is the smaller download (LZMA2). Windows 11 opens it in
+          # File Explorer; Windows 10 needs 7-Zip, so the .zip stays as well.
+          (cd windows && 7z a -t7z -m0=lzma2 -mx=9 -ms=on ../CorporalJackie-windows-x64.7z .)
           (cd windows && 7z a -tzip -mm=Deflate -mx=9 ../CorporalJackie-windows-x64.zip .)
           cat > notes.md <<EOF
           Corporal Jackie $TAG, a hobby media player (GPL-3.0). Commit ${GITHUB_SHA::7}.
 
           - **Not code-signed.** Windows SmartScreen and macOS Gatekeeper will warn on first run. Updates are manual: download the new build.
-          - **Windows:** unzip CorporalJackie-windows-x64.zip and run CorporalJackie.exe.
+          - **Windows:** extract CorporalJackie-windows-x64.7z (the smaller download; Windows 11 opens it, Windows 10 needs 7-Zip) or CorporalJackie-windows-x64.zip, then run CorporalJackie.exe.
           - **macOS (Apple silicon):** unzip CorporalJackie-macos-arm64.zip, then right-click the app and choose Open the first time.
           - Playing torrents and uploading to other peers are off until you turn them on. Two add-ons come installed: WikiMaze and Public Domain Movies. Nothing contacts them, the DHT or open trackers until you answer the first-run screen. What the app sends and keeps: docs/PRIVACY.md.
           - Corporal Jackie does not provide, host or sell any movies or shows. Play only what you have the right to watch, and share only what you have the right to share: docs/COPYRIGHT_POLICY.md. Not affiliated with Stremio.
           EOF
-          gh release create "$TAG" CorporalJackie-windows-x64.zip macos/CorporalJackie-macos-arm64.zip \
+          gh release create "$TAG" CorporalJackie-windows-x64.7z CorporalJackie-windows-x64.zip macos/CorporalJackie-macos-arm64.zip \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Corporal Jackie $TAG" --notes-file notes.md
       - name: Unpublish the older release
         if: inputs.unpublish_tag != ''

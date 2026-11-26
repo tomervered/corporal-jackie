@@ -7,3 +7,4 @@ CMakeUserPresets.json
 .idea/
 .deps/
 .ccache/
+__pycache__/
