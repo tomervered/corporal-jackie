@@ -90,6 +90,56 @@ TorrentTransport::Stream* takeStream(void* cookie)
     return s;
 }
 
+// The five functions mpv calls on an open torrent stream. mpv calls them on
+// its own threads, and each gets the stream's cookie (see giveStreamToMpv).
+
+// Copies up to `nbytes` from the current position into `buffer`. Waits for
+// the pieces to download if needed. Returns the bytes copied, or -1.
+int64_t readFromStream(void* cookie, char* buffer, uint64_t nbytes)
+{
+    TorrentTransport::Stream* stream = streamOf(cookie);
+    const qint64 n = stream->handle->read(stream->position, buffer, qint64(nbytes));
+    if (n == StreamHandle::kTorrentError && !stream->errorReported) {
+        // A torrent error mid-play (a full disk): mpv would just see the
+        // stream end, so say why.
+        stream->errorReported = true;
+        emit stream->transport->openFailed(PlaybackError::StreamFailed,
+                                           TorrentTransport::tr("The torrent stopped with an error."), stream->url);
+    }
+    if (n < 0)
+        return -1;  // cancelled, closed or a torrent error
+    stream->position += n;
+    return n;
+}
+
+// Moves to `offset`. Nothing downloads here: the next read moves the
+// download window.
+int64_t seekStream(void* cookie, int64_t offset)
+{
+    if (offset < 0)
+        return MPV_ERROR_GENERIC;
+    streamOf(cookie)->position = offset;
+    return offset;
+}
+
+int64_t streamSize(void* cookie)
+{
+    return streamOf(cookie)->handle->size();
+}
+
+void closeStream(void* cookie)
+{
+    delete takeStream(cookie);
+}
+
+// Makes a read that is waiting for pieces give up. May come after
+// closeStream, so it looks the cookie up instead of trusting it.
+void cancelStream(void* cookie)
+{
+    if (const std::shared_ptr<StreamHandle> handle = handleOf(cookie))
+        handle->cancel();
+}
+
 } // namespace
 
 TorrentTransport::TorrentTransport(const BrokerSettings& settings, QObject* parent)
@@ -238,6 +288,8 @@ int TorrentTransport::openCallback(void* self, char* uri, mpv_stream_cb_info* in
     return static_cast<TorrentTransport*>(self)->open(uri, info);
 }
 
+// mpv calls this when it opens a torrent://<info hash>/<file index> URL.
+// Returns 0 once `info` holds a stream, or an mpv error code.
 int TorrentTransport::open(const char* uri, mpv_stream_cb_info* info)
 {
     const QUrl url(QString::fromUtf8(uri));
@@ -246,35 +298,54 @@ int TorrentTransport::open(const char* uri, mpv_stream_cb_info* info)
         qCWarning(lcTransports) << "Not a torrent stream URL:" << uri;
         return MPV_ERROR_LOADING_FAILED;
     }
+    // No file number means "the largest file" (-1).
     bool ok = true;
     const QString path = url.path().mid(1);
     const int fileIndex = path.isEmpty() ? -1 : path.toInt(&ok);
     if (!ok)
         return MPV_ERROR_LOADING_FAILED;
-    bool allowed = false;
-    {
-        std::lock_guard lock(m_brokerMutex);
-        allowed = m_settings.torrents;
-    }
-    if (!allowed) {
-        // Before broker(): the engine must not start, and no peer is called.
+
+    // Checked before broker(): with torrents off, the engine must not start
+    // and no peer is called.
+    if (!torrentsAllowed()) {
         qCInfo(lcTransports) << "Torrent playback is off; not opening" << hash;
-        QUrl current;
-        {
-            std::lock_guard lock(m_mutex);
-            if (hash == m_currentHash)
-                current = m_currentUrl;
-        }
-        if (!current.isEmpty())
+        if (const QUrl current = currentUrlFor(hash); !current.isEmpty())
             emit openFailed(PlaybackError::TorrentsOff, tr("Torrent playback is off."), current);
         return MPV_ERROR_LOADING_FAILED;
     }
 
+    BrokerError error = BrokerError::None;
+    const std::shared_ptr<StreamHandle> handle = openWithBroker(hash, fileIndex, &error);
+    if (!handle) {
+        reportOpenFailure(hash, fileIndex, error);
+        return error == BrokerError::NoSuchFile || error == BrokerError::InvalidUri ? MPV_ERROR_UNKNOWN_FORMAT
+                                                                                    : MPV_ERROR_LOADING_FAILED;
+    }
+
+    giveStreamToMpv(handle, url, info);
+    qCInfo(lcTransports).noquote() << "Streaming" << handle->fileName() << "to mpv";
+    return 0;
+}
+
+bool TorrentTransport::torrentsAllowed()
+{
+    std::lock_guard lock(m_brokerMutex);
+    return m_settings.torrents;
+}
+
+QUrl TorrentTransport::currentUrlFor(const QString& hash) const
+{
+    std::lock_guard lock(m_mutex);
+    return hash == m_currentHash ? m_currentUrl : QUrl();
+}
+
+std::shared_ptr<StreamHandle> TorrentTransport::openWithBroker(const QString& hash, int fileIndex, BrokerError* error)
+{
     OpenRequest request;
     quint64 generation = 0;
     {
         std::lock_guard lock(m_mutex);
-        request.uri = m_requests.value(hash, hash);
+        request.uri = m_requests.value(hash, hash);  // the magnet link, if the user gave one
         request.fileIndex = fileIndex;
         if (hash == m_currentHash)
             request.durationSeconds = m_duration;
@@ -291,73 +362,52 @@ int TorrentTransport::open(const char* uri, mpv_stream_cb_info* info)
         std::lock_guard lock(m_mutex);
         return m_currentHash != hash;
     };
-    BrokerError error = BrokerError::None;
-    std::shared_ptr<StreamHandle> handle = m_closing ? nullptr : broker().open(request, &error, cancelled);
-    {
-        std::lock_guard lock(m_mutex);
-        if (--m_opening[hash] <= 0)
-            m_opening.remove(hash);
-        if (handle)
-            m_handles.push_back(handle);
-        m_handles.erase(std::remove_if(m_handles.begin(), m_handles.end(),
-                                       [](const std::weak_ptr<StreamHandle>& w) { return w.expired(); }),
-                        m_handles.end());
-    }
-    if (!handle) {
-        qCWarning(lcTransports) << "Opening the torrent failed:" << int(error);
-        QUrl current;
-        {
-            std::lock_guard lock(m_mutex);
-            // Only for the file being played: an earlier episode of the
-            // same torrent failing is old news.
-            if (hash == m_currentHash && (fileIndexOf(m_currentUrl) < 0 || fileIndexOf(m_currentUrl) == fileIndex))
-                current = m_currentUrl;
-        }
-        // Cancelled or closed means the user moved on: nothing to show.
-        if (!current.isEmpty() && error == BrokerError::MetadataTimeout)
-            emit openFailed(PlaybackError::NoPeers, tr("Nobody sharing this torrent was found in time."), current);
-        else if (!current.isEmpty() && error == BrokerError::TorrentError)
-            emit openFailed(PlaybackError::StreamFailed, tr("The torrent stopped with an error."), current);
-        return error == BrokerError::NoSuchFile || error == BrokerError::InvalidUri ? MPV_ERROR_UNKNOWN_FORMAT
-                                                                                    : MPV_ERROR_LOADING_FAILED;
-    }
+    std::shared_ptr<StreamHandle> handle = m_closing ? nullptr : broker().open(request, error, cancelled);
 
+    std::lock_guard lock(m_mutex);
+    if (--m_opening[hash] <= 0)
+        m_opening.remove(hash);
+    if (handle)
+        m_handles.push_back(handle);
+    // Forget handles mpv has closed since.
+    m_handles.erase(std::remove_if(m_handles.begin(), m_handles.end(),
+                                   [](const std::weak_ptr<StreamHandle>& w) { return w.expired(); }),
+                    m_handles.end());
+    return handle;
+}
+
+void TorrentTransport::reportOpenFailure(const QString& hash, int fileIndex, BrokerError error)
+{
+    qCWarning(lcTransports) << "Opening the torrent failed:" << int(error);
+    // Only for the file being played: an earlier episode of the same torrent
+    // failing is old news. Cancelled or closed means the user moved on:
+    // nothing to show either.
+    const QUrl current = currentUrlFor(hash);
+    if (current.isEmpty())
+        return;
+    const int currentFile = fileIndexOf(current);  // -1: the largest
+    if (currentFile >= 0 && currentFile != fileIndex)
+        return;
+    if (error == BrokerError::MetadataTimeout)
+        emit openFailed(PlaybackError::NoPeers, tr("Nobody sharing this torrent was found in time."), current);
+    else if (error == BrokerError::TorrentError)
+        emit openFailed(PlaybackError::StreamFailed, tr("The torrent stopped with an error."), current);
+}
+
+void TorrentTransport::giveStreamToMpv(const std::shared_ptr<StreamHandle>& handle, const QUrl& url,
+                                       mpv_stream_cb_info* info)
+{
     // The cookie is a number, not the Stream: mpv can call cancel_fn after
     // close_fn. Its stream_cb frees the cancel hook only after close_fn
     // returns, and the core thread can trigger it in between when the next
     // file starts. A pointer would be freed by then (the macOS crash in
     // StreamHandle::cancel); a number that is gone from the table is ignored.
     info->cookie = reinterpret_cast<void*>(addStream(new Stream{handle, 0, this, url}));
-    info->read_fn = [](void* cookie, char* buf, uint64_t nbytes) -> int64_t {
-        Stream* s = streamOf(cookie);
-        const qint64 n = s->handle->read(s->position, buf, qint64(nbytes));
-        if (n == -2 && !s->errorReported) {
-            // A torrent error mid-play (a full disk): mpv would just see the
-            // stream end, so say why.
-            s->errorReported = true;
-            emit s->transport->openFailed(PlaybackError::StreamFailed,
-                                          TorrentTransport::tr("The torrent stopped with an error."), s->url);
-        }
-        if (n < 0)
-            return -1;  // cancelled, closed or a torrent error
-        s->position += n;
-        return n;
-    };
-    info->seek_fn = [](void* cookie, int64_t offset) -> int64_t {
-        Stream* s = streamOf(cookie);
-        if (offset < 0)
-            return MPV_ERROR_GENERIC;
-        s->position = offset;  // the next read moves the download window
-        return offset;
-    };
-    info->size_fn = [](void* cookie) -> int64_t { return streamOf(cookie)->handle->size(); };
-    info->close_fn = [](void* cookie) { delete takeStream(cookie); };
-    info->cancel_fn = [](void* cookie) {
-        if (const std::shared_ptr<StreamHandle> h = handleOf(cookie))
-            h->cancel();
-    };
-    qCInfo(lcTransports).noquote() << "Streaming" << handle->fileName() << "to mpv";
-    return 0;
+    info->read_fn = readFromStream;
+    info->seek_fn = seekStream;
+    info->size_fn = streamSize;
+    info->close_fn = closeStream;
+    info->cancel_fn = cancelStream;
 }
 
 // --- Status for the UI -----------------------------------------------------------

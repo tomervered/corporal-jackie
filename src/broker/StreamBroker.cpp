@@ -321,9 +321,9 @@ qint64 StreamHandle::read(qint64 offset, char* buffer, qint64 length)
     Reader& r = *m_reader;
     Torrent& t = *m_torrent;
     if (r.cancelled || r.closed)
-        return -1;
+        return kCancelled;
     if (offset < 0 || length < 0)
-        return -2;
+        return kTorrentError;
     if (offset >= r.fileSize || length == 0)
         return 0;
 
@@ -352,9 +352,9 @@ qint64 StreamHandle::read(qint64 offset, char* buffer, qint64 length)
         if (w == Wait::Done)
             w = waitForBytes(t, lock, piece, stopped);
         if (w == Wait::Stopped)
-            return -1;
+            return kCancelled;
         if (w == Wait::Failed)
-            return -2;
+            return kTorrentError;
         if (w == Wait::Done)
             break;
         m_engine->schedule(t, true);  // dropped: fetch it again, and wait as before
