@@ -292,6 +292,16 @@ jobs:
           # Keep debugging symbols in the build used by tests. These two
           # libraries are built here and have no vendor signature to preserve.
           strip --strip-unneeded dist/app/libmpv-*.dll dist/app/libplacebo-*.dll
+          # ICU's data without the parts Qt never reads (32 MB -> 15 MB, see
+          # packaging/trim-icu-data.py), wrapped in a DLL of the same name.
+          icu=$(ls dist/app/libicudt*.dll)
+          [ "$(echo "$icu" | wc -l)" = 1 ] || { echo "expected one ICU data DLL, found: $icu"; exit 1; }
+          symbol=$(python3 packaging/trim-icu-data.py "$icu" icudata.dat)
+          # The assembler is a Windows program: give it a Windows path.
+          printf '%s\n' '    .section .rdata,"dr"' "    .globl $symbol" '    .balign 16' "$symbol:" \
+            "    .incbin \"$(cygpath -m "$PWD")/icudata.dat\"" '    .section .drectve' "    .ascii \" -export:$symbol,data\"" > icudata.S
+          gcc -shared -s -o "$icu" icudata.S
+          rm icudata.S icudata.dat
           # Point Qt at the bundled plugins and QML modules instead of /ucrt64.
           printf '[Paths]\nPrefix = .\nPlugins = .\nQmlImports = qml\n' > dist/app/qt.conf
           cp build/launcher/CorporalJackie.exe dist/
@@ -406,6 +416,7 @@ jobs:
         env:
           GALLIUM_DRIVER: llvmpipe
           CJ_MPV_OPTS: gpu-dumb-mode=yes
+          CJ_SMOKE_ICU: "1"  # this package has trimmed ICU data
         run: |
           $env:PATH = "$env:SystemRoot\system32;$env:SystemRoot"
           $clip = Resolve-Path tests\data\testsrc-10s.mkv
@@ -631,9 +642,25 @@ jobs:
                   "$contents/PlugIns/quick/libqtquickcontrols2${lower}styleimplplugin.dylib"
           done
           find "$contents/Resources/qml" -name '*.qmltypes' -type f -delete
+          # ICU's data without the parts Qt never reads (see
+          # packaging/trim-icu-data.py), as a library with the same name and versions.
+          icu=$(ls "$contents"/Frameworks/libicudata*.dylib)
+          [ "$(echo "$icu" | wc -l | tr -d ' ')" = 1 ] || { echo "expected one ICU data library, found: $icu"; exit 1; }
+          symbol=$(python3 packaging/trim-icu-data.py "$icu" "$PWD/icudata.dat")
+          id=$(otool -D "$icu" | tail -1)
+          versions=$(otool -L "$icu" | sed -n 2p)
+          compat=$(echo "$versions" | sed -E 's/.*compatibility version ([0-9.]+).*/\1/')
+          current=$(echo "$versions" | sed -E 's/.*current version ([0-9.]+).*/\1/')
+          printf '%s\n' '    .section __TEXT,__const' "    .globl _$symbol" '    .p2align 4' "_$symbol:" \
+            "    .incbin \"$PWD/icudata.dat\"" > icudata.S
+          clang -dynamiclib -o icudata.dylib icudata.S -install_name "$id" \
+            -compatibility_version "$compat" -current_version "$current"
+          mv icudata.dylib "$icu"
+          rm icudata.S icudata.dat
           codesign --force --sign - dist/CorporalJackie.app
           # The bundle ships only the cocoa platform plugin; the runner has a GUI session.
-          ./dist/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test
+          # CJ_SMOKE_ICU: also check sorting, time zones and encodings with the trimmed ICU data.
+          CJ_SMOKE_ICU=1 ./dist/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test
           # The FSR shader on Apple's OpenGL, playing the test clip.
           CJ_SMOKE_UPSCALER=fsr ./dist/CorporalJackie.app/Contents/MacOS/CorporalJackie --smoke-test tests/data/testsrc-10s.mkv
           for u in sgsr cas anime4k; do

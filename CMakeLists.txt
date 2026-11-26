@@ -39,6 +39,13 @@ if(WIN32)
     add_compile_definitions(BOOST_ASIO_DISABLE_IOCP FD_SETSIZE=1024)
 endif()
 
+# One section per function and per variable, so the linker's --gc-sections
+# (src/app/CMakeLists.txt) can drop the ones nothing calls. macOS's linker
+# does this per symbol already.
+if(MINGW)
+    add_compile_options("$<$<CONFIG:Release>:-ffunction-sections;-fdata-sections>")
+endif()
+
 # Our own code only: the dependencies are found as installed packages, and
 # Qt's headers are system headers, so their warnings do not show.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

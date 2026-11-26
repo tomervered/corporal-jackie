@@ -14,6 +14,7 @@
 #include "StremioAdapter.h"
 #include "TorrentTransport.h"
 
+#include <QCollator>
 #include <QCommandLineParser>
 #include <QDir>
 #include <QGuiApplication>
@@ -24,6 +25,8 @@
 #include <QQuickWindow>
 #include <QSslSocket>
 #include <QStandardPaths>
+#include <QStringDecoder>
+#include <QTimeZone>
 #include <QTimer>
 #ifdef Q_OS_WIN
 #  include <QtGui/qpa/qplatformwindow_p.h>
@@ -31,6 +34,28 @@
 #include <clocale>
 #include <exception>
 #include <memory>
+
+namespace {
+
+// The Windows and macOS packages ship a trimmed copy of ICU's data
+// (packaging/trim-icu-data.py). This checks the three things Qt uses it for.
+// Empty when they all work, else what broke.
+QString icuProblem()
+{
+    QCollator german{QLocale(QLocale::German)};
+    if (german.compare(QStringLiteral("\u00e4"), QStringLiteral("z")) >= 0)
+        return QStringLiteral("sorting (German \u00e4 after z)");
+    const QTimeZone berlin(QByteArrayLiteral("Europe/Berlin"));
+    if (!berlin.isValid() || berlin.displayName(QTimeZone::StandardTime, QTimeZone::LongName, QLocale(QLocale::German)).isEmpty())
+        return QStringLiteral("time zones (no name for Europe/Berlin)");
+    QStringDecoder hebrew("windows-1255");
+    const QString alef = hebrew.isValid() ? QString(hebrew("\xe0")) : QString();
+    if (alef != QChar(0x05D0))
+        return QStringLiteral("text encodings (windows-1255)");
+    return {};
+}
+
+} // namespace
 
 int main(int argc, char* argv[])
 {
@@ -198,6 +223,15 @@ int main(int argc, char* argv[])
                                   << QSslSocket::availableBackends() << ")";
                 QCoreApplication::exit(3);
                 return;
+            }
+            // CJ_SMOKE_ICU=1 on the packaged Windows and macOS builds, whose
+            // ICU data is trimmed. Linux builds may use Qt without ICU.
+            if (qEnvironmentVariableIntValue("CJ_SMOKE_ICU") == 1) {
+                if (const QString problem = icuProblem(); !problem.isEmpty()) {
+                    qCCritical(lcApp).noquote() << "Smoke test failed: ICU data is missing something Qt needs:" << problem;
+                    QCoreApplication::exit(7);
+                    return;
+                }
             }
             if (!core.storage().isOpen()) {
                 qCCritical(lcApp).noquote() << "Smoke test failed: the database did not open:" << core.storage().error();
