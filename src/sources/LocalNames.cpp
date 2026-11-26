@@ -170,15 +170,16 @@ QList<SubtitleSource> findSubtitlesFor(const QString& videoPath)
     QList<SubtitleSource> out;
 
     auto add = [&](const QFileInfo& f, const QString& rest) {
-        if (out.size() >= kMaxSubtitles)
-            return;
         SubtitleSource s;
         s.url = QUrl::fromLocalFile(f.absoluteFilePath());
         // "en", "English.forced", "2_English" -> language "en"/"English", label the rest.
+        static const QRegularExpression leadingSeparators(QStringLiteral(R"(^[ ._-]+)"));
+        static const QRegularExpression trackNumber(QStringLiteral(R"(^\d+[ _-]+)"));
+        static const QRegularExpression separator(QStringLiteral("[ ._-]"));
         QString tags = rest;
-        tags.remove(QRegularExpression(QStringLiteral(R"(^[ ._-]+)")));
-        tags.remove(QRegularExpression(QStringLiteral(R"(^\d+[ _-]+)")));
-        const QStringList parts = tags.split(QRegularExpression(QStringLiteral("[ ._-]")), Qt::SkipEmptyParts);
+        tags.remove(leadingSeparators);
+        tags.remove(trackNumber);
+        const QStringList parts = tags.split(separator, Qt::SkipEmptyParts);
         s.language = parts.value(0);
         s.label = tags.isEmpty() ? f.fileName() : tags;
         out << s;
@@ -189,6 +190,8 @@ QList<SubtitleSource> findSubtitlesFor(const QString& videoPath)
         if (!isSubtitleFile(f.fileName()) || !f.completeBaseName().startsWith(stem, Qt::CaseInsensitive))
             continue;
         add(f, f.completeBaseName().mid(stem.size()));
+        if (out.size() == kMaxSubtitles)
+            return out;
     }
 
     // A Subs/ folder: "Subs/<video name>/*.srt" for a season pack, or the
@@ -200,9 +203,12 @@ QList<SubtitleSource> findSubtitlesFor(const QString& videoPath)
         const QDir subs(sub.absoluteFilePath());
         const QDir own(subs.filePath(stem));
         if (own.exists()) {
-            for (const QFileInfo& f : own.entryInfoList(QDir::Files | QDir::Readable, QDir::Name | QDir::IgnoreCase))
+            for (const QFileInfo& f : own.entryInfoList(QDir::Files | QDir::Readable, QDir::Name | QDir::IgnoreCase)) {
                 if (isSubtitleFile(f.fileName()))
                     add(f, f.completeBaseName());
+                if (out.size() == kMaxSubtitles)
+                    return out;
+            }
             continue;
         }
         int videos = 0;
@@ -217,6 +223,8 @@ QList<SubtitleSource> findSubtitlesFor(const QString& videoPath)
                 add(f, f.completeBaseName().mid(stem.size()));
             else if (videos <= 1)
                 add(f, f.completeBaseName());
+            if (out.size() == kMaxSubtitles)
+                return out;
         }
     }
     return out;
