@@ -911,100 +911,40 @@ void MpvPlayer::processEvents()
 {
     // Clear before draining so a wake during the drain can post a follow-up.
     m_eventDrainQueued.store(false);
-    // Leave turns for input and scene updates even if mpv keeps posting.
+    // At most 32 events per call, so input and drawing get their turn even
+    // if mpv keeps posting. The rest wait for the next call, queued below.
     for (int handled = 0; m_mpv && handled < 32; ++handled) {
         mpv_event* event = mpv_wait_event(m_mpv, 0);
         switch (event->event_id) {
         case MPV_EVENT_NONE:
-            return;
+            return;  // nothing left to read
         case MPV_EVENT_PROPERTY_CHANGE:
             handleProperty(event->reply_userdata, static_cast<mpv_event_property*>(event->data));
             break;
         case MPV_EVENT_START_FILE:
-            m_loadsInFlight = qMax(0, m_loadsInFlight - 1);
-            m_fileLoaded = false;
-            ++m_presentationEpoch;
-            m_presentationGaps = 0;
-            m_longestPresentationGap = 0;
-            setState(PlaybackState::Loading);
-            emitStats();
+            onFileStarting();
             break;
         case MPV_EVENT_SEEK:
             ++m_presentationEpoch;
             break;
         case MPV_EVENT_FILE_LOADED:
-            qCInfo(lcTargets) << "File loaded";
-            m_fileLoaded = true;
-            m_eof = false;
-            for (const SubtitleSource& sub : std::exchange(m_pendingSubtitles, {}))
-                addSubtitleNow(sub, "auto");
-            applyCrop();
-            updateState();
+            onFileLoaded();
             break;
-        case MPV_EVENT_END_FILE: {
-            const auto* end = static_cast<mpv_event_end_file*>(event->data);
-            if (end->reason == MPV_END_FILE_REASON_ERROR) {
-                m_fileLoaded = false;
-                if (m_loadsInFlight == 0 && m_pendingTarget.isEmpty())
-                    setState(PlaybackState::Idle);
-                const QString message = QString::fromUtf8(mpv_error_string(end->error));
-                const PlaybackError kind = end->error == MPV_ERROR_UNKNOWN_FORMAT  ? PlaybackError::UnsupportedFile
-                                         : end->error == MPV_ERROR_LOADING_FAILED ? PlaybackError::LoadFailed
-                                                                                  : PlaybackError::Internal;
-                qCWarning(lcTargets).noquote() << "Playback failed:" << message;
-                emit errorOccurred(kind, message);
-            } else if (end->reason == MPV_END_FILE_REASON_STOP || end->reason == MPV_END_FILE_REASON_QUIT) {
-                // STOP also fires when a new file replaces this one; stay
-                // in Loading then instead of flashing Idle.
-                m_fileLoaded = false;
-                if (m_loadsInFlight == 0 && m_pendingTarget.isEmpty())
-                    setState(PlaybackState::Idle);
-            }
+        case MPV_EVENT_END_FILE:
+            onFileEnded(static_cast<mpv_event_end_file*>(event->data));
             break;
-        }
         case MPV_EVENT_COMMAND_REPLY:
-            if (const auto it = m_pendingScreenshots.find(event->reply_userdata); it != m_pendingScreenshots.end()) {
-                const QString path = it.value();
-                m_pendingScreenshots.erase(it);
-                if (event->error >= 0) {
-                    qCInfo(lcTargets).noquote() << "Screenshot saved to" << path;
-                    emit screenshotSaved(path);
-                } else {
-                    qCWarning(lcTargets) << "Screenshot failed:" << mpv_error_string(event->error);
-                }
-            }
+            onCommandFinished(event);
             break;
-        case MPV_EVENT_LOG_MESSAGE: {
-            const auto* msg = static_cast<mpv_event_log_message*>(event->data);
-            if (msg->log_level > MPV_LOG_LEVEL_WARN && !qEnvironmentVariableIsSet("CJ_MPV_LOG")) {
-                if (std::strstr(msg->text, "d3d11-dxinterop"))
-                    qCInfo(lcTargets).noquote() << QString::fromUtf8(msg->text).trimmed();
-                break;
-            }
-            const QString text = QString::fromUtf8(msg->text).trimmed();
-            qCWarning(lcTargets).noquote() << "mpv" << msg->prefix << ":" << logging::redactText(text);
-            // A graphics driver that cannot build the upscaler's shader would
-            // leave a broken picture: fall back to mpv's own scaling.
-            // (The renderer logs as "vo/..." or, through the render API, "libmpv_render".)
-            const bool problem = msg->log_level <= MPV_LOG_LEVEL_WARN;
-            if (problem && isShader(m_upscaler)
-                && (qstrncmp(msg->prefix, "vo", 2) == 0 || qstrncmp(msg->prefix, "libmpv_render", 13) == 0)
-                && (text.contains(QLatin1String("shader"), Qt::CaseInsensitive)
-                    || text.contains(QLatin1String("error"), Qt::CaseInsensitive)))
-                turnUpscalerOff(QStringLiteral("The upscaler's shader failed on this graphics driver"));
-            // The same for VSR: the driver refused it, or the filter could
-            // not start (no Direct3D 11 device: another GPU drives the window).
-            if (problem && isVsr(m_upscaler)
-                && (text.contains(QLatin1String("Super Resolution")) || text.contains(QLatin1String("d3d11vpp"))
-                    || QByteArray(msg->prefix).contains("d3d11vpp")))
-                turnUpscalerOff(QStringLiteral("Video Super Resolution failed on this graphics card"));
+        case MPV_EVENT_LOG_MESSAGE:
+            onMpvLog(static_cast<mpv_event_log_message*>(event->data));
             break;
-        }
         case MPV_EVENT_HOOK: {
+            // mpv pauses loading until the hook is answered with mpv_hook_continue.
             const auto* hook = static_cast<mpv_event_hook*>(event->data);
-            if (event->reply_userdata == kOnLoadHook)
-                onLoadHook(hook->id);
-            else {
+            if (event->reply_userdata == kOnLoadHook) {
+                onLoadHook(hook->id);  // answers the hook itself
+            } else {
                 if (event->reply_userdata == kOnPreloadedHook)
                     prepareVsrFilter();
                 mpv_hook_continue(m_mpv, hook->id);
@@ -1012,6 +952,7 @@ void MpvPlayer::processEvents()
             break;
         }
         case MPV_EVENT_CLIENT_MESSAGE: {
+            // A key binding in mpv asking the app to do something ("cj-app <action>").
             const auto* msg = static_cast<mpv_event_client_message*>(event->data);
             if (msg->num_args == 2 && qstrcmp(msg->args[0], "cj-app") == 0)
                 emit appActionRequested(QString::fromUtf8(msg->args[1]));
@@ -1027,6 +968,102 @@ void MpvPlayer::processEvents()
     }
     if (m_mpv)
         queueEventDrain();
+}
+
+void MpvPlayer::onFileStarting()
+{
+    m_loadsInFlight = qMax(0, m_loadsInFlight - 1);
+    m_fileLoaded = false;
+    ++m_presentationEpoch;
+    m_presentationGaps = 0;
+    m_longestPresentationGap = 0;
+    setState(PlaybackState::Loading);
+    emitStats();
+}
+
+void MpvPlayer::onFileLoaded()
+{
+    qCInfo(lcTargets) << "File loaded";
+    m_fileLoaded = true;
+    m_eof = false;
+    // Subtitles chosen before the file was ready.
+    for (const SubtitleSource& sub : std::exchange(m_pendingSubtitles, {}))
+        addSubtitleNow(sub, "auto");
+    applyCrop();
+    updateState();
+}
+
+void MpvPlayer::onFileEnded(const mpv_event_end_file* end)
+{
+    const bool failed = end->reason == MPV_END_FILE_REASON_ERROR;
+    const bool stopped = end->reason == MPV_END_FILE_REASON_STOP || end->reason == MPV_END_FILE_REASON_QUIT;
+    if (!failed && !stopped)
+        return;  // the end of the file or a redirect: nothing to do here
+    m_fileLoaded = false;
+    // STOP also fires when a new file replaces this one; stay in Loading
+    // then instead of flashing Idle.
+    if (m_loadsInFlight == 0 && m_pendingTarget.isEmpty())
+        setState(PlaybackState::Idle);
+    if (!failed)
+        return;
+
+    const QString message = QString::fromUtf8(mpv_error_string(end->error));
+    PlaybackError kind = PlaybackError::Internal;
+    if (end->error == MPV_ERROR_UNKNOWN_FORMAT)
+        kind = PlaybackError::UnsupportedFile;
+    else if (end->error == MPV_ERROR_LOADING_FAILED)
+        kind = PlaybackError::LoadFailed;
+    qCWarning(lcTargets).noquote() << "Playback failed:" << message;
+    emit errorOccurred(kind, message);
+}
+
+// Only screenshots ask for a reply today.
+void MpvPlayer::onCommandFinished(const mpv_event* event)
+{
+    const auto it = m_pendingScreenshots.find(event->reply_userdata);
+    if (it == m_pendingScreenshots.end())
+        return;
+    const QString path = it.value();
+    m_pendingScreenshots.erase(it);
+    if (event->error >= 0) {
+        qCInfo(lcTargets).noquote() << "Screenshot saved to" << path;
+        emit screenshotSaved(path);
+    } else {
+        qCWarning(lcTargets) << "Screenshot failed:" << mpv_error_string(event->error);
+    }
+}
+
+// mpv's own log. Warnings and errors go to our log (with private paths
+// removed); the rest only with CJ_MPV_LOG set. A warning from the renderer
+// about an upscaler turns that upscaler off.
+void MpvPlayer::onMpvLog(const mpv_event_log_message* message)
+{
+    if (message->log_level > MPV_LOG_LEVEL_WARN && !qEnvironmentVariableIsSet("CJ_MPV_LOG")) {
+        if (std::strstr(message->text, "d3d11-dxinterop"))
+            qCInfo(lcTargets).noquote() << QString::fromUtf8(message->text).trimmed();
+        return;
+    }
+    const QString text = QString::fromUtf8(message->text).trimmed();
+    qCWarning(lcTargets).noquote() << "mpv" << message->prefix << ":" << logging::redactText(text);
+    if (message->log_level > MPV_LOG_LEVEL_WARN)
+        return;
+
+    // A graphics driver that cannot build the upscaler's shader would
+    // leave a broken picture: fall back to mpv's own scaling.
+    // (The renderer logs as "vo/..." or, through the render API, "libmpv_render".)
+    const bool fromRenderer = qstrncmp(message->prefix, "vo", 2) == 0
+                              || qstrncmp(message->prefix, "libmpv_render", 13) == 0;
+    const bool aboutShader = text.contains(QLatin1String("shader"), Qt::CaseInsensitive)
+                             || text.contains(QLatin1String("error"), Qt::CaseInsensitive);
+    if (isShader(m_upscaler) && fromRenderer && aboutShader)
+        turnUpscalerOff(QStringLiteral("The upscaler's shader failed on this graphics driver"));
+
+    // The same for VSR: the driver refused it, or the filter could
+    // not start (no Direct3D 11 device: another GPU drives the window).
+    const bool aboutVsr = text.contains(QLatin1String("Super Resolution")) || text.contains(QLatin1String("d3d11vpp"))
+                          || QByteArray(message->prefix).contains("d3d11vpp");
+    if (isVsr(m_upscaler) && aboutVsr)
+        turnUpscalerOff(QStringLiteral("Video Super Resolution failed on this graphics card"));
 }
 
 void MpvPlayer::handleProperty(uint64_t id, const mpv_event_property* p)
