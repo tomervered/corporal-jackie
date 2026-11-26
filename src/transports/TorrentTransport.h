@@ -95,6 +95,15 @@ public:
 private:
     static int openCallback(void* self, char* uri, mpv_stream_cb_info* info);
     int open(const char* uri, mpv_stream_cb_info* info);
+    // The steps of open(), in order.
+    bool torrentsAllowed();
+    // The URL the player is on, if it is this torrent. Empty otherwise.
+    QUrl currentUrlFor(const QString& hash) const;
+    // Blocks until the broker has the file or gives up (no peers, cancelled).
+    std::shared_ptr<StreamHandle> openWithBroker(const QString& hash, int fileIndex, BrokerError* error);
+    // Tells the user why, when the failed open was for what they are watching.
+    void reportOpenFailure(const QString& hash, int fileIndex, BrokerError error);
+    void giveStreamToMpv(const std::shared_ptr<StreamHandle>& handle, const QUrl& url, mpv_stream_cb_info* info);
     void statusLoop();
     void pollStatus();
     bool isCurrent(const StreamHandle& h) const;

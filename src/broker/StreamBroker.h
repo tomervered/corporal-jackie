@@ -42,9 +42,13 @@ public:
     QString fileName() const;
     QString infoHash() const;
 
+    // What read() returns when it could not read.
+    static constexpr qint64 kCancelled = -1;     // cancelled or closed
+    static constexpr qint64 kTorrentError = -2;  // the torrent failed (a full disk, say)
+
     // Reads up to `length` bytes at `offset` into `buffer`. Waits until the
     // bytes are downloaded and verified. Returns the number of bytes read
-    // (0 at the end of the file), or -1 if cancelled or closed, -2 on error.
+    // (0 at the end of the file), kCancelled or kTorrentError.
     // May return fewer bytes than asked (it never crosses a piece boundary).
     qint64 read(qint64 offset, char* buffer, qint64 length);
 
