@@ -40,10 +40,10 @@ class QFile;
 
 namespace cj {
 
-class Browser;
+class CatalogBrowser;
 class Preferences;
-class Session;
-class Storage;
+class PlaybackSession;
+class LibraryDatabase;
 class TorrentDownloader;
 class TorrentTransport;
 class StreamHandle;
@@ -71,13 +71,13 @@ public:
 
     // defaultFolder: used until the person picks one (a "Corporal Jackie"
     // folder in their Downloads). `torrents` may be null (no torrent support).
-    Downloads(Storage& storage, Preferences& preferences, TorrentTransport* torrents,
+    Downloads(LibraryDatabase& storage, Preferences& preferences, TorrentTransport* torrents,
               const QString& defaultFolder, QObject* parent = nullptr);
     ~Downloads() override;
 
     // Where the Download buttons come from.
-    void setBrowser(Browser* browser) { m_browser = browser; }
-    void setSession(Session* session) { m_session = session; }
+    void setBrowser(CatalogBrowser* browser) { m_browser = browser; }
+    void setSession(PlaybackSession* session) { m_session = session; }
 
     QString folder() const;   // native separators
     bool customFolder() const { return !m_folder.isEmpty(); }
@@ -103,7 +103,7 @@ public:
     // Start saving. Each returns an empty string, or why it cannot start.
     QString start(const PlayableSource& source);
     Q_INVOKABLE QString downloadStream(int streamIndex);   // from browser.streams
-    Q_INVOKABLE QString downloadPlaying();                 // what the Session has open
+    Q_INVOKABLE QString downloadPlaying();                 // what the PlaybackSession has open
 
     Q_INVOKABLE void cancel(int id);
     // Sends pieces of this torrent to other peers, or stops. A finished
@@ -144,13 +144,13 @@ private:
     void save();   // the list, to the database
     void load();   // and back, as the app starts
 
-    Storage& m_storage;
+    LibraryDatabase& m_storage;
     Preferences& m_preferences;
     TorrentTransport* m_torrents = nullptr;
     BrokerSettings m_netSettings;
     std::unique_ptr<TorrentDownloader> m_normalEngine;   // started on first use
-    Browser* m_browser = nullptr;   // both outlive this (AppCore)
-    Session* m_session = nullptr;
+    CatalogBrowser* m_browser = nullptr;   // both outlive this (PlayerApplication)
+    PlaybackSession* m_session = nullptr;
     QString m_defaultFolder;
     QString m_folder;   // empty = default
     bool m_normal = false;

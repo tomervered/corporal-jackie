@@ -73,7 +73,7 @@ std::optional<MetaDetail> parseMeta(const QJsonObject& json);
 QList<StreamOption> parseStreams(const QJsonObject& json, const QString& addonId, const QString& addonName);
 
 // Only http and https subtitle links are kept. A subtitle file the user picks
-// on this computer comes in through Session::addExternalSubtitle instead.
+// on this computer comes in through PlaybackSession::addExternalSubtitle instead.
 QList<SubtitleSource> parseSubtitles(const QJsonObject& json);
 
 // A request header an add-on may set: a token name, and a value without

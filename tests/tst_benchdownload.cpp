@@ -13,7 +13,7 @@
 
 #include "Downloads.h"
 #include "Preferences.h"
-#include "Storage.h"
+#include "LibraryDatabase.h"
 #include "TorrentHarness.h"
 #include "TorrentTransport.h"
 
@@ -130,7 +130,7 @@ class TestBenchDownload : public QObject
     // Downloads with Corporal Jackie in this process, as the app does.
     qint64 runJackie(const QString& magnet, const QString& root, bool normal, const std::function<void()>& tick)
     {
-        Storage storage(QDir(root).filePath(QStringLiteral("db.sqlite")));
+        LibraryDatabase storage(QDir(root).filePath(QStringLiteral("db.sqlite")));
         Preferences preferences(storage, QDir(root).filePath(QStringLiteral("cache")));
         preferences.choosePrivacy(false, false, false, false, true, false);
         BrokerSettings s;

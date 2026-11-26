@@ -1,7 +1,7 @@
 find_package(Qt6 REQUIRED COMPONENTS Network OpenGL Quick)
 
 add_library(cj_targets STATIC
-    MpvTarget.cpp    MpvTarget.h
+    MpvPlayer.cpp    MpvPlayer.h
     PlayerKeyboard.cpp
     ScopedHttp.cpp   ScopedHttp.h
     MpvVideoItem.cpp MpvVideoItem.h

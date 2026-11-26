@@ -6,7 +6,7 @@
 #include "Downloads.h"
 #include "FakeHttpServer.h"
 #include "Preferences.h"
-#include "Storage.h"
+#include "LibraryDatabase.h"
 #include "TorrentDownloader.h"
 #include "TorrentHarness.h"
 #include "TorrentTransport.h"
@@ -42,7 +42,7 @@ QByteArray readAll(const QString& path)
     return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
 }
 
-// The pieces main() and AppCore put together, without a player.
+// The pieces main() and PlayerApplication put together, without a player.
 struct Rig
 {
     explicit Rig(const QString& root)
@@ -62,7 +62,7 @@ struct Rig
         return QTest::qWaitFor([&] { return item().value(QStringLiteral("state")).toString() == state; }, ms);
     }
 
-    Storage storage;
+    LibraryDatabase storage;
     Preferences preferences;
     TorrentTransport transport;
     Downloads downloads;

@@ -1,13 +1,13 @@
 #include "Downloads.h"
 
-#include "Browser.h"
+#include "CatalogBrowser.h"
 #include "Caches.h"
 #include "DownloadFiles.h"
 #include "LinkRules.h"
 #include "Logging.h"
 #include "Preferences.h"
-#include "Session.h"
-#include "Storage.h"
+#include "PlaybackSession.h"
+#include "LibraryDatabase.h"
 #include "StreamBroker.h"
 #include "TorrentDownloader.h"
 #include "TorrentTransport.h"
@@ -134,7 +134,7 @@ struct Downloads::Job
     }
 };
 
-Downloads::Downloads(Storage& storage, Preferences& preferences, TorrentTransport* torrents,
+Downloads::Downloads(LibraryDatabase& storage, Preferences& preferences, TorrentTransport* torrents,
                      const QString& defaultFolder, QObject* parent)
     : QObject(parent)
     , m_storage(storage)

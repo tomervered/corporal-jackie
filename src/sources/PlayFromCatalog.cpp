@@ -1,6 +1,6 @@
-#include "Browser.h"
+#include "CatalogBrowser.h"
 #include "Logging.h"
-#include "Session.h"
+#include "PlaybackSession.h"
 #include "StreamRanking.h"
 
 #include <QLocale>
@@ -20,7 +20,7 @@ QString sizeText(qint64 bytes)
 
 // --- Streams ----------------------------------------------------------------------
 
-void Browser::openVideo(int index)
+void CatalogBrowser::openVideo(int index)
 {
     if (!m_detail)
         return;
@@ -82,7 +82,7 @@ void Browser::openVideo(int index)
     }
 }
 
-QVariantList Browser::streams() const
+QVariantList CatalogBrowser::streams() const
 {
     QVariantList out;
     for (int i = 0; i < m_streams.size(); ++i) {
@@ -112,7 +112,7 @@ QVariantList Browser::streams() const
     return out;
 }
 
-void Browser::play(int streamIndex)
+void CatalogBrowser::play(int streamIndex)
 {
     if (streamIndex < 0 || streamIndex >= m_streams.size() || !m_session)
         return;
@@ -147,7 +147,7 @@ void Browser::play(int streamIndex)
     // as tracks to this item only.
     const QUrl playing = m_session->source();
     for (SourceAdapter* a : adaptersAskedAbout(m_streamsAdapter)) {
-        QPointer<Session> session(m_session);
+        QPointer<PlaybackSession> session(m_session);
         a->fetchSubtitles(m_streamsType, m_streamsVideoId, [session, playing](const QList<SubtitleSource>& subs) {
             if (session && !subs.isEmpty())
                 session->addSubtitleTracks(subs, playing);
@@ -157,7 +157,7 @@ void Browser::play(int streamIndex)
 
 // --- The series that is playing ------------------------------------------------
 
-QVariantList Browser::playingEpisodes() const
+QVariantList CatalogBrowser::playingEpisodes() const
 {
     QVariantList out;
     if (!m_playingShow)
@@ -171,7 +171,7 @@ QVariantList Browser::playingEpisodes() const
     return out;
 }
 
-int Browser::playingEpisodeIndex() const
+int CatalogBrowser::playingEpisodeIndex() const
 {
     if (!m_playingShow)
         return -1;
@@ -181,7 +181,7 @@ int Browser::playingEpisodeIndex() const
     return -1;
 }
 
-void Browser::openPlayingEpisode(int index)
+void CatalogBrowser::openPlayingEpisode(int index)
 {
     if (!m_playingShow || index < 0 || index >= m_playingShow->videos.size())
         return;
@@ -195,7 +195,7 @@ void Browser::openPlayingEpisode(int index)
     openVideo(index);
 }
 
-void Browser::setPlaying(const MetaPreview& item, const QString& videoId)
+void CatalogBrowser::setPlaying(const MetaPreview& item, const QString& videoId)
 {
     const quint64 gen = ++m_playingGen;
     m_playingShow.reset();

@@ -2,7 +2,7 @@
 // What the browse panel binds to: catalogs from every source adapter, the
 // items of one catalog, one item's details and episodes, and the ranked
 // stream choices for one video. Playing a choice hands its PlayableSource to
-// the Session; the panel never sees an adapter or the player.
+// the PlaybackSession; the panel never sees an adapter or the player.
 //
 // Each list is a QVariantList of plain maps, small enough for a ListView.
 // A newer request makes older answers stale: they are dropped when they
@@ -17,11 +17,11 @@
 namespace cj {
 
 class LocalLibrary;
-class Session;
+class PlaybackSession;
 class StremioAdapter;
 class WikiMazeSearch;
 
-class Browser : public QObject
+class CatalogBrowser : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QVariantList addons READ addons NOTIFY addonsChanged)
@@ -64,7 +64,7 @@ public:
     static constexpr int kHomeRows = 20;
     static constexpr int kRowItems = 30;
 
-    explicit Browser(Session* session, QObject* parent = nullptr);
+    explicit CatalogBrowser(PlaybackSession* session, QObject* parent = nullptr);
 
     // The adapters, in the order their catalogs and streams are listed.
     // v1 has the Stremio add-ons and local folders; a YouTube adapter is
@@ -144,7 +144,7 @@ public:
     Q_INVOKABLE void openPlayingEpisode(int index);
     // Something started outside the browse panel (Continue Watching) is
     // this item's video: fetch its episodes for the player. Call after the
-    // Session has the new source.
+    // PlaybackSession has the new source.
     void setPlaying(const MetaPreview& item, const QString& videoId);
 
     // For tests and the app: the current state as plain types.
@@ -164,7 +164,7 @@ signals:
     void playingShowChanged();
     // Short messages for the panel: "Example installed", "Not an add-on link".
     void notice(const QString& text, bool isError);
-    // A choice is about to be handed to the Session, then was.
+    // A choice is about to be handed to the PlaybackSession, then was.
     void aboutToPlay(const cj::PlayContext& context);
     void playStarted(const QString& title);
 
@@ -180,13 +180,13 @@ private:
         QString error;
     };
     static QVariantList rowsMap(const QList<Row>& rows);
-    void fetchRows(QList<Row>* rows, quint64* gen, const QString& search, void (Browser::*changed)());
+    void fetchRows(QList<Row>* rows, quint64* gen, const QString& search, void (CatalogBrowser::*changed)());
     void rebuildCatalogs();
     void fetchItems(bool append);
     SourceAdapter* adapterFor(const QString& id) const;
     QList<SourceAdapter*> adaptersAskedAbout(const QString& owner) const;
 
-    Session* m_session;
+    PlaybackSession* m_session;
     QList<SourceAdapter*> m_adapters;
     StremioAdapter* m_stremio = nullptr;
     LocalLibrary* m_local = nullptr;
@@ -234,7 +234,7 @@ private:
     QUrl m_playingUrl;
 
     // The series of the video that plays, and where it plays from: another
-    // source in the Session clears it.
+    // source in the PlaybackSession clears it.
     std::optional<MetaDetail> m_playingShow;
     QUrl m_playingShowUrl;
     quint64 m_playingGen = 0;

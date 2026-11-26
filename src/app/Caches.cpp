@@ -1,7 +1,7 @@
 #include "Caches.h"
 
 #include "Logging.h"
-#include "Storage.h"
+#include "LibraryDatabase.h"
 #include "StreamBroker.h"
 #include "TorrentTransport.h"
 
@@ -70,7 +70,7 @@ void ImageCacheFactory::clear()
 
 // --- Caches ----------------------------------------------------------------------------
 
-Caches::Caches(Storage& storage, TorrentTransport& torrents, const QString& imageFolder, QObject* parent)
+Caches::Caches(LibraryDatabase& storage, TorrentTransport& torrents, const QString& imageFolder, QObject* parent)
     : QObject(parent)
     , m_storage(storage)
     , m_torrents(torrents)

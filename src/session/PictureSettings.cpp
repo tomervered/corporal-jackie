@@ -1,4 +1,4 @@
-#include "Session.h"
+#include "PlaybackSession.h"
 #include "Logging.h"
 
 #include <algorithm>
@@ -39,7 +39,7 @@ QString aspectName(double ratio)
 
 } // namespace
 
-void Session::cycleAspectRatio()
+void PlaybackSession::cycleAspectRatio()
 {
     if (!hasMedia() || !require(Capability::AspectRatio, "Aspect ratio"))
         return;
@@ -48,7 +48,7 @@ void Session::cycleAspectRatio()
     emit aspectRatioChanged();
 }
 
-void Session::setAspectRatio(const QString& ratio)
+void PlaybackSession::setAspectRatio(const QString& ratio)
 {
     if (!hasMedia() || !kPictureShapes.contains(ratio) || !require(Capability::AspectRatio, "Aspect ratio"))
         return;
@@ -57,7 +57,7 @@ void Session::setAspectRatio(const QString& ratio)
     emit aspectRatioChanged();
 }
 
-void Session::setCrop(const QString& ratio)
+void PlaybackSession::setCrop(const QString& ratio)
 {
     if (!hasMedia() || !kPictureShapes.contains(ratio) || !require(Capability::Crop, "Crop"))
         return;
@@ -66,10 +66,10 @@ void Session::setCrop(const QString& ratio)
     emit cropChanged();
 }
 
-QStringList Session::aspectRatios() const { return kPictureShapes; }
-QStringList Session::crops() const { return kPictureShapes; }
+QStringList PlaybackSession::aspectRatios() const { return kPictureShapes; }
+QStringList PlaybackSession::crops() const { return kPictureShapes; }
 
-void Session::cycleCrop()
+void PlaybackSession::cycleCrop()
 {
     if (!hasMedia() || !require(Capability::Crop, "Crop"))
         return;
@@ -78,7 +78,7 @@ void Session::cycleCrop()
     emit cropChanged();
 }
 
-void Session::setEqualizer(const QString& name, int value)
+void PlaybackSession::setEqualizer(const QString& name, int value)
 {
     if (!require(Capability::VideoEqualizer, "Video equalizer"))
         return;
@@ -97,7 +97,7 @@ void Session::setEqualizer(const QString& name, int value)
     emit equalizerChanged();
 }
 
-void Session::resetEqualizer()
+void PlaybackSession::resetEqualizer()
 {
     if (!require(Capability::VideoEqualizer, "Video equalizer") || m_eq == VideoEqualizer{})
         return;
@@ -106,7 +106,7 @@ void Session::resetEqualizer()
     emit equalizerChanged();
 }
 
-void Session::setFullScreen(bool on)
+void PlaybackSession::setFullScreen(bool on)
 {
     if (on == m_fullScreen)
         return;
@@ -115,7 +115,7 @@ void Session::setFullScreen(bool on)
     emit fullScreenChanged();
 }
 
-bool Session::keyEvent(int key, int modifiers, const QString& text, bool pressed)
+bool PlaybackSession::keyEvent(int key, int modifiers, const QString& text, bool pressed)
 {
     if (!m_target->supports(Capability::NativeKeys))
         return false;
@@ -124,55 +124,55 @@ bool Session::keyEvent(int key, int modifiers, const QString& text, bool pressed
 
 // The target changed a setting by itself (mpv's own keys did): take its word
 // for it, without sending it back.
-void Session::applyTargetSetting(const QString& name, const QVariant& value)
+void PlaybackSession::applyTargetSetting(const QString& name, const QVariant& value)
 {
-    const auto update = [](auto& field, auto v, auto signal, Session* self) {
+    const auto update = [](auto& field, auto v, auto signal, PlaybackSession* self) {
         if (field == v)
             return;
         field = v;
         emit (self->*signal)();
     };
     if (name == QLatin1String("speed"))
-        update(m_speed, value.toDouble(), &Session::speedChanged, this);
+        update(m_speed, value.toDouble(), &PlaybackSession::speedChanged, this);
     else if (name == QLatin1String("subtitleDelay"))
-        update(m_subtitleDelay, value.toDouble(), &Session::subtitleDelayChanged, this);
+        update(m_subtitleDelay, value.toDouble(), &PlaybackSession::subtitleDelayChanged, this);
     else if (name == QLatin1String("audioDelay"))
-        update(m_audioDelay, value.toDouble(), &Session::audioDelayChanged, this);
+        update(m_audioDelay, value.toDouble(), &PlaybackSession::audioDelayChanged, this);
     else if (name == QLatin1String("subtitleScale"))
-        update(m_subtitleScale, value.toDouble(), &Session::subtitleScaleChanged, this);
+        update(m_subtitleScale, value.toDouble(), &PlaybackSession::subtitleScaleChanged, this);
     else if (name == QLatin1String("abLoopA"))
-        update(m_abA, value.toDouble() < 0 ? -1.0 : value.toDouble(), &Session::abLoopChanged, this);
+        update(m_abA, value.toDouble() < 0 ? -1.0 : value.toDouble(), &PlaybackSession::abLoopChanged, this);
     else if (name == QLatin1String("abLoopB"))
-        update(m_abB, value.toDouble() < 0 ? -1.0 : value.toDouble(), &Session::abLoopChanged, this);
+        update(m_abB, value.toDouble() < 0 ? -1.0 : value.toDouble(), &PlaybackSession::abLoopChanged, this);
     else if (name == QLatin1String("aspectRatio"))
-        update(m_aspect, aspectName(value.toDouble()), &Session::aspectRatioChanged, this);
+        update(m_aspect, aspectName(value.toDouble()), &PlaybackSession::aspectRatioChanged, this);
     else if (name == QLatin1String("brightness"))
-        update(m_eq.brightness, value.toInt(), &Session::equalizerChanged, this);
+        update(m_eq.brightness, value.toInt(), &PlaybackSession::equalizerChanged, this);
     else if (name == QLatin1String("contrast"))
-        update(m_eq.contrast, value.toInt(), &Session::equalizerChanged, this);
+        update(m_eq.contrast, value.toInt(), &PlaybackSession::equalizerChanged, this);
     else if (name == QLatin1String("saturation"))
-        update(m_eq.saturation, value.toInt(), &Session::equalizerChanged, this);
+        update(m_eq.saturation, value.toInt(), &PlaybackSession::equalizerChanged, this);
     else if (name == QLatin1String("gamma"))
-        update(m_eq.gamma, value.toInt(), &Session::equalizerChanged, this);
+        update(m_eq.gamma, value.toInt(), &PlaybackSession::equalizerChanged, this);
     else if (name == QLatin1String("hue"))
-        update(m_eq.hue, value.toInt(), &Session::equalizerChanged, this);
+        update(m_eq.hue, value.toInt(), &PlaybackSession::equalizerChanged, this);
     else if (name == QLatin1String("hardwareDecoding"))
-        update(m_hardwareDecoding, value.toBool(), &Session::hardwareDecodingChanged, this);
+        update(m_hardwareDecoding, value.toBool(), &PlaybackSession::hardwareDecodingChanged, this);
     else if (name == QLatin1String("fullScreen"))
-        update(m_fullScreen, value.toBool(), &Session::fullScreenChanged, this);
+        update(m_fullScreen, value.toBool(), &PlaybackSession::fullScreenChanged, this);
     else if (name == QLatin1String("upscaler")) {
         const QString wanted = value.toString();
         Upscaler u = Upscaler::Off;
         for (const Upscaler candidate : {Upscaler::Sgsr, Upscaler::Cas, Upscaler::Fsr, Upscaler::Anime4k, Upscaler::NvidiaVsr, Upscaler::IntelVsr, Upscaler::MetalFx})
             if (upscalerName(candidate) == wanted)
                 u = candidate;
-        update(m_upscaler, u, &Session::upscalerChanged, this);
+        update(m_upscaler, u, &PlaybackSession::upscalerChanged, this);
     }
     else
         qCInfo(lcSession) << "Unknown setting from the target:" << name;
 }
 
-void Session::setHardwareDecoding(bool enabled)
+void PlaybackSession::setHardwareDecoding(bool enabled)
 {
     if (!require(Capability::HardwareDecoding, "Hardware decoding switch") || enabled == m_hardwareDecoding)
         return;
@@ -198,7 +198,7 @@ constexpr UpscalerInfo kUpscalers[] = {
 };
 } // namespace
 
-QString Session::upscalerName(Upscaler u)
+QString PlaybackSession::upscalerName(Upscaler u)
 {
     for (const UpscalerInfo& info : kUpscalers)
         if (info.upscaler == u)
@@ -206,7 +206,7 @@ QString Session::upscalerName(Upscaler u)
     return QStringLiteral("off");
 }
 
-QStringList Session::upscalers() const
+QStringList PlaybackSession::upscalers() const
 {
     QStringList names{QStringLiteral("off")};
     for (const UpscalerInfo& info : kUpscalers)
@@ -215,7 +215,7 @@ QStringList Session::upscalers() const
     return names;
 }
 
-void Session::setUpscaler(const QString& name)
+void PlaybackSession::setUpscaler(const QString& name)
 {
     Upscaler wanted = Upscaler::Off;
     if (name != QLatin1String("off")) {
@@ -236,7 +236,7 @@ void Session::setUpscaler(const QString& name)
     emit upscalerChanged();
 }
 
-void Session::setUpscaleHeight(int height)
+void PlaybackSession::setUpscaleHeight(int height)
 {
     if (height != 0 && (height < 480 || height > 4320)) {
         qCInfo(lcSession) << "Upscale height out of range:" << height;
@@ -251,7 +251,7 @@ void Session::setUpscaleHeight(int height)
     emit upscalerChanged();
 }
 
-void Session::setIntelVsrCopyback(bool on)
+void PlaybackSession::setIntelVsrCopyback(bool on)
 {
     if (on == m_intelVsrCopyback)
         return;

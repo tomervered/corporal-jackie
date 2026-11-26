@@ -1,8 +1,8 @@
 #include "MpvVideoItem.h"
 
 #include "Logging.h"
-#include "MpvTarget.h"
-#include "Session.h"
+#include "MpvPlayer.h"
+#include "PlaybackSession.h"
 
 #include <QElapsedTimer>
 #include <QOpenGLContext>
@@ -44,7 +44,7 @@ public:
     void synchronize(QQuickFramebufferObject* item) override
     {
         auto* video = static_cast<MpvVideoItem*>(item);
-        MpvTarget* t = video->target();
+        MpvPlayer* t = video->target();
         const auto* session = video->session();
         const bool hasVideoOutput = t && session && (session->hasMedia() || session->loading());
         if (!m_ctx && hasVideoOutput)
@@ -223,7 +223,7 @@ private:
     }
 #endif
 
-    void createContext(MpvVideoItem* item, MpvTarget* player)
+    void createContext(MpvVideoItem* item, MpvPlayer* player)
     {
         mpv_opengl_init_params gl{getProcAddress, nullptr};
         mpv_render_param params[] = {
@@ -249,7 +249,7 @@ private:
     uint64_t m_pendingLoadId = 0;
     uint64_t m_reportedLoadId = 0;
     // Copied from the target in synchronize().
-    QPointer<MpvTarget> m_target;
+    QPointer<MpvPlayer> m_target;
     QMetaObject::Connection m_swapConnection;
     QElapsedTimer m_lastSwap;
     uint64_t m_presentationEpoch = 0;
@@ -272,7 +272,7 @@ MpvVideoItem::MpvVideoItem(QQuickItem* parent)
 {
 }
 
-void MpvVideoItem::setSession(Session* session)
+void MpvVideoItem::setSession(PlaybackSession* session)
 {
     if (session == m_session)
         return;
@@ -280,9 +280,9 @@ void MpvVideoItem::setSession(Session* session)
     QObject::disconnect(m_stateChanged);
     m_session = session;
     if (auto* player = target())
-        m_loadRequested = connect(player, &MpvTarget::renderLoadRequested, this, &MpvVideoItem::update);
+        m_loadRequested = connect(player, &MpvPlayer::renderLoadRequested, this, &MpvVideoItem::update);
     if (session)
-        m_stateChanged = connect(session, &Session::stateChanged, this, &MpvVideoItem::update);
+        m_stateChanged = connect(session, &PlaybackSession::stateChanged, this, &MpvVideoItem::update);
     emit sessionChanged();
     update();
 }
@@ -296,9 +296,9 @@ void MpvVideoItem::setCovered(bool covered)
     update();
 }
 
-MpvTarget* MpvVideoItem::target() const
+MpvPlayer* MpvVideoItem::target() const
 {
-    return m_session ? qobject_cast<MpvTarget*>(m_session->target()) : nullptr;
+    return m_session ? qobject_cast<MpvPlayer*>(m_session->target()) : nullptr;
 }
 
 QQuickFramebufferObject::Renderer* MpvVideoItem::createRenderer() const

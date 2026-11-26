@@ -1,4 +1,4 @@
-#include "Session.h"
+#include "PlaybackSession.h"
 
 #include "Logging.h"
 
@@ -9,13 +9,13 @@
 #include <algorithm>
 
 namespace cj {
-Session::Session(PlaybackTarget* target, QObject* parent)
+PlaybackSession::PlaybackSession(PlaybackTarget* target, QObject* parent)
     : QObject(parent)
     , m_target(target)
 {
     Q_ASSERT(target);
     m_resumeTimer.setInterval(5000);
-    connect(&m_resumeTimer, &QTimer::timeout, this, &Session::emitResumePoint);
+    connect(&m_resumeTimer, &QTimer::timeout, this, &PlaybackSession::emitResumePoint);
 
     connect(target, &PlaybackTarget::stateChanged, this, [this](PlaybackState s) {
         setState(s);
@@ -70,8 +70,8 @@ Session::Session(PlaybackTarget* target, QObject* parent)
             m_stats.insert(it.key(), it.value());
         emit statsChanged();
     });
-    connect(target, &PlaybackTarget::screenshotSaved, this, &Session::screenshotSaved);
-    connect(target, &PlaybackTarget::settingChanged, this, &Session::applyTargetSetting);
+    connect(target, &PlaybackTarget::screenshotSaved, this, &PlaybackSession::screenshotSaved);
+    connect(target, &PlaybackTarget::settingChanged, this, &PlaybackSession::applyTargetSetting);
     connect(target, &PlaybackTarget::upscalerStatusChanged, this, [this](const QString& status, bool problem) {
         if (status == m_upscalerStatus && problem == m_upscalerProblem)
             return;
@@ -91,20 +91,20 @@ Session::Session(PlaybackTarget* target, QObject* parent)
     qCInfo(lcSession).noquote() << "Session using target" << target->name();
 }
 
-bool Session::hasMedia() const
+bool PlaybackSession::hasMedia() const
 {
     return m_state == PlaybackState::Playing || m_state == PlaybackState::Paused
         || m_state == PlaybackState::Ended;
 }
 
-bool Session::supports(const QString& capability) const
+bool PlaybackSession::supports(const QString& capability) const
 {
     bool ok = false;
     const int value = QMetaEnum::fromType<Capability>().keyToValue(capability.toLatin1(), &ok);
     return ok && m_target->supports(static_cast<Capability>(value));
 }
 
-bool Session::require(Capability c, const char* what) const
+bool PlaybackSession::require(Capability c, const char* what) const
 {
     if (m_target->supports(c))
         return true;
@@ -112,7 +112,7 @@ bool Session::require(Capability c, const char* what) const
     return false;
 }
 
-void Session::setState(PlaybackState s)
+void PlaybackSession::setState(PlaybackState s)
 {
     if (s == m_state)
         return;
@@ -127,7 +127,7 @@ void Session::setState(PlaybackState s)
     emit stateChanged();
 }
 
-void Session::emitResumePoint()
+void PlaybackSession::emitResumePoint()
 {
     if (m_source.url.isEmpty() || !hasMedia())
         return;
@@ -136,7 +136,7 @@ void Session::emitResumePoint()
 
 // --- Items -------------------------------------------------------------------
 
-std::optional<PlayableSource> Session::resolve(const QString& input) const
+std::optional<PlayableSource> PlaybackSession::resolve(const QString& input) const
 {
     for (const SourceResolver& resolver : m_resolvers)
         if (auto source = resolver(input)) {
@@ -147,7 +147,7 @@ std::optional<PlayableSource> Session::resolve(const QString& input) const
     return std::nullopt;
 }
 
-void Session::open(const QUrl& url, double startSeconds)
+void PlaybackSession::open(const QUrl& url, double startSeconds)
 {
     if (!url.isValid() || url.isEmpty())
         return;
@@ -161,7 +161,7 @@ void Session::open(const QUrl& url, double startSeconds)
          startSeconds);
 }
 
-void Session::openPath(const QString& pathOrUrl, double startSeconds)
+void PlaybackSession::openPath(const QString& pathOrUrl, double startSeconds)
 {
     // Magnet links and info hashes have no "://", so ask the resolvers first.
     if (auto source = resolve(pathOrUrl.trimmed())) {
@@ -176,7 +176,7 @@ void Session::openPath(const QString& pathOrUrl, double startSeconds)
         open(QUrl::fromLocalFile(QFileInfo(pathOrUrl).absoluteFilePath()), startSeconds);
 }
 
-bool Session::playSource(const PlayableSource& source, double startSeconds, const std::function<void()>& onAccepted)
+bool PlaybackSession::playSource(const PlayableSource& source, double startSeconds, const std::function<void()>& onAccepted)
 {
     // A magnet link from an add-on still goes through the torrent resolver;
     // everything else the adapter said (title, subtitles, headers) is kept.
@@ -193,7 +193,7 @@ bool Session::playSource(const PlayableSource& source, double startSeconds, cons
     return startPlayback(s, startSeconds, onAccepted);
 }
 
-void Session::addSubtitleTracks(const QList<SubtitleSource>& subtitles, const QUrl& forSource)
+void PlaybackSession::addSubtitleTracks(const QList<SubtitleSource>& subtitles, const QUrl& forSource)
 {
     if (forSource != m_source.url || !(hasMedia() || m_state == PlaybackState::Loading))
         return;  // the user has moved on
@@ -201,12 +201,12 @@ void Session::addSubtitleTracks(const QList<SubtitleSource>& subtitles, const QU
         m_target->addSubtitleTrack(sub);
 }
 
-void Session::load(const PlayableSource& source, double startSeconds)
+void PlaybackSession::load(const PlayableSource& source, double startSeconds)
 {
     startPlayback(source, startSeconds, {});
 }
 
-bool Session::startPlayback(const PlayableSource& source, double startSeconds, const std::function<void()>& onAccepted)
+bool PlaybackSession::startPlayback(const PlayableSource& source, double startSeconds, const std::function<void()>& onAccepted)
 {
     if (m_sourceCheck) {
         if (const auto refusal = m_sourceCheck(source)) {
@@ -262,7 +262,7 @@ bool Session::startPlayback(const PlayableSource& source, double startSeconds, c
     return true;
 }
 
-void Session::setStreamStatus(const StreamStatus& status)
+void PlaybackSession::setStreamStatus(const StreamStatus& status)
 {
     // A report for the previous item can arrive after the next one loaded.
     if (status.source != m_source.url || status == m_stream)
@@ -273,7 +273,7 @@ void Session::setStreamStatus(const StreamStatus& status)
     emit streamStatusChanged();
 }
 
-void Session::reportSourceError(PlaybackError error, const QString& message, const QUrl& source)
+void PlaybackSession::reportSourceError(PlaybackError error, const QString& message, const QUrl& source)
 {
     if (source != m_source.url || m_sourceErrorReported)
         return;
@@ -282,7 +282,7 @@ void Session::reportSourceError(PlaybackError error, const QString& message, con
     emit errorOccurred(error, message);
 }
 
-void Session::applyItemSettings()
+void PlaybackSession::applyItemSettings()
 {
     if (m_target->supports(Capability::SubtitleDelay)) m_target->setSubtitleDelay(m_subtitleDelay);
     if (m_target->supports(Capability::AudioDelay))    m_target->setAudioDelay(m_audioDelay);
@@ -291,9 +291,9 @@ void Session::applyItemSettings()
     if (m_target->supports(Capability::Crop))          m_target->setCrop(m_crop);
 }
 
-void Session::play()        { if (hasMedia()) m_target->play(); }
-void Session::pause()       { if (hasMedia()) m_target->pause(); }
-void Session::togglePause()
+void PlaybackSession::play()        { if (hasMedia()) m_target->play(); }
+void PlaybackSession::pause()       { if (hasMedia()) m_target->pause(); }
+void PlaybackSession::togglePause()
 {
     if (paused() || m_state == PlaybackState::Ended)
         play();
@@ -301,13 +301,13 @@ void Session::togglePause()
         pause();
 }
 
-void Session::stop()
+void PlaybackSession::stop()
 {
     emitResumePoint();
     m_target->stop();
 }
 
-void Session::seek(double seconds)
+void PlaybackSession::seek(double seconds)
 {
     if (!hasMedia())
         return;
@@ -317,7 +317,7 @@ void Session::seek(double seconds)
     m_target->seek(seconds);
 }
 
-void Session::seekRelative(double seconds)
+void PlaybackSession::seekRelative(double seconds)
 {
     // A streamed seek can take a few seconds; a held arrow key must keep
     // jumping from where the last jump is going, not from where playback was.

@@ -1,4 +1,4 @@
-#include "AppCore.h"
+#include "PlayerApplication.h"
 #include "KeyedListModel.h"
 #include "AppInfo.h"
 #include "AppPaths.h"
@@ -6,11 +6,11 @@
 #include "CrashHandler.h"
 #include "DependencyInfo.h"
 #include "Logging.h"
-#include "MpvTarget.h"
+#include "MpvPlayer.h"
 #include "MpvVideoItem.h"
 #include "Preferences.h"
-#include "Session.h"
-#include "Storage.h"
+#include "PlaybackSession.h"
+#include "LibraryDatabase.h"
 #include "StremioAdapter.h"
 #include "TorrentTransport.h"
 
@@ -57,7 +57,7 @@ int main(int argc, char* argv[])
     args.process(app);
     if (args.isSet(smokeTest))
         QStandardPaths::setTestModeEnabled(true);
-    cj::AppCore::useLeftToRight();
+    cj::PlayerApplication::useLeftToRight();
 
     // mpv parses numbers with the C locale; Qt may have changed it.
     std::setlocale(LC_NUMERIC, "C");
@@ -77,13 +77,13 @@ int main(int argc, char* argv[])
 
     // Declared in the order they must outlive each other: the transport
     // outlives mpv (mpv reads its streams until it closes), and both outlive
-    // the core, whose Session drives mpv and whose cache worker asks the
+    // the core, whose PlaybackSession drives mpv and whose cache worker asks the
     // transport. They are made after the core, which holds their settings.
     std::unique_ptr<cj::TorrentTransport> transport;
-    std::unique_ptr<cj::MpvTarget> target;
+    std::unique_ptr<cj::MpvPlayer> target;
 
     // The database, preferences and everything that is not the window.
-    cj::AppCore core(paths.data, paths.cache);
+    cj::PlayerApplication core(paths.data, paths.cache);
 
     // Torrents reach mpv through this. Its storage settings are the
     // preferences as they were at start; changes in Settings apply the next
@@ -93,14 +93,14 @@ int main(int argc, char* argv[])
 
     // Rule 3: one mpv instance for the whole app, reused for every item.
     try {
-        target = std::make_unique<cj::MpvTarget>();
+        target = std::make_unique<cj::MpvPlayer>();
     } catch (const std::exception& e) {
         qCCritical(lcTargets) << "Could not start mpv:" << e.what();
         return 1;
     }
     core.start(target.get(), torrents, torrents.registerWith(target->handle()));
-    QObject::connect(&app, &QCoreApplication::aboutToQuit, &core, &cj::AppCore::shutDown);
-    cj::Session& session = core.session();
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, &core, &cj::PlayerApplication::shutDown);
+    cj::PlaybackSession& session = core.session();
     // The add-ons' manifests are fetched again after the first-run answer,
     // never before it.
     if (!args.isSet(smokeTest)) {
@@ -120,7 +120,7 @@ int main(int argc, char* argv[])
     // made Qt 6.12 call "CorporalJackie" ambiguous in the packaged app.
     qmlRegisterType<cj::MpvVideoItem>("CorporalJackie.Player", 1, 0, "VideoSurface");
     qmlRegisterType<cj::KeyedListModel>("CorporalJackie.Player", 1, 0, "KeyedList");
-    qmlRegisterUncreatableType<cj::Session>("CorporalJackie.Player", 1, 0, "Session",
+    qmlRegisterUncreatableType<cj::PlaybackSession>("CorporalJackie.Player", 1, 0, "Session",
                                             QStringLiteral("Use the app's session"));
     qmlRegisterUncreatableMetaObject(cj::staticMetaObject, "CorporalJackie.Player", 1, 0, "Playback",
                                      QStringLiteral("Enums only"));

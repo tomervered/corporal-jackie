@@ -1,9 +1,9 @@
-// End to end: a magnet link opened through the Session plays in a real
+// End to end: a magnet link opened through the PlaybackSession plays in a real
 // (headless) mpv, with the bytes coming from local seeders through the broker
 // and the torrent:// stream protocol. No HTTP server anywhere.
 
-#include "MpvTarget.h"
-#include "Session.h"
+#include "MpvPlayer.h"
+#include "PlaybackSession.h"
 #include "StreamBroker.h"
 #include "TorrentHarness.h"
 #include "TorrentTransport.h"
@@ -23,25 +23,25 @@ namespace {
 const QString kClip = QStringLiteral(CJ_TEST_DATA_DIR "/testsrc-10s.mkv");  // 85 KB, 10 s
 constexpr int kPiece = 16 * 1024;
 
-// The app's wiring from main.cpp: Session, mpv and the torrent transport.
+// The app's wiring from main.cpp: PlaybackSession, mpv and the torrent transport.
 struct Player
 {
     explicit Player(const QString& cacheDir, int metadataTimeoutMs = 30000)
         : transport(settings(cacheDir, metadataTimeoutMs))
-        , target(MpvTarget::Mode::Headless)
+        , target(MpvPlayer::Mode::Headless)
         , session(&target)
     {
         transport.registerWith(target.handle());
         session.addSourceResolver([this](const QString& input) { return transport.resolve(input); });
-        QObject::connect(&session, &Session::sourceChanged, &transport, [this] { transport.setCurrent(session.source()); });
-        QObject::connect(&session, &Session::stateChanged, &transport, [this] {
+        QObject::connect(&session, &PlaybackSession::sourceChanged, &transport, [this] { transport.setCurrent(session.source()); });
+        QObject::connect(&session, &PlaybackSession::stateChanged, &transport, [this] {
             if (session.state() == PlaybackState::Idle)
                 transport.setCurrent({});
         });
-        QObject::connect(&session, &Session::durationChanged, &transport, [this] { transport.setDuration(session.duration()); });
-        QObject::connect(&transport, &TorrentTransport::statusChanged, &session, &Session::setStreamStatus);
-        QObject::connect(&transport, &TorrentTransport::openFailed, &session, &Session::reportSourceError);
-        QObject::connect(&session, &Session::streamStatusChanged, &session, [this] { phases.insert(session.streamPhase()); });
+        QObject::connect(&session, &PlaybackSession::durationChanged, &transport, [this] { transport.setDuration(session.duration()); });
+        QObject::connect(&transport, &TorrentTransport::statusChanged, &session, &PlaybackSession::setStreamStatus);
+        QObject::connect(&transport, &TorrentTransport::openFailed, &session, &PlaybackSession::reportSourceError);
+        QObject::connect(&session, &PlaybackSession::streamStatusChanged, &session, [this] { phases.insert(session.streamPhase()); });
     }
 
     static BrokerSettings settings(const QString& cacheDir, int metadataTimeoutMs = 30000)
@@ -54,8 +54,8 @@ struct Player
     }
 
     TorrentTransport transport;  // outlives mpv, as in the app
-    MpvTarget target;
-    Session session;
+    MpvPlayer target;
+    PlaybackSession session;
     QSet<StreamPhase> phases;
 };
 
@@ -106,7 +106,7 @@ private slots:
         // it, the total seconds playback then spent stalled (buffering).
         QElapsedTimer stalled;
         qint64 stalledMs = 0;
-        connect(&p.session, &Session::bufferingChanged, this, [&] {
+        connect(&p.session, &PlaybackSession::bufferingChanged, this, [&] {
             if (!p.session.hasMedia())
                 return;
             if (p.session.buffering() && !stalled.isValid())
@@ -163,7 +163,7 @@ private slots:
         BrokerSettings off = Player::settings(dir.filePath("cache"));
         off.torrents = false;
         p.transport.setNetwork(off);
-        QSignalSpy errors(&p.session, &Session::errorOccurred);
+        QSignalSpy errors(&p.session, &PlaybackSession::errorOccurred);
         p.session.openPath(harness::magnet(t, {seeder.port()}));
         const auto refused = [&errors] {
             for (const QList<QVariant>& e : errors)
@@ -229,7 +229,7 @@ private slots:
 
         p.phases.clear();
         p.session.playSource(second);
-        // The Session drops reports about any other item, so a phase here
+        // The PlaybackSession drops reports about any other item, so a phase here
         // was reported for the second file.
         QTRY_VERIFY_WITH_TIMEOUT(p.phases.contains(StreamPhase::Buffering) || p.phases.contains(StreamPhase::Ready), 15000);
         QTRY_VERIFY_WITH_TIMEOUT(p.session.hasMedia(), 30000);
@@ -241,7 +241,7 @@ private slots:
         QTemporaryDir dir;
         const TestTorrent t = harness::makeTorrentOfFile(dir.filePath("seed"), "lonely.mkv", kClip, kPiece);
         Player p(dir.filePath("cache"), 3000);
-        QSignalSpy errors(&p.session, &Session::errorOccurred);
+        QSignalSpy errors(&p.session, &PlaybackSession::errorOccurred);
         p.session.openPath(harness::magnet(t, {}));
         QTRY_COMPARE_WITH_TIMEOUT(errors.count(), 1, 15000);
         QCOMPARE(errors.at(0).at(0).value<PlaybackError>(), PlaybackError::NoPeers);

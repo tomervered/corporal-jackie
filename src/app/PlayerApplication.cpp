@@ -1,7 +1,7 @@
-#include "AppCore.h"
+#include "PlayerApplication.h"
 
 #include "AppInfo.h"
-#include "Browser.h"
+#include "CatalogBrowser.h"
 #include "Caches.h"
 #include "Downloads.h"
 #include "GraphicsCards.h"
@@ -9,9 +9,9 @@
 #include "LocalLibrary.h"
 #include "Logging.h"
 #include "Preferences.h"
-#include "Session.h"
+#include "PlaybackSession.h"
 #include "SleepBlocker.h"
-#include "Storage.h"
+#include "LibraryDatabase.h"
 #include "StremioAdapter.h"
 #include "TorrentTransport.h"
 
@@ -61,7 +61,7 @@ SubtitleStyle styleFromMap(const QVariantMap& m)
 }
 } // namespace
 
-void AppCore::useLeftToRight()
+void PlayerApplication::useLeftToRight()
 {
     // Qt Quick Controls mirror themselves when the locale reads right to
     // left, whatever the application's direction: the locale changes too.
@@ -70,20 +70,20 @@ void AppCore::useLeftToRight()
     QGuiApplication::setLayoutDirection(Qt::LeftToRight);
 }
 
-AppCore::AppCore(const QString& dataDir, const QString& cacheDir, QObject* parent)
+PlayerApplication::PlayerApplication(const QString& dataDir, const QString& cacheDir, QObject* parent)
     : QObject(parent)
     , m_dataDir(dataDir)
     , m_cacheDir(cacheDir)
-    , m_storage(std::make_unique<Storage>(QDir(dataDir).filePath(QStringLiteral("corporal-jackie.sqlite"))))
+    , m_storage(std::make_unique<LibraryDatabase>(QDir(dataDir).filePath(QStringLiteral("corporal-jackie.sqlite"))))
 {
     importOldSettings();
     m_preferences = std::make_unique<Preferences>(*m_storage, QDir(cacheDir).filePath(QStringLiteral("torrents")));
     m_graphics = std::make_unique<GraphicsCards>();
 }
 
-AppCore::~AppCore() = default;
+PlayerApplication::~PlayerApplication() = default;
 
-BrokerSettings AppCore::brokerSettings() const
+BrokerSettings PlayerApplication::brokerSettings() const
 {
     BrokerSettings s;
     s.cacheDir = m_preferences->startCacheFolder();
@@ -101,12 +101,12 @@ BrokerSettings AppCore::brokerSettings() const
     return s;
 }
 
-void AppCore::start(PlaybackTarget* target, TorrentTransport& torrents, bool registerTorrents)
+void PlayerApplication::start(PlaybackTarget* target, TorrentTransport& torrents, bool registerTorrents)
 {
     m_torrents = &torrents;
-    // The UI talks only to the Session (rule 1).
-    m_session = std::make_unique<Session>(target);
-    Session* session = m_session.get();
+    // The UI talks only to the PlaybackSession (rule 1).
+    m_session = std::make_unique<PlaybackSession>(target);
+    PlaybackSession* session = m_session.get();
 
     // Torrents while the person has not turned them on: refused here with
     // their own message (the transport refuses too, if one gets past).
@@ -117,29 +117,29 @@ void AppCore::start(PlaybackTarget* target, TorrentTransport& torrents, bool reg
     });
     if (registerTorrents) {
         session->addSourceResolver([&torrents](const QString& input) { return torrents.resolve(input); });
-        connect(session, &Session::sourceChanged, &torrents, [session, &torrents] {
+        connect(session, &PlaybackSession::sourceChanged, &torrents, [session, &torrents] {
             torrents.setCurrent(session->source());
         });
-        connect(session, &Session::stateChanged, &torrents, [session, &torrents] {
+        connect(session, &PlaybackSession::stateChanged, &torrents, [session, &torrents] {
             if (session->state() == PlaybackState::Idle)
                 torrents.setCurrent({});
         });
-        connect(session, &Session::durationChanged, &torrents, [session, &torrents] {
+        connect(session, &PlaybackSession::durationChanged, &torrents, [session, &torrents] {
             torrents.setDuration(session->duration());
         });
-        connect(&torrents, &TorrentTransport::statusChanged, session, &Session::setStreamStatus);
-        connect(&torrents, &TorrentTransport::openFailed, session, &Session::reportSourceError);
+        connect(&torrents, &TorrentTransport::statusChanged, session, &PlaybackSession::setStreamStatus);
+        connect(&torrents, &TorrentTransport::openFailed, session, &PlaybackSession::reportSourceError);
     }
 
     restorePlaybackSettings();
 
     m_sleepBlocker = std::make_unique<SleepBlocker>();
-    connect(session, &Session::stateChanged, this, [this] {
+    connect(session, &PlaybackSession::stateChanged, this, [this] {
         m_sleepBlocker->setActive(m_session->state() == PlaybackState::Playing);
     });
 
     restoreSources();
-    m_browser = std::make_unique<Browser>(session);
+    m_browser = std::make_unique<CatalogBrowser>(session);
     m_browser->setStremio(m_addons.get());
     m_browser->setLocal(m_localFiles.get());
     // A YouTube adapter would be added here with m_browser->addAdapter().
@@ -171,7 +171,7 @@ void AppCore::start(PlaybackTarget* target, TorrentTransport& torrents, bool reg
     connect(m_preferences.get(), &Preferences::privacyChanged, this, [this, network] { m_downloads->setNetwork(network()); });
 }
 
-void AppCore::exposeTo(QQmlContext* context) const
+void PlayerApplication::exposeTo(QQmlContext* context) const
 {
     context->setContextProperty(QStringLiteral("appVersion"), QString::fromLatin1(app::kVersion));
     context->setContextProperty(QStringLiteral("session"), m_session.get());
@@ -183,7 +183,7 @@ void AppCore::exposeTo(QQmlContext* context) const
     context->setContextProperty(QStringLiteral("graphics"), m_graphics.get());
 }
 
-void AppCore::shutDown()
+void PlayerApplication::shutDown()
 {
     if (m_library)
         m_library->saveNow();
@@ -202,7 +202,7 @@ void AppCore::shutDown()
 // until the person answers the first-run screen, the list matches that
 // screen's switch, which starts on unless they said no to it before. Nothing
 // is asked of them before the answer (Pages and main.cpp wait for it).
-void AppCore::matchDefaultAddonsUntilChosen()
+void PlayerApplication::matchDefaultAddonsUntilChosen()
 {
     if (!m_preferences->privacyChosen())
         syncDefaultAddon(m_preferences->earlierChoices().value(QStringLiteral("catalogAddon")).toBool());
@@ -211,7 +211,7 @@ void AppCore::matchDefaultAddonsUntilChosen()
 // Cinemeta (Stremio's server) was the default add-on before WikiMaze. An
 // install from that time loses it once, at its first start with this
 // version; an imported list always does. Pasting its link adds it again.
-void AppCore::retireCinemeta(bool always)
+void PlayerApplication::retireCinemeta(bool always)
 {
     if (!always && m_storage->setting(kCinemetaRetired, false).toBool())
         return;
@@ -219,7 +219,7 @@ void AppCore::retireCinemeta(bool always)
     m_storage->setSetting(kCinemetaRetired, true);
 }
 
-void AppCore::syncDefaultAddon(bool on)
+void PlayerApplication::syncDefaultAddon(bool on)
 {
     if (on)
         m_addons->installDefaults();
@@ -229,10 +229,10 @@ void AppCore::syncDefaultAddon(bool on)
 
 // Hardware decoding, the upscaler and the subtitle look, kept between runs.
 // An upscaler this computer can no longer run (a new graphics card) stays off.
-void AppCore::restorePlaybackSettings()
+void PlayerApplication::restorePlaybackSettings()
 {
-    Session* session = m_session.get();
-    Storage* storage = m_storage.get();
+    PlaybackSession* session = m_session.get();
+    LibraryDatabase* storage = m_storage.get();
     session->setHardwareDecoding(storage->setting(kHwdec, true).toBool());
     session->setIntelVsrCopyback(storage->setting(kIntelCopyback, true).toBool());
     session->setUpscaleHeight(storage->setting(kUpscaleHeight, 0).toInt());
@@ -240,25 +240,25 @@ void AppCore::restorePlaybackSettings()
     session->setSubtitleStyle(styleFromMap(storage->setting(kSubtitleStyle).toMap()));
     session->setSubtitleScale(storage->setting(kSubtitleScale, 1.0).toDouble());
 
-    connect(session, &Session::hardwareDecodingChanged, this,
+    connect(session, &PlaybackSession::hardwareDecodingChanged, this,
             [session, storage] { storage->setSetting(kHwdec, session->hardwareDecoding()); });
-    connect(session, &Session::upscalerChanged, this, [session, storage] {
+    connect(session, &PlaybackSession::upscalerChanged, this, [session, storage] {
         storage->setSetting(kUpscaler, session->upscaler());
         storage->setSetting(kUpscaleHeight, session->upscaleHeight());
     });
-    connect(session, &Session::intelVsrCopybackChanged, this,
+    connect(session, &PlaybackSession::intelVsrCopybackChanged, this,
             [session, storage] { storage->setSetting(kIntelCopyback, session->intelVsrCopyback()); });
-    connect(session, &Session::subtitleStyleChanged, this,
+    connect(session, &PlaybackSession::subtitleStyleChanged, this,
             [session, storage] { storage->setSetting(kSubtitleStyle, styleToMap(session->subtitleStyle())); });
-    connect(session, &Session::subtitleScaleChanged, this,
+    connect(session, &PlaybackSession::subtitleScaleChanged, this,
             [session, storage] { storage->setSetting(kSubtitleScale, session->subtitleScale()); });
 }
 
 // The add-on and folder lists live in the database; a fresh install starts
 // with the default add-ons. Changes are saved as they happen, and an import reloads them.
-void AppCore::restoreSources()
+void PlayerApplication::restoreSources()
 {
-    Storage* storage = m_storage.get();
+    LibraryDatabase* storage = m_storage.get();
     m_addons = std::make_unique<StremioAdapter>();
     StremioAdapter* addons = m_addons.get();
     if (const auto stored = storage->addons())
@@ -281,19 +281,19 @@ void AppCore::restoreSources()
         local->restoreFolders(*stored);
     connect(local, &LocalLibrary::foldersChanged, storage, [storage, local] { storage->saveFolders(local->folders()); });
 
-    connect(storage, &Storage::addonsImported, addons, [this, storage, addons] {
+    connect(storage, &LibraryDatabase::addonsImported, addons, [this, storage, addons] {
         addons->restore(*storage->addons());
         retireCinemeta(true);
         matchDefaultAddonsUntilChosen();
     });
-    connect(storage, &Storage::foldersImported, local, [storage, local] { local->restoreFolders(*storage->folders()); });
+    connect(storage, &LibraryDatabase::foldersImported, local, [storage, local] { local->restoreFolders(*storage->folders()); });
 }
 
 // Before the database, settings were in QSettings and the add-ons and
 // folders in two JSON files. Copied over once; the old ones stay as they were.
-void AppCore::importOldSettings()
+void PlayerApplication::importOldSettings()
 {
-    Storage& storage = *m_storage;
+    LibraryDatabase& storage = *m_storage;
     const QString done = QString::fromLatin1(kImportedOldSettings);
     if (!storage.isOpen() || storage.setting(done).toBool())
         return;

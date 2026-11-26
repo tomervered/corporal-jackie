@@ -10,11 +10,11 @@ The two outcomes we guard against are code running on the user's computer and th
 
 An m3u playlist, an mpv EDL list or a CUE sheet tells mpv to open further files. mpv checks those entries against where the list came from, but it trusts our own `torrent://` and `cjhttp://` streams as if the user had typed them. Without a rule, a "video" in a torrent that is really a playlist could open any local file or network share.
 
-`MpvTarget::applyReferencePolicy()` sets mpv's `access-references` before each load:
+`MpvPlayer::applyReferencePolicy()` sets mpv's `access-references` before each load:
 
 - Torrents and local videos: off. A file plays itself and nothing else.
 - A local file whose name ends in `.m3u`, `.m3u8`, `.pls`, `.cue` or `.edl`: on. The user picked a list, so it plays as a list.
-- Web links: on, because HLS needs it. `MpvTarget::onLoadHook()` (mpv's `on_load` hook) then refuses any entry that is not a web link, and `ScopedHttp` refuses an answer that starts like an EDL list or a CUE sheet, before mpv reads it.
+- Web links: on, because HLS needs it. `MpvPlayer::onLoadHook()` (mpv's `on_load` hook) then refuses any entry that is not a web link, and `ScopedHttp` refuses an answer that starts like an EDL list or a CUE sheet, before mpv reads it.
 
 The cost is one feature: a local Matroska file with ordered chapters that live in other files plays only its own part.
 
@@ -24,7 +24,7 @@ Tests: `tst_mpvtarget` `listDisguisedAsAVideoOpensNothing`, `userPickedPlaylistP
 
 ## FFmpeg's own links
 
-FFmpeg's HLS and DASH readers, and MP4 external references, open links by themselves. FFmpeg's HLS reader accepts `file:` segments that end in a media extension. The player sets `demuxer-lavf-o=protocol_whitelist=[http,https,tls,tcp,crypto,data]` (`MpvTarget.cpp`), so FFmpeg can open only network links that way. FFmpeg's own http reader already keeps a whitelist of this kind; ours also covers lists read through `cjhttp://`.
+FFmpeg's HLS and DASH readers, and MP4 external references, open links by themselves. FFmpeg's HLS reader accepts `file:` segments that end in a media extension. The player sets `demuxer-lavf-o=protocol_whitelist=[http,https,tls,tcp,crypto,data]` (`MpvPlayer.cpp`), so FFmpeg can open only network links that way. FFmpeg's own http reader already keeps a whitelist of this kind; ours also covers lists read through `cjhttp://`.
 
 ## HTTPS certificates
 
@@ -32,7 +32,7 @@ mpv does not check HTTPS certificates unless told to. The player sets `tls-verif
 
 ## Images from add-ons
 
-Posters, logos and backgrounds come from add-on servers and from export files. `imageLinkOrEmpty` keeps `http(s)` links with a server and inline `data:image/` links and drops the rest (`file:`, network shares, `qrc:`, `image:`), so the image is not shown. `StremioProtocol.cpp` applies it to add-on answers, and `Storage.cpp` applies it to imported entries and to rows already in the database.
+Posters, logos and backgrounds come from add-on servers and from export files. `imageLinkOrEmpty` keeps `http(s)` links with a server and inline `data:image/` links and drops the rest (`file:`, network shares, `qrc:`, `image:`), so the image is not shown. `StremioProtocol.cpp` applies it to add-on answers, and `LibraryDatabase.cpp` applies it to imported entries and to rows already in the database.
 
 ## Text from files and add-ons
 
@@ -44,7 +44,7 @@ An export file may come from someone else. Import:
 
 - leaves out history entries whose video, origin or subtitles are on a network share;
 - filters poster links as above;
-- adds add-ons and folders only after the user says yes. Settings lists the ones the file would add (`Storage::importExtras`) and offers "Add them too", "Import without them" and "Cancel". An add-on is a server the app will query on every browse, and a folder is a place the app will list and play from.
+- adds add-ons and folders only after the user says yes. Settings lists the ones the file would add (`LibraryDatabase::importExtras`) and offers "Add them too", "Import without them" and "Cancel". An add-on is a server the app will query on every browse, and a folder is a place the app will list and play from.
 
 Tests: `tst_storage` `exportImportMerges`.
 

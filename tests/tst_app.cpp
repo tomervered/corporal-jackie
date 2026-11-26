@@ -3,15 +3,15 @@
 // add-ons and folders, and settings from before the database are copied in.
 // Also the torrent preferences and the cache sizes shown in Settings.
 
-#include "AppCore.h"
-#include "Browser.h"
+#include "PlayerApplication.h"
+#include "CatalogBrowser.h"
 #include "Caches.h"
 #include "FakeTarget.h"
 #include "KeyedListModel.h"
 #include "LocalLibrary.h"
 #include "Preferences.h"
-#include "Session.h"
-#include "Storage.h"
+#include "PlaybackSession.h"
+#include "LibraryDatabase.h"
 #include "StremioAdapter.h"
 #include "TorrentTransport.h"
 
@@ -36,7 +36,7 @@ namespace {
 struct Run
 {
     explicit Run(const QString& root)
-        : owned(std::make_unique<AppCore>(QDir(root).filePath(QStringLiteral("data")),
+        : owned(std::make_unique<PlayerApplication>(QDir(root).filePath(QStringLiteral("data")),
                                           QDir(root).filePath(QStringLiteral("cache"))))
         , core(*owned)
     {
@@ -53,8 +53,8 @@ struct Run
 
     FakeTarget target;
     std::unique_ptr<TorrentTransport> torrents;
-    std::unique_ptr<AppCore> owned;
-    AppCore& core;
+    std::unique_ptr<PlayerApplication> owned;
+    PlayerApplication& core;
 };
 
 QStringList defaultUrls()
@@ -142,7 +142,7 @@ private slots:
         QVERIFY(run.core.localFiles().folders().isEmpty());
         QVERIFY(run.core.session().hardwareDecoding());
         QCOMPARE(run.core.session().subtitleScale(), 1.0);
-        QVERIFY(run.core.storage().setting(QString::fromLatin1(AppCore::kImportedOldSettings)).toBool());
+        QVERIFY(run.core.storage().setting(QString::fromLatin1(PlayerApplication::kImportedOldSettings)).toBool());
         QVERIFY(run.core.storage().addons().has_value());
     }
 
@@ -253,8 +253,8 @@ private slots:
     void torrentsOffAreRefusedBeforeThePlayer()
     {
         Run run(m_root->path());
-        Session& session = run.core.session();
-        QSignalSpy errors(&session, &Session::errorOccurred);
+        PlaybackSession& session = run.core.session();
+        QSignalSpy errors(&session, &PlaybackSession::errorOccurred);
         const QUrl torrent(QStringLiteral("torrent://0123456789abcdef0123456789abcdef01234567"));
         session.open(torrent);
         QCOMPARE(errors.count(), 1);
@@ -416,7 +416,7 @@ private slots:
     {
         {
             Run run(m_root->path());
-            Session& s = run.core.session();
+            PlaybackSession& s = run.core.session();
             s.setHardwareDecoding(false);
             SubtitleStyle style;
             style.font = QStringLiteral("Arial");
@@ -428,7 +428,7 @@ private slots:
             s.setSubtitleScale(1.4);
         }
         Run run(m_root->path());
-        const Session& s = run.core.session();
+        const PlaybackSession& s = run.core.session();
         QVERIFY(!s.hardwareDecoding());
         QCOMPARE(s.subtitleStyle().font, QStringLiteral("Arial"));
         QCOMPARE(s.subtitleStyle().color, QStringLiteral("#FFFF00"));
@@ -483,7 +483,7 @@ private slots:
         QCOMPARE(addonUrls(run.core.addons()), defaultUrls());
         QSignalSpy addons(&run.core.addons(), &StremioAdapter::addonsChanged);
         QSignalSpy folders(&run.core.localFiles(), &LocalLibrary::foldersChanged);
-        QCOMPARE(run.core.storage().importJson(exported, Storage::ImportExtras::Include), QString());
+        QCOMPARE(run.core.storage().importJson(exported, LibraryDatabase::ImportExtras::Include), QString());
         QVERIFY(addons.count() > 0);
         QVERIFY(folders.count() > 0);
         // The export's extra add-on joins the defaults; this install has not

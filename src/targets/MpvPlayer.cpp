@@ -1,10 +1,10 @@
-#include "MpvTarget.h"
+#include "MpvPlayer.h"
 
 #include "GraphicsCards.h"
 #include "Logging.h"
 #include "ScopedHttp.h"
 
-#include "Session.h"
+#include "PlaybackSession.h"
 
 #include <QFile>
 #include <QRegularExpression>
@@ -132,7 +132,7 @@ QByteArray number(double v) { return QByteArray::number(v, 'f', 3); }
 // fragments, MP4 references). No file, no pipe, no network-share access.
 constexpr const char* kLavfProtocolWhitelist = "protocol_whitelist=[http,https,tls,tcp,crypto,data]";
 
-// The id of the on_load hook (see MpvTarget::onLoadHook).
+// The id of the on_load hook (see MpvPlayer::onLoadHook).
 constexpr uint64_t kOnLoadHook = 1;
 constexpr uint64_t kOnPreloadedHook = 2;
 
@@ -166,7 +166,7 @@ bool isShader(Upscaler u)
 
 } // namespace
 
-Capabilities MpvTarget::vsrCapabilities(unsigned vendorId, const QString& adapterName)
+Capabilities MpvPlayer::vsrCapabilities(unsigned vendorId, const QString& adapterName)
 {
     // NVIDIA: RTX 20 series and later (a GTX has no VSR).
     if (vendorId == 0x10DE && adapterName.contains(QLatin1String("RTX"), Qt::CaseInsensitive))
@@ -186,7 +186,7 @@ Capabilities MpvTarget::vsrCapabilities(unsigned vendorId, const QString& adapte
     return {};
 }
 
-QString MpvTarget::vsrFilter(Upscaler upscaler, int videoHeight, int targetHeight, int shownHeight,
+QString MpvPlayer::vsrFilter(Upscaler upscaler, int videoHeight, int targetHeight, int shownHeight,
                              bool intelCopyback)
 {
     const int target = targetHeight > 0 ? targetHeight : shownHeight;
@@ -218,7 +218,7 @@ QString upscalerName(Upscaler u)
 }
 } // namespace
 
-QString MpvTarget::upscalerStatus(Upscaler upscaler, int videoHeight, int target, int outHeight, bool filterSet)
+QString MpvPlayer::upscalerStatus(Upscaler upscaler, int videoHeight, int target, int outHeight, bool filterSet)
 {
     const QString name = upscalerName(upscaler);
     if (name.isEmpty() || videoHeight <= 0)
@@ -235,7 +235,7 @@ QString MpvTarget::upscalerStatus(Upscaler upscaler, int videoHeight, int target
     return QStringLiteral("%1 starting…").arg(name);
 }
 
-MpvTarget::MpvTarget(Mode mode, QObject* parent)
+MpvPlayer::MpvPlayer(Mode mode, QObject* parent)
     : PlaybackTarget(parent)
     , m_mode(mode)
 {
@@ -265,7 +265,7 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
     m_vsrTimer = new QTimer(this);
     m_vsrTimer->setSingleShot(true);
     m_vsrTimer->setInterval(400);  // a window being resized settles first
-    connect(m_vsrTimer, &QTimer::timeout, this, &MpvTarget::applyVsrFilter);
+    connect(m_vsrTimer, &QTimer::timeout, this, &MpvPlayer::applyVsrFilter);
     setOption(m_mpv, "volume-max", "130");      // PlaybackTarget::kMaxVolume
     // mpv's own seek and volume bars and messages stay off: the app's bar
     // shows both. (O still cycles mpv's OSD on for the position.)
@@ -298,7 +298,7 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
     setOption(m_mpv, "screenshot-format", "png");
     // mpv's S key saves here too (mpv makes the folder), named like the
     // app's own screenshots: "<title> 01-02-03.png".
-    setOption(m_mpv, "screenshot-dir", Session::screenshotFolder().toUtf8().constData());  // mpv takes UTF-8
+    setOption(m_mpv, "screenshot-dir", PlaybackSession::screenshotFolder().toUtf8().constData());  // mpv takes UTF-8
     setOption(m_mpv, "screenshot-template", "%{media-title} %wH-%wM-%wS");
     // CJ_MPV_OPTS="name=value,name=value" sets extra mpv options, for troubleshooting.
     for (const QByteArray& pair : qgetenv("CJ_MPV_OPTS").split(',')) {
@@ -385,11 +385,11 @@ MpvTarget::MpvTarget(Mode mode, QObject* parent)
     bindAppKeys();
 
     mpv_set_wakeup_callback(m_mpv, [](void* context) {
-        static_cast<MpvTarget*>(context)->queueEventDrain();
+        static_cast<MpvPlayer*>(context)->queueEventDrain();
     }, this);
 }
 
-MpvTarget::~MpvTarget()
+MpvPlayer::~MpvPlayer()
 {
     if (m_http)
         m_http->abort();  // mpv waits for its open streams
@@ -399,9 +399,9 @@ MpvTarget::~MpvTarget()
     }
 }
 
-QString MpvTarget::name() const { return tr("This computer"); }
+QString MpvPlayer::name() const { return tr("This computer"); }
 
-Capabilities MpvTarget::capabilities() const
+Capabilities MpvPlayer::capabilities() const
 {
     return Capability::SubtitleDelay | Capability::SubtitleStyle | Capability::AudioDelay
          | Capability::Chapters | Capability::FrameStep | Capability::Screenshot
@@ -411,11 +411,11 @@ Capabilities MpvTarget::capabilities() const
          | Capability::UpscaleAnime4k | m_vsrCaps;
 }
 
-void MpvTarget::setFullScreen(bool on) { setProperty("fullscreen", on ? "yes" : "no"); }
+void MpvPlayer::setFullScreen(bool on) { setProperty("fullscreen", on ? "yes" : "no"); }
 
 // --- Plumbing -----------------------------------------------------------------
 
-void MpvTarget::command(std::initializer_list<const char*> args, uint64_t replyId)
+void MpvPlayer::command(std::initializer_list<const char*> args, uint64_t replyId)
 {
     std::vector<const char*> argv(args);
     argv.push_back(nullptr);
@@ -423,14 +423,14 @@ void MpvTarget::command(std::initializer_list<const char*> args, uint64_t replyI
         qCWarning(lcTargets) << "mpv command" << argv.front() << "failed:" << mpv_error_string(err);
 }
 
-void MpvTarget::setProperty(const char* name, const QByteArray& value)
+void MpvPlayer::setProperty(const char* name, const QByteArray& value)
 {
     // Strings are converted by mpv to the property's own type.
     const char* v = value.constData();
     mpv_set_property_async(m_mpv, 0, name, MPV_FORMAT_STRING, &v);
 }
 
-void MpvTarget::setState(PlaybackState s)
+void MpvPlayer::setState(PlaybackState s)
 {
     if (s == m_state)
         return;
@@ -439,7 +439,7 @@ void MpvTarget::setState(PlaybackState s)
     emit stateChanged(s);
 }
 
-void MpvTarget::updateState()
+void MpvPlayer::updateState()
 {
     if (!m_fileLoaded)
         return;
@@ -448,7 +448,7 @@ void MpvTarget::updateState()
 
 // --- Commands -------------------------------------------------------------------
 
-void MpvTarget::load(const PlayableSource& source, double startSeconds)
+void MpvPlayer::load(const PlayableSource& source, double startSeconds)
 {
     const QUrl& url = source.url;
     m_http->reset();
@@ -471,7 +471,7 @@ void MpvTarget::load(const PlayableSource& source, double startSeconds)
     startLoad(target, shown, startSeconds);
 }
 
-void MpvTarget::startLoad(const QByteArray& target, const QString& shown, double startSeconds)
+void MpvPlayer::startLoad(const QByteArray& target, const QString& shown, double startSeconds)
 {
     qCInfo(lcTargets).noquote() << "Opening" << shown;
     // "start" applies to the next file loaded; reset it every time.
@@ -510,7 +510,7 @@ void MpvTarget::startLoad(const QByteArray& target, const QString& shown, double
 //    references on, as in any player.
 //  - Web links: references on, since HLS needs them; onLoadHook() keeps every
 //    entry a web link, and ScopedHttp refuses EDL and CUE answers.
-void MpvTarget::applyLoadPolicy(const QByteArray& target)
+void MpvPlayer::applyLoadPolicy(const QByteArray& target)
 {
     static const QList<QByteArray> kListSuffixes = {".m3u", ".m3u8", ".pls", ".cue", ".edl"};
     const QByteArray lower = target.toLower();
@@ -531,7 +531,7 @@ void MpvTarget::applyLoadPolicy(const QByteArray& target)
 // mpv's on_load hook: runs before each file opens, playlist entries
 // included. While a web link plays, every entry must be a web link too.
 // mpv waits until mpv_hook_continue(), so this answers at once.
-void MpvTarget::onLoadHook(uint64_t hookId)
+void MpvPlayer::onLoadHook(uint64_t hookId)
 {
     if (m_webLoad) {
         char* name = mpv_get_property_string(m_mpv, "stream-open-filename");
@@ -548,7 +548,7 @@ void MpvTarget::onLoadHook(uint64_t hookId)
     mpv_hook_continue(m_mpv, hookId);
 }
 
-void MpvTarget::updateViewportHeight(int height, uint64_t loadId)
+void MpvPlayer::updateViewportHeight(int height, uint64_t loadId)
 {
     if (m_shownHeight != height) {
         m_shownHeight = height;
@@ -561,7 +561,7 @@ void MpvTarget::updateViewportHeight(int height, uint64_t loadId)
         startLoad(std::exchange(m_pendingTarget, {}), m_pendingShown, m_pendingStart);
 }
 
-void MpvTarget::prepareVsrFilter()
+void MpvPlayer::prepareVsrFilter()
 {
     m_vsrTimer->stop();
     if (!isVsr(m_upscaler))
@@ -593,10 +593,10 @@ void MpvTarget::prepareVsrFilter()
     }
 }
 
-void MpvTarget::play()  { setProperty("pause", "no"); }
-void MpvTarget::pause() { setProperty("pause", "yes"); }
+void MpvPlayer::play()  { setProperty("pause", "no"); }
+void MpvPlayer::pause() { setProperty("pause", "yes"); }
 
-void MpvTarget::stop()
+void MpvPlayer::stop()
 {
     m_pendingTarget.clear();
     // A loadfile mpv has not started yet never will: it gets no START_FILE,
@@ -607,23 +607,23 @@ void MpvTarget::stop()
         setState(PlaybackState::Idle);
 }
 
-void MpvTarget::seek(double seconds)
+void MpvPlayer::seek(double seconds)
 {
     const QByteArray pos = number(qMax(0.0, seconds));
     command({"seek", pos.constData(), "absolute"});
 }
 
-void MpvTarget::setAudioTrack(int id)    { setProperty("aid", id < 0 ? "no" : QByteArray::number(id)); }
-void MpvTarget::setSubtitleTrack(int id) { setProperty("sid", id < 0 ? "no" : QByteArray::number(id)); }
+void MpvPlayer::setAudioTrack(int id)    { setProperty("aid", id < 0 ? "no" : QByteArray::number(id)); }
+void MpvPlayer::setSubtitleTrack(int id) { setProperty("sid", id < 0 ? "no" : QByteArray::number(id)); }
 
-void MpvTarget::addExternalSubtitle(const QUrl& url)
+void MpvPlayer::addExternalSubtitle(const QUrl& url)
 {
     addSubtitleNow(SubtitleSource{url, {}, {}}, "select");
 }
 
 // An audio file the user picked on this computer (a dub, a commentary).
 // Only local files: a web link would bypass ScopedHttp.
-void MpvTarget::addExternalAudio(const QUrl& url)
+void MpvPlayer::addExternalAudio(const QUrl& url)
 {
     if (!url.isLocalFile()) {
         qCWarning(lcTargets).noquote() << "Skipping an audio track that is not a local file:" << logging::redactUrl(url);
@@ -633,7 +633,7 @@ void MpvTarget::addExternalAudio(const QUrl& url)
     command({"audio-add", path.constData(), "select"});
 }
 
-void MpvTarget::addSubtitleTrack(const SubtitleSource& subtitle)
+void MpvPlayer::addSubtitleTrack(const SubtitleSource& subtitle)
 {
     if (m_fileLoaded)
         addSubtitleNow(subtitle, "auto");
@@ -644,7 +644,7 @@ void MpvTarget::addSubtitleTrack(const SubtitleSource& subtitle)
 // A subtitle is a local file the user picked or a web link from an add-on.
 // Web links go through ScopedHttp: the stream's credentials reach only the
 // stream's own server, and the download is capped.
-void MpvTarget::addSubtitleNow(const SubtitleSource& subtitle, const char* flag)
+void MpvPlayer::addSubtitleNow(const SubtitleSource& subtitle, const char* flag)
 {
     QByteArray path;
     if (subtitle.url.isLocalFile()) {
@@ -661,7 +661,7 @@ void MpvTarget::addSubtitleNow(const SubtitleSource& subtitle, const char* flag)
     addSubtitleFile(path, flag, subtitle);
 }
 
-void MpvTarget::addSubtitleFile(const QByteArray& path, const char* flag, const SubtitleSource& subtitle)
+void MpvPlayer::addSubtitleFile(const QByteArray& path, const char* flag, const SubtitleSource& subtitle)
 {
     const QByteArray title = (subtitle.label.isEmpty() ? subtitle.language : subtitle.label).toUtf8();
     const QByteArray lang = subtitle.language.toUtf8();
@@ -673,17 +673,17 @@ void MpvTarget::addSubtitleFile(const QByteArray& path, const char* flag, const 
         command({"sub-add", path.constData(), flag, title.constData(), lang.constData()});
 }
 
-void MpvTarget::setSpeed(double factor)  { setProperty("speed", number(factor)); }
-void MpvTarget::setVolume(double volume) { setProperty("volume", number(qBound(0.0, volume, kMaxVolume))); }
-void MpvTarget::setMuted(bool muted)     { setProperty("mute", muted ? "yes" : "no"); }
+void MpvPlayer::setSpeed(double factor)  { setProperty("speed", number(factor)); }
+void MpvPlayer::setVolume(double volume) { setProperty("volume", number(qBound(0.0, volume, kMaxVolume))); }
+void MpvPlayer::setMuted(bool muted)     { setProperty("mute", muted ? "yes" : "no"); }
 
-void MpvTarget::setSubtitleDelay(double seconds) { setProperty("sub-delay", number(seconds)); }
-void MpvTarget::setSubtitleScale(double factor)  { setProperty("sub-scale", number(factor)); }
+void MpvPlayer::setSubtitleDelay(double seconds) { setProperty("sub-delay", number(seconds)); }
+void MpvPlayer::setSubtitleScale(double factor)  { setProperty("sub-scale", number(factor)); }
 
-void MpvTarget::setSubtitleStyle(const SubtitleStyle& style)
+void MpvPlayer::setSubtitleStyle(const SubtitleStyle& style)
 {
     setProperty("sub-font", style.font.isEmpty() ? QByteArray("sans-serif") : style.font.toUtf8());
-    setProperty("sub-color", style.color.toLatin1());  // "#RRGGBB", checked by the Session
+    setProperty("sub-color", style.color.toLatin1());  // "#RRGGBB", checked by the PlaybackSession
     setProperty("sub-border-size", number(style.outline));
     // mpv colors with alpha are #AARRGGBB.
     const QByteArray box = "#" + QByteArray::number(qRound(style.background * 2.55), 16).rightJustified(2, '0') + "000000";
@@ -698,15 +698,15 @@ void MpvTarget::setSubtitleStyle(const SubtitleStyle& style)
     setProperty("sub-ass-override", style.restyleAll ? "force" : "scale");
 }
 
-void MpvTarget::setAudioDelay(double seconds)    { setProperty("audio-delay", number(seconds)); }
-void MpvTarget::seekChapter(int index)           { setProperty("chapter", QByteArray::number(index)); }
+void MpvPlayer::setAudioDelay(double seconds)    { setProperty("audio-delay", number(seconds)); }
+void MpvPlayer::seekChapter(int index)           { setProperty("chapter", QByteArray::number(index)); }
 
-void MpvTarget::frameStep(bool forward)
+void MpvPlayer::frameStep(bool forward)
 {
     command({forward ? "frame-step" : "frame-back-step"});
 }
 
-void MpvTarget::screenshot(const QString& filePath)
+void MpvPlayer::screenshot(const QString& filePath)
 {
     const uint64_t id = m_nextReplyId++;
     m_pendingScreenshots.insert(id, filePath);
@@ -714,18 +714,18 @@ void MpvTarget::screenshot(const QString& filePath)
     command({"screenshot-to-file", path.constData(), "video"}, id);
 }
 
-void MpvTarget::setAbLoop(double a, double b)
+void MpvPlayer::setAbLoop(double a, double b)
 {
     setProperty("ab-loop-a", a < 0 ? "no" : number(a));
     setProperty("ab-loop-b", b < 0 ? "no" : number(b));
 }
 
-void MpvTarget::setAspectRatio(const QString& ratio)
+void MpvPlayer::setAspectRatio(const QString& ratio)
 {
     setProperty("video-aspect-override", ratio.isEmpty() ? "no" : ratio.toUtf8());
 }
 
-void MpvTarget::setCrop(const QString& ratio)
+void MpvPlayer::setCrop(const QString& ratio)
 {
     m_cropRatio = ratio;
     applyCrop();
@@ -733,7 +733,7 @@ void MpvTarget::setCrop(const QString& ratio)
 
 // Crop is given as an aspect ratio; mpv wants pixels, so it is recomputed
 // whenever the video size is known or changes.
-void MpvTarget::applyCrop()
+void MpvPlayer::applyCrop()
 {
     const double r = parseRatio(m_cropRatio);
     if (r <= 0 || m_videoWidth <= 0 || m_videoHeight <= 0) {
@@ -751,7 +751,7 @@ void MpvTarget::applyCrop()
     setProperty("video-crop", QStringLiteral("%1x%2+%3+%4").arg(w).arg(h).arg(x).arg(y).toUtf8());
 }
 
-void MpvTarget::setVideoEqualizer(const VideoEqualizer& eq)
+void MpvPlayer::setVideoEqualizer(const VideoEqualizer& eq)
 {
     setProperty("brightness", QByteArray::number(eq.brightness));
     setProperty("contrast",   QByteArray::number(eq.contrast));
@@ -760,7 +760,7 @@ void MpvTarget::setVideoEqualizer(const VideoEqualizer& eq)
     setProperty("hue",        QByteArray::number(eq.hue));
 }
 
-void MpvTarget::setHardwareDecoding(bool enabled)
+void MpvPlayer::setHardwareDecoding(bool enabled)
 {
     m_hwdecEnabled = enabled;
     setProperty("hwdec", !enabled ? "no" : isVsr(m_upscaler) ? "d3d11va" : kHwdecOn);
@@ -770,7 +770,7 @@ void MpvTarget::setHardwareDecoding(bool enabled)
 
 // An upscaler's shader (FSR, SGSR, CAS or Anime4K), sized for 'targetHeight' (0 = the size
 // the video is shown at), as an mpv shader file. Null if it cannot be written.
-std::unique_ptr<QTemporaryFile> MpvTarget::writeShader(Upscaler upscaler, int targetHeight)
+std::unique_ptr<QTemporaryFile> MpvPlayer::writeShader(Upscaler upscaler, int targetHeight)
 {
     const QString name = upscaler == Upscaler::Sgsr    ? QStringLiteral("sgsr1")
                        : upscaler == Upscaler::Cas     ? QStringLiteral("cas")
@@ -808,7 +808,7 @@ std::unique_ptr<QTemporaryFile> MpvTarget::writeShader(Upscaler upscaler, int ta
 }
 
 // The filter is set again at once when Intel VSR is the one running.
-void MpvTarget::setIntelVsrCopyback(bool on)
+void MpvPlayer::setIntelVsrCopyback(bool on)
 {
     if (on == m_intelCopyback)
         return;
@@ -818,7 +818,7 @@ void MpvTarget::setIntelVsrCopyback(bool on)
 }
 
 // Off clears the shader list and the filter, so mpv frees what they used.
-void MpvTarget::setUpscaler(Upscaler upscaler, int targetHeight)
+void MpvPlayer::setUpscaler(Upscaler upscaler, int targetHeight)
 {
     if (upscaler == m_upscaler && targetHeight == m_upscaleHeight)
         return;
@@ -858,7 +858,7 @@ void MpvTarget::setUpscaler(Upscaler upscaler, int targetHeight)
     emitStats();
 }
 
-void MpvTarget::applyVsrFilter()
+void MpvPlayer::applyVsrFilter()
 {
     const QString filter = vsrFilter(m_upscaler, m_videoHeight, m_upscaleHeight, m_shownHeight, m_intelCopyback);
     if (filter == m_vsrFilter)
@@ -870,13 +870,13 @@ void MpvTarget::applyVsrFilter()
     updateUpscalerStatus();
 }
 
-void MpvTarget::renderUpscalerFailed()
+void MpvPlayer::renderUpscalerFailed()
 {
     if (m_upscaler == Upscaler::MetalFx)
         turnUpscalerOff(QStringLiteral("MetalFX failed on this Mac"));
 }
 
-void MpvTarget::turnUpscalerOff(const QString& why)
+void MpvPlayer::turnUpscalerOff(const QString& why)
 {
     const QString name = upscalerName(m_upscaler);
     qCWarning(lcTargets).noquote() << why << "; upscaling turned off";
@@ -886,7 +886,7 @@ void MpvTarget::turnUpscalerOff(const QString& why)
     emit upscalerStatusChanged(m_upscalerStatus, true);
 }
 
-void MpvTarget::updateUpscalerStatus()
+void MpvPlayer::updateUpscalerStatus()
 {
     const int target = m_upscaleHeight > 0 ? m_upscaleHeight : m_shownHeight;
     const QString status = upscalerStatus(m_upscaler, m_videoHeight, target, m_outHeight, !m_vsrFilter.isEmpty());
@@ -901,13 +901,13 @@ void MpvTarget::updateUpscalerStatus()
 
 // --- Events -----------------------------------------------------------------------
 
-void MpvTarget::queueEventDrain()
+void MpvPlayer::queueEventDrain()
 {
     if (!m_eventDrainQueued.exchange(true))
-        QMetaObject::invokeMethod(this, &MpvTarget::processEvents, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(this, &MpvPlayer::processEvents, Qt::QueuedConnection);
 }
 
-void MpvTarget::processEvents()
+void MpvPlayer::processEvents()
 {
     // Clear before draining so a wake during the drain can post a follow-up.
     m_eventDrainQueued.store(false);
@@ -1029,7 +1029,7 @@ void MpvTarget::processEvents()
         queueEventDrain();
 }
 
-void MpvTarget::handleProperty(uint64_t id, const mpv_event_property* p)
+void MpvPlayer::handleProperty(uint64_t id, const mpv_event_property* p)
 {
     // Most properties become unavailable (format NONE) when nothing is loaded;
     // the helpers above return 0, "" or empty lists in that case.
@@ -1059,7 +1059,7 @@ void MpvTarget::handleProperty(uint64_t id, const mpv_event_property* p)
         emit volumeChanged(m_volume, m_muted);
         break;
     case PropTitle: {
-        // Without a title tag mpv falls back to the file name; the Session
+        // Without a title tag mpv falls back to the file name; the PlaybackSession
         // already has a better name for that case, so only pass real titles.
         const QString title = stringOf(p);
         char* filename = mpv_get_property_string(m_mpv, "filename");
@@ -1177,7 +1177,7 @@ void MpvTarget::handleProperty(uint64_t id, const mpv_event_property* p)
     }
 }
 
-QString MpvTarget::upscalerLabel() const
+QString MpvPlayer::upscalerLabel() const
 {
     QString name;
     switch (m_upscaler) {
@@ -1193,7 +1193,7 @@ QString MpvTarget::upscalerLabel() const
     return name + (m_upscaleHeight > 0 ? QStringLiteral(" to %1p").arg(m_upscaleHeight) : QStringLiteral(" to window size"));
 }
 
-void MpvTarget::reportPresentationGap(uint64_t epoch, qint64 milliseconds)
+void MpvPlayer::reportPresentationGap(uint64_t epoch, qint64 milliseconds)
 {
     if (epoch != m_presentationEpoch)
         return;
@@ -1203,7 +1203,7 @@ void MpvTarget::reportPresentationGap(uint64_t epoch, qint64 milliseconds)
     emitStats();
 }
 
-void MpvTarget::emitStats()
+void MpvPlayer::emitStats()
 {
     const bool hw = !m_hwdecCurrent.isEmpty() && m_hwdecCurrent != QLatin1String("no");
     emit statsChanged({
@@ -1225,7 +1225,7 @@ void MpvTarget::emitStats()
     });
 }
 
-QList<Track> MpvTarget::parseTracks(const mpv_node* node)
+QList<Track> MpvPlayer::parseTracks(const mpv_node* node)
 {
     QList<Track> tracks;
     if (!node || node->format != MPV_FORMAT_NODE_ARRAY)
@@ -1250,7 +1250,7 @@ QList<Track> MpvTarget::parseTracks(const mpv_node* node)
     return tracks;
 }
 
-QList<Chapter> MpvTarget::parseChapters(const mpv_node* node)
+QList<Chapter> MpvPlayer::parseChapters(const mpv_node* node)
 {
     QList<Chapter> chapters;
     if (!node || node->format != MPV_FORMAT_NODE_ARRAY)

@@ -44,8 +44,8 @@ Start with an action you already know from using the player.
 
 | If you want to understand… | Start here | What to look for |
 | --- | --- | --- |
-| What happens when you press Play on a search result | [PlayFromCatalog.cpp](src/sources/PlayFromCatalog.cpp) | `Browser::play` finds the stream you picked. Once the player accepts it, the browser remembers the episode and asks for subtitles. |
-| How the player remembers where you stopped | [Session.cpp](src/session/Session.cpp) and [Library.cpp](src/storage/Library.cpp) | `emitResumePoint` reports the video and its position. The library saves them and looks them up next time. |
+| What happens when you press Play on a search result | [PlayFromCatalog.cpp](src/sources/PlayFromCatalog.cpp) | `CatalogBrowser::play` finds the stream you picked. Once the player accepts it, the browser remembers the episode and asks for subtitles. |
+| How the player remembers where you stopped | [PlaybackSession.cpp](src/session/PlaybackSession.cpp) and [Library.cpp](src/storage/Library.cpp) | `emitResumePoint` reports the video and its position. The library saves them and looks them up next time. |
 | What the arrow keys do over a video | [PlayerKeyboard.cpp](src/targets/PlayerKeyboard.cpp) | `keyName` turns a keyboard press into the name understood by mpv, the engine that plays the video. |
 | Where subtitle settings live | [SubtitleSettings.qml](src/ui/SubtitleSettings.qml) | Each row has a title, the current value and an action when you pick a value. The preview is drawn when you open this group. |
 | How a torrent link becomes a video | [ReadTorrentLink.cpp](src/transports/ReadTorrentLink.cpp) | `resolve` reads the link and identifies the file. The torrent engine can then fetch the pieces of that file as the player needs them. |

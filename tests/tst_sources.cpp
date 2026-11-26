@@ -3,14 +3,14 @@
 // parsing, the local library, and the add-on adapter and browse model
 // against a fake add-on server on 127.0.0.1.
 
-#include "Browser.h"
+#include "CatalogBrowser.h"
 #include "FakeHttpServer.h"
 #include "FakeTarget.h"
 #include "LocalLibrary.h"
 #include "JspClient.h"
 #include "JspProtocol.h"
 #include "LocalNames.h"
-#include "Session.h"
+#include "PlaybackSession.h"
 #include "StreamRanking.h"
 #include "StremioAdapter.h"
 #include "StremioProtocol.h"
@@ -555,8 +555,8 @@ private slots:
         }
 
         FakeTarget target;
-        Session session(&target);
-        Browser browser(&session);
+        PlaybackSession session(&target);
+        CatalogBrowser browser(&session);
         browser.setStremio(&addons);
         QCOMPARE(browser.catalogRefs().size(), 1);
         QCOMPARE(browser.catalogs()[0].toMap().value("name").toString(), QStringLiteral("Lists · Popular series"));
@@ -598,12 +598,12 @@ private slots:
                 QCOMPARE(m["error"].toString(), QString());
         }
 
-        // Playing hands the source to the Session, then adds subtitle add-on
+        // Playing hands the source to the PlaybackSession, then adds subtitle add-on
         // files as tracks to that item.
         // A refused stream must leave the playing episode and watch history alone.
-        QSignalSpy historySelection(&browser, &Browser::aboutToPlay);
-        QSignalSpy started(&browser, &Browser::playStarted);
-        session.setSourceCheck([](const PlayableSource&) -> Session::SourceCheck::result_type {
+        QSignalSpy historySelection(&browser, &CatalogBrowser::aboutToPlay);
+        QSignalSpy started(&browser, &CatalogBrowser::playStarted);
+        session.setSourceCheck([](const PlayableSource&) -> PlaybackSession::SourceCheck::result_type {
             return std::pair{PlaybackError::TorrentsOff, QStringLiteral("Torrents are off")};
         });
         browser.play(1);
@@ -699,8 +699,8 @@ private slots:
         QVERIFY(changed.wait(10000));
 
         FakeTarget target;
-        Session session(&target);
-        Browser browser(&session);
+        PlaybackSession session(&target);
+        CatalogBrowser browser(&session);
         browser.setStremio(&addons);
         browser.setLocal(&lib);
         Waiter<QList<MetaPreview>> movies;
@@ -733,7 +733,7 @@ private slots:
         addons.install(server.base() + "/a/manifest.json", [&](const QString& e) { w.value = e; });
         QVERIFY(w.wait());
 
-        Browser browser(nullptr);
+        CatalogBrowser browser(nullptr);
         browser.setStremio(&addons);
         browser.openCatalog(0);
         browser.openCatalog(1);
@@ -764,7 +764,7 @@ private slots:
             addons.install(server.base() + "/" + name + "/manifest.json", [&](const QString& e) { w.value = e; });
             QVERIFY(w.wait());
         }
-        Browser browser(nullptr);
+        CatalogBrowser browser(nullptr);
         browser.setStremio(&addons);
 
         // Home: every list that can be browsed, not the search-only one.
@@ -813,7 +813,7 @@ private slots:
         server.setJson("/a/catalog/movie/top.json", R"({"metas":[{"id":"tt1","type":"movie","name":"One"}]})");
         QTemporaryDir data;
         StremioAdapter addons(data.filePath("addons.json"), false);
-        Browser browser(nullptr);
+        CatalogBrowser browser(nullptr);
         browser.setStremio(&addons);
         browser.loadHome();
         QVERIFY(browser.homeRows().isEmpty());  // nothing installed yet

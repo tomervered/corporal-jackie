@@ -2,11 +2,11 @@
 // the history and library rules hold. Then the Library: what plays is
 // recorded, and starts again where it was left.
 
-#include "Browser.h"
+#include "CatalogBrowser.h"
 #include "FakeTarget.h"
 #include "Library.h"
-#include "Session.h"
-#include "Storage.h"
+#include "PlaybackSession.h"
+#include "LibraryDatabase.h"
 
 #include <QFile>
 #include <QJsonArray>
@@ -48,7 +48,7 @@ HistoryEntry direct(const QString& url, double position, qint64 at)
 {
     HistoryEntry e;
     e.source = PlayableSource::fromUrl(QUrl(url), QStringLiteral("clip"));
-    e.key = QStringLiteral("url:") + Storage::sourceKey(e.source);
+    e.key = QStringLiteral("url:") + LibraryDatabase::sourceKey(e.source);
     e.itemName = QStringLiteral("clip");
     e.position = position;
     e.duration = 600;
@@ -67,7 +67,7 @@ void injectFailure(const QString& path, const char* table)
     sqlite3_close(db);
 }
 
-// The last item the Session told the target to load, and where.
+// The last item the PlaybackSession told the target to load, and where.
 QString lastLoad(const FakeTarget& target)
 {
     for (auto it = target.commands.crbegin(); it != target.commands.crend(); ++it)
@@ -93,7 +93,7 @@ private slots:
     void exportOmitsReusableCredentials()
     {
         QFETCH(QString, location);
-        Storage storage({});
+        LibraryDatabase storage({});
         auto entry = episode(1, 600, 1000);
         const QString marker = "auditDummyCredential987";
         if (location == "header")
@@ -110,7 +110,7 @@ private slots:
     {
         QTemporaryDir dir;
         const QString path = dir.filePath("storage.sqlite");
-        Storage storage(path);
+        LibraryDatabase storage(path);
         sqlite3* db = nullptr;
         QCOMPARE(sqlite3_open(path.toUtf8().constData(), &db), SQLITE_OK);
         const int result = sqlite3_exec(db, "CREATE TRIGGER reject_history BEFORE INSERT ON history BEGIN SELECT RAISE(FAIL, 'audit injected disk failure'); END;", nullptr, nullptr, nullptr);
@@ -118,7 +118,7 @@ private slots:
         QCOMPARE(result, SQLITE_OK);
         storage.record(episode(1, 600, 1000));
         storage.flush();
-        Storage reopened(path);
+        LibraryDatabase reopened(path);
         QVERIFY(reopened.history().isEmpty());
         QVERIFY2(!storage.error().isEmpty(), "Failed database write has no observable error");
     }
@@ -127,17 +127,17 @@ private slots:
     {
         QTemporaryDir dir;
         const QString path = dir.filePath("import.sqlite");
-        Storage destination(path);
+        LibraryDatabase destination(path);
         sqlite3* db = nullptr;
         QCOMPARE(sqlite3_open(path.toUtf8().constData(), &db), SQLITE_OK);
         const int result = sqlite3_exec(db, "CREATE TRIGGER reject_history BEFORE INSERT ON history BEGIN SELECT RAISE(FAIL, 'audit injected persistence failure'); END;", nullptr, nullptr, nullptr);
         sqlite3_close(db);
         QCOMPARE(result, SQLITE_OK);
-        Storage source({});
+        LibraryDatabase source({});
         source.record(episode(1, 600, 1000));
         const QString error = destination.importJson(source.exportJson());
         destination.flush();
-        Storage reopened(path);
+        LibraryDatabase reopened(path);
         QVERIFY(reopened.history().isEmpty());
         QVERIFY2(!error.isEmpty(), "Import reported success although persistence failed");
     }
@@ -145,12 +145,12 @@ private slots:
     // A full export is for the user's own backup, and keeps everything.
     void fullExportKeepsEverything()
     {
-        Storage storage({});
+        LibraryDatabase storage({});
         auto entry = episode(1, 600, 1000);
         entry.source.headers.insert("Authorization", "Bearer keepme");
         storage.record(entry);
         storage.saveAddons(QJsonArray{QJsonObject{{"transportUrl", "https://example.com/cfg/manifest.json"}}});
-        const QByteArray full = storage.exportJson(Storage::ExportMode::Full);
+        const QByteArray full = storage.exportJson(LibraryDatabase::ExportMode::Full);
         QVERIFY(full.contains("keepme"));
         QVERIFY(full.contains("/cfg/manifest.json"));
         QVERIFY(!storage.exportJson().contains("/cfg/manifest.json"));
@@ -162,7 +162,7 @@ private slots:
     // at the saved spot.
     void shareableExportStillResumes()
     {
-        Storage from({});
+        LibraryDatabase from({});
         auto entry = episode(1, 600, 1000);
         entry.source.url = QUrl("https://debrid.example/dl/s3cret/1.mkv?sig=s3cret");
         entry.source.headers.insert("Cookie", "s=s3cret");
@@ -170,11 +170,11 @@ private slots:
         const QByteArray json = from.exportJson();
         QVERIFY(!json.contains("s3cret"));
 
-        Storage to({});
+        LibraryDatabase to({});
         QCOMPARE(to.importJson(json), QString());
         FakeTarget target;
-        Session session(&target);
-        Browser browser(&session);
+        PlaybackSession session(&target);
+        CatalogBrowser browser(&session);
         Library library(to, session, browser);
         QSignalSpy opened(&library, &Library::openRequested);
         library.resume(entry.key);
@@ -187,12 +187,12 @@ private slots:
     // the magnet's info hash and file only, and the key still matches.
     void exportDropsMagnetTrackers()
     {
-        Storage from({});
+        LibraryDatabase from({});
         PlayableSource magnet = PlayableSource::fromUrl(QUrl("torrent://abc/0"), "Film");
         magnet.origin = "magnet:?xt=urn:btih:ABC&dn=Film&tr=https%3A%2F%2Ftracker.example%2Fpasskey123%2Fannounce&so=0";
         HistoryEntry e;
         e.source = magnet;
-        e.key = "url:" + Storage::sourceKey(magnet);
+        e.key = "url:" + LibraryDatabase::sourceKey(magnet);
         e.position = 300;
         e.duration = 600;
         e.updatedAt = 1000;
@@ -200,7 +200,7 @@ private slots:
         QVERIFY(!e.key.contains("passkey123"));
         const QByteArray json = from.exportJson();
         QVERIFY(!json.contains("passkey123"));
-        Storage to({});
+        LibraryDatabase to({});
         QCOMPARE(to.importJson(json), QString());
         QCOMPARE(to.resumePosition(magnet), 300.0);
     }
@@ -209,13 +209,13 @@ private slots:
     // opened from a signed web link does not carry that link out.
     void exportDropsSecretsFromTorrentOrigins()
     {
-        Storage from({});
+        LibraryDatabase from({});
         auto record = [&](const PlayableSource& source, const QString& adapter, qint64 at) {
             HistoryEntry e;
             e.source = source;
             e.adapter = adapter;
             e.itemId = adapter.isEmpty() ? QString() : QStringLiteral("tt1");
-            e.key = adapter.isEmpty() ? "url:" + Storage::sourceKey(source) : "item:" + adapter + ":tt1";
+            e.key = adapter.isEmpty() ? "url:" + LibraryDatabase::sourceKey(source) : "item:" + adapter + ":tt1";
             e.position = 100;
             e.duration = 600;
             e.updatedAt = at;
@@ -267,11 +267,11 @@ private slots:
         for (const char* secret : {"passkey456", "signedKey789", "pw0rdXYZ", "passkey000", "passkey111", "keyToken222", "passkey333"})
             QVERIFY2(!json.contains(secret), secret);
         QVERIFY(json.contains("urn:btmh:1220abcd"));  // still names its video
-        Storage to({});
+        LibraryDatabase to({});
         QCOMPARE(to.importJson(json), QString());
         // The signed direct link has nothing left to find it by; the rest stay.
         QCOMPARE(to.history().size(), 6);
-        const QByteArray full = from.exportJson(Storage::ExportMode::Full);
+        const QByteArray full = from.exportJson(LibraryDatabase::ExportMode::Full);
         for (const char* secret : {"signedKey789", "passkey111", "keyToken222"})
             QVERIFY2(full.contains(secret), secret);
     }
@@ -283,7 +283,7 @@ private slots:
         const QString path = dir.filePath("old.sqlite");
         const QString old = "magnet:?xt=urn:btih:abc&tr=udp%3A%2F%2Ft.example%3A1";
         {
-            Storage storage(path);
+            LibraryDatabase storage(path);
             storage.flush();
         }
         sqlite3* db = nullptr;
@@ -294,11 +294,11 @@ private slots:
         QCOMPARE(sqlite3_exec(db, sql.constData(), nullptr, nullptr, nullptr), SQLITE_OK);
         sqlite3_close(db);
         {
-            Storage storage(path);
+            LibraryDatabase storage(path);
             QCOMPARE(storage.history().size(), 1);
             QCOMPARE(storage.history().first().key, QStringLiteral("url:magnet:?xt=urn:btih:abc"));
         }
-        Storage reopened(path);
+        LibraryDatabase reopened(path);
         QCOMPARE(reopened.history().first().key, QStringLiteral("url:magnet:?xt=urn:btih:abc"));
     }
 
@@ -309,7 +309,7 @@ private slots:
         QTemporaryDir dir;
         const QString path = dir.filePath("old.sqlite");
         {
-            Storage storage(path);
+            LibraryDatabase storage(path);
             storage.flush();
         }
         sqlite3* db = nullptr;
@@ -331,7 +331,7 @@ private slots:
         insert("url:" + b1, b1, 300, 30);
         insert("url:magnet:?xt=urn:btih:bbb", "magnet:?xt=urn:btih:bbb", 400, 40);
         sqlite3_close(db);
-        auto check = [](const Storage& storage) {
+        auto check = [](const LibraryDatabase& storage) {
             QCOMPARE(storage.history().size(), 2);
             QHash<QString, double> positions;
             for (const HistoryEntry& e : storage.history())
@@ -340,10 +340,10 @@ private slots:
             QCOMPARE(positions.value("url:magnet:?xt=urn:btih:bbb"), 400.0);
         };
         {
-            Storage storage(path);
+            LibraryDatabase storage(path);
             check(storage);
         }
-        Storage reopened(path);
+        LibraryDatabase reopened(path);
         check(reopened);
     }
 
@@ -352,11 +352,11 @@ private slots:
     {
         QTemporaryDir dir;
         const QString path = dir.filePath("storage.sqlite");
-        Storage storage(path);
+        LibraryDatabase storage(path);
         injectFailure(path, "library");
         FakeTarget target;
-        Session session(&target);
-        Browser browser(&session);
+        PlaybackSession session(&target);
+        CatalogBrowser browser(&session);
         Library library(storage, session, browser);
         QSignalSpy changed(&library, &Library::storageErrorChanged);
         library.add(QVariantMap{{"adapter", "stremio"}, {"id", "tt1"}, {"name", "X"}});
@@ -365,7 +365,7 @@ private slots:
         QVERIFY(library.storageError().contains("injected"));
         storage.record(episode(1, 600, 1000));  // other tables still save
         storage.flush();
-        Storage reopened(path);
+        LibraryDatabase reopened(path);
         QCOMPARE(reopened.history().size(), 1);
         QVERIFY(reopened.library().isEmpty());
     }
@@ -376,22 +376,22 @@ private slots:
     {
         QTemporaryDir dir;
         const QString path = dir.filePath("import.sqlite");
-        Storage destination(path);
+        LibraryDatabase destination(path);
         injectFailure(path, "library");
-        Storage source({});
+        LibraryDatabase source({});
         source.record(episode(1, 600, 1000));
         LibraryItem item;
         item.adapter = "stremio";
         item.itemId = "tt9";
         source.addToLibrary(item);
         source.saveFolders({"/videos"});
-        QSignalSpy history(&destination, &Storage::historyChanged);
+        QSignalSpy history(&destination, &LibraryDatabase::historyChanged);
         const QString error = destination.importJson(source.exportJson());
         QVERIFY(error.contains("Nothing was imported"));
         QVERIFY(destination.history().isEmpty());
         QVERIFY(!destination.folders());
         QCOMPARE(history.count(), 0);
-        Storage reopened(path);
+        LibraryDatabase reopened(path);
         QVERIFY(reopened.history().isEmpty());
         QVERIFY(!reopened.folders());
     }
@@ -416,7 +416,7 @@ private slots:
     void importChecksTheWholeFileFirst()
     {
         QFETCH(QByteArray, tail);
-        Storage storage({});
+        LibraryDatabase storage({});
         const QByteArray json = "{\"format\":\"corporal-jackie-export\",\"version\":1,\"library\":[{\"adapter\":\"stremio\",\"itemId\":\"tt1\"}],"
                               + tail + "}";
         QVERIFY(!storage.importJson(json).isEmpty());
@@ -431,7 +431,7 @@ private slots:
         QTemporaryDir dir;
         const QString file = dir.filePath(QStringLiteral("cj.sqlite"));
         {
-            Storage s(file);
+            LibraryDatabase s(file);
             QVERIFY(s.keepsHistory());
             s.record(episode(1, 600, 1000));
             s.setKeepsHistory(false);
@@ -439,7 +439,7 @@ private slots:
             QCOMPARE(s.history().size(), 1);
         }
         {
-            Storage s(file);
+            LibraryDatabase s(file);
             QVERIFY(!s.keepsHistory());
             QCOMPARE(s.history().size(), 1);  // what was there stays
             s.record(episode(3, 800, 3000));
@@ -448,7 +448,7 @@ private slots:
             s.record(episode(3, 800, 3000));
             QCOMPARE(s.history().size(), 2);
         }
-        Storage s(file);
+        LibraryDatabase s(file);
         QCOMPARE(s.history().size(), 2);
     }
 
@@ -471,7 +471,7 @@ private slots:
             }
             return found;
         };
-        Storage s(file);
+        LibraryDatabase s(file);
         // The show to forget, between entries that stay, so its rows share
         // pages with rows that are kept.
         s.record(direct(QStringLiteral("https://a.example/before.mkv"), 90, 500));
@@ -503,7 +503,7 @@ private slots:
 
     void opensInMemory()
     {
-        Storage s({});
+        LibraryDatabase s({});
         QVERIFY(s.isOpen());
         QVERIFY(!s.addons());
         QVERIFY(!s.folders());
@@ -519,7 +519,7 @@ private slots:
         torrent.headers.insert(QStringLiteral("Referer"), QStringLiteral("x"));
         torrent.subtitles.append({QUrl(QStringLiteral("https://example.com/en.srt")), QStringLiteral("en"), QStringLiteral("English")});
         {
-            Storage s(file);
+            LibraryDatabase s(file);
             QVERIFY(s.isOpen());
             s.setSetting(QStringLiteral("player/volume"), 70);
             s.setSetting(QStringLiteral("ui/name"), QStringLiteral("héllo"));
@@ -529,7 +529,7 @@ private slots:
             s.record(episode(1, 600, 1000));
             HistoryEntry film = direct(QStringLiteral("x"), 90, 2000);
             film.source = torrent;
-            film.key = QStringLiteral("url:") + Storage::sourceKey(torrent);
+            film.key = QStringLiteral("url:") + LibraryDatabase::sourceKey(torrent);
             s.record(film);
             LibraryItem item;
             item.adapter = QStringLiteral("stremio");
@@ -537,7 +537,7 @@ private slots:
             item.name = QStringLiteral("A Show");
             s.addToLibrary(item);
         }
-        Storage s(file);
+        LibraryDatabase s(file);
         QVERIFY(s.isOpen());
         QCOMPARE(s.setting(QStringLiteral("player/volume")).toInt(), 70);
         QCOMPARE(s.setting(QStringLiteral("ui/name")).toString(), QStringLiteral("héllo"));
@@ -562,10 +562,10 @@ private slots:
         QTemporaryDir dir;
         const QString file = dir.filePath(QStringLiteral("cj.sqlite"));
         {
-            Storage s(file);
+            LibraryDatabase s(file);
             s.saveAddons({});
         }
-        Storage s(file);
+        LibraryDatabase s(file);
         QVERIFY(s.addons());  // saved empty: not a fresh install
         QVERIFY(s.addons()->isEmpty());
         QVERIFY(!s.folders());
@@ -579,7 +579,7 @@ private slots:
         QCOMPARE(sqlite3_open(file.toUtf8().constData(), &db), SQLITE_OK);
         sqlite3_exec(db, "PRAGMA user_version=99", nullptr, nullptr, nullptr);
         sqlite3_close(db);
-        Storage s(file);
+        LibraryDatabase s(file);
         QVERIFY(!s.isOpen());
         QVERIFY(s.error().contains(QStringLiteral("newer")));
         s.record(episode(1, 100, 1));  // ignored on disk, harmless
@@ -587,8 +587,8 @@ private slots:
 
     void recordUpdatesByKey()
     {
-        Storage s({});
-        QSignalSpy changed(&s, &Storage::historyChanged);
+        LibraryDatabase s({});
+        QSignalSpy changed(&s, &LibraryDatabase::historyChanged);
         s.record(episode(1, 100, 1000));
         s.record(episode(2, 200, 2000));
         s.record(episode(1, 300, 3000));
@@ -601,7 +601,7 @@ private slots:
 
     void continueWatchingShowsOneRowPerItem()
     {
-        Storage s({});
+        LibraryDatabase s({});
         s.record(episode(1, 1400, 1000));
         s.record(episode(2, 500, 2000));
         s.record(direct(QStringLiteral("https://example.com/a.mp4"), 120, 3000));
@@ -629,23 +629,23 @@ private slots:
     {
         QTemporaryDir dir;
         const QString file = dir.filePath(QStringLiteral("cj.sqlite"));
-        const int total = Storage::kMaxHistory + 25;
+        const int total = LibraryDatabase::kMaxHistory + 25;
         {
-            Storage s(file);
+            LibraryDatabase s(file);
             for (int i = 0; i < total; ++i)
                 s.record(direct(QStringLiteral("https://example.com/%1.mp4").arg(i), 100, 1000 + i));
-            QCOMPARE(s.history().size(), Storage::kMaxHistory);
-            QCOMPARE(s.history().last().updatedAt, qint64(1000 + total - Storage::kMaxHistory));
+            QCOMPARE(s.history().size(), LibraryDatabase::kMaxHistory);
+            QCOMPARE(s.history().last().updatedAt, qint64(1000 + total - LibraryDatabase::kMaxHistory));
         }
-        Storage s(file);
-        QCOMPARE(s.history().size(), Storage::kMaxHistory);
+        LibraryDatabase s(file);
+        QCOMPARE(s.history().size(), LibraryDatabase::kMaxHistory);
         QCOMPARE(s.history().first().updatedAt, qint64(1000 + total - 1));
     }
 
     void libraryAddsAndRemoves()
     {
-        Storage s({});
-        QSignalSpy changed(&s, &Storage::libraryChanged);
+        LibraryDatabase s({});
+        QSignalSpy changed(&s, &LibraryDatabase::libraryChanged);
         LibraryItem a;
         a.adapter = QStringLiteral("stremio");
         a.itemId = QStringLiteral("tt1");
@@ -666,10 +666,10 @@ private slots:
 
     void libraryRecordsAndResumesDirectOpens()
     {
-        Storage storage({});
+        LibraryDatabase storage({});
         FakeTarget target;
-        Session session(&target);
-        Browser browser(&session);
+        PlaybackSession session(&target);
+        CatalogBrowser browser(&session);
         Library library(storage, session, browser);
 
         session.open(QUrl(QStringLiteral("https://example.com/a.mp4")));
@@ -702,10 +702,10 @@ private slots:
 
     void libraryKeepsEpisodesByItem()
     {
-        Storage storage({});
+        LibraryDatabase storage({});
         FakeTarget target;
-        Session session(&target);
-        Browser browser(&session);
+        PlaybackSession session(&target);
+        CatalogBrowser browser(&session);
         Library library(storage, session, browser);
 
         MetaPreview show;
@@ -717,7 +717,7 @@ private slots:
         show.poster = QStringLiteral("https://example.com/poster.jpg");
         const PlayContext second{show, VideoEntry{QStringLiteral("tt1:1:2"), QStringLiteral("Second"), 1, 2, {}}};
 
-        // As Browser::play does it.
+        // As CatalogBrowser::play does it.
         emit browser.aboutToPlay(second);
         session.playSource(PlayableSource::fromUrl(QUrl(QStringLiteral("https://example.com/s1e2.mkv")), QStringLiteral("S1E2")));
         target.startPlaying(1500);
@@ -760,9 +760,9 @@ private slots:
 
     void libraryResumesAMagnetLinkByWhatItWasOpenedFrom()
     {
-        Storage storage({});
+        LibraryDatabase storage({});
         FakeTarget target;
-        Session session(&target);
+        PlaybackSession session(&target);
         // Like the torrent transport: a magnet link becomes a stream URL.
         int resolved = 0;
         session.addSourceResolver([&](const QString& input) -> std::optional<PlayableSource> {
@@ -771,7 +771,7 @@ private slots:
             ++resolved;
             return PlayableSource::fromUrl(QUrl(QStringLiteral("torrent://abc/%1").arg(resolved)), QStringLiteral("Film"));
         });
-        Browser browser(&session);
+        CatalogBrowser browser(&session);
         Library library(storage, session, browser);
 
         const QString magnet = QStringLiteral("magnet:?xt=urn:btih:abc");
@@ -796,16 +796,16 @@ private slots:
     void exportAndImportThroughFiles()
     {
         QTemporaryDir dir;
-        Storage storage({});
+        LibraryDatabase storage({});
         FakeTarget target;
-        Session session(&target);
-        Browser browser(&session);
+        PlaybackSession session(&target);
+        CatalogBrowser browser(&session);
         Library library(storage, session, browser);
         storage.record(episode(1, 600, 1000));
         const QUrl file = QUrl::fromLocalFile(dir.filePath(QStringLiteral("export.json")));
         QCOMPARE(library.exportTo(file), QString());
 
-        Storage other({});
+        LibraryDatabase other({});
         Library otherLibrary(other, session, browser);
         QCOMPARE(otherLibrary.importFrom(file), QString());
         QCOMPARE(other.history().size(), 1);
@@ -814,7 +814,7 @@ private slots:
 
     void exportImportMerges()
     {
-        Storage from({});
+        LibraryDatabase from({});
         from.saveAddons(QJsonArray{QJsonObject{{"transportUrl", "https://a.example/manifest.json"}, {"manifest", QJsonObject{{"id", "a"}}}},
                                    QJsonObject{{"transportUrl", "https://b.example/manifest.json"}, {"manifest", QJsonObject{{"id", "b"}}}}});
         from.saveFolders({QStringLiteral("/videos")});
@@ -826,16 +826,16 @@ private slots:
         from.addToLibrary(item);
         const QByteArray json = from.exportJson();
 
-        Storage to({});
+        LibraryDatabase to({});
         to.saveAddons(QJsonArray{QJsonObject{{"transportUrl", "https://a.example/manifest.json"}, {"manifest", QJsonObject{{"id", "a"}}}}});
         to.record(episode(1, 200, 1000));   // older here: the export wins
         to.record(episode(2, 900, 9000));   // newer here: kept
-        QSignalSpy addons(&to, &Storage::addonsImported);
-        QSignalSpy folders(&to, &Storage::foldersImported);
+        QSignalSpy addons(&to, &LibraryDatabase::addonsImported);
+        QSignalSpy folders(&to, &LibraryDatabase::foldersImported);
         // Asked first: only the add-on and folder not here yet.
         QCOMPARE(to.importExtras(json), QStringList({QStringLiteral("Add-on: https://b.example/…"),
                                                      QStringLiteral("Folder: %1").arg(QDir::toNativeSeparators(QStringLiteral("/videos")))}));
-        QCOMPARE(to.importJson(json, Storage::ImportExtras::Include), QString());
+        QCOMPARE(to.importJson(json, LibraryDatabase::ImportExtras::Include), QString());
         QCOMPARE(addons.count(), 1);
         QCOMPARE(folders.count(), 1);
         QCOMPARE(to.addons()->size(), 2);
@@ -845,7 +845,7 @@ private slots:
         QVERIFY(to.inLibrary(QStringLiteral("stremio:tt9")));
 
         // Importing the same file again changes nothing.
-        QCOMPARE(to.importJson(json, Storage::ImportExtras::Include), QString());
+        QCOMPARE(to.importJson(json, LibraryDatabase::ImportExtras::Include), QString());
         QVERIFY(to.importExtras(json).isEmpty());
         QCOMPARE(addons.count(), 1);
 
@@ -858,9 +858,9 @@ private slots:
     void importOrdersLikeRecordingOneByOne()
     {
         const auto row = [](const HistoryEntry& e) {
-            Storage one({});
+            LibraryDatabase one({});
             one.record(e);
-            return QJsonDocument::fromJson(one.exportJson(Storage::ExportMode::Full)).object().value("history").toArray().at(0);
+            return QJsonDocument::fromJson(one.exportJson(LibraryDatabase::ExportMode::Full)).object().value("history").toArray().at(0);
         };
         const QList<HistoryEntry> existing = {episode(1, 600, 100), episode(2, 600, 300), episode(3, 600, 500)};
         const QList<HistoryEntry> file = {
@@ -878,8 +878,8 @@ private slots:
         const QByteArray json = QJsonDocument(QJsonObject{{"format", "corporal-jackie-export"}, {"version", 1},
                                                           {"history", rows}}).toJson();
 
-        Storage imported({});
-        Storage expected({});
+        LibraryDatabase imported({});
+        LibraryDatabase expected({});
         for (const HistoryEntry& e : existing) {
             imported.record(e);
             expected.record(e);
@@ -907,10 +907,10 @@ private slots:
     // follows each change.
     void libraryProgressFollowsHistory()
     {
-        Storage storage({});
+        LibraryDatabase storage({});
         FakeTarget target;
-        Session session(&target);
-        Browser browser(&session);
+        PlaybackSession session(&target);
+        CatalogBrowser browser(&session);
         Library library(storage, session, browser);
         const auto e = episode(1, 300, 1000, 1200);
         QCOMPARE(library.progress(e.key), -1.0);
@@ -929,7 +929,7 @@ private slots:
     // come in once.
     void importTakesEachAddonAndFolderOnce()
     {
-        Storage to({});
+        LibraryDatabase to({});
         to.saveAddons(QJsonArray{QJsonObject{{"transportUrl", "https://a.example/manifest.json"}}});
         to.saveFolders({QStringLiteral("/videos/a")});
         QJsonArray addons;
@@ -940,7 +940,7 @@ private slots:
             {"format", "corporal-jackie-export"}, {"version", 1}, {"addons", addons},
             {"folders", QJsonArray{"/videos/a", "/videos/b", "/videos/b", "/videos/c"}}}).toJson();
         QCOMPARE(to.importExtras(json).size(), 4);  // b and c, twice over: add-ons and folders
-        QCOMPARE(to.importJson(json, Storage::ImportExtras::Include), QString());
+        QCOMPARE(to.importJson(json, LibraryDatabase::ImportExtras::Include), QString());
         QCOMPARE(to.addons()->size(), 3);
         QCOMPARE(*to.folders(), (QStringList{"/videos/a", "/videos/b", "/videos/c"}));
     }
@@ -948,7 +948,7 @@ private slots:
     // Forgetting a show takes all of its episodes and nothing else.
     void forgetTakesOneShow()
     {
-        Storage storage({});
+        LibraryDatabase storage({});
         storage.record(episode(1, 600, 1000));
         storage.record(episode(2, 600, 2000));
         storage.record(direct(QStringLiteral("https://example.com/other.mp4"), 300, 3000));

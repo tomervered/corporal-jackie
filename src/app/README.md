@@ -1,6 +1,6 @@
 # app — Entry point
 
-- `AppCore`: everything but the window: the database, preferences, the Session and how it is wired to the torrent transport, the source adapters, the browse model, the library and the caches. Tested in `tests/tst_app` and `tests/tst_ui`.
+- `PlayerApplication`: everything but the window: the database, preferences, the Session and how it is wired to the torrent transport, the source adapters, the browse model, the library and the caches. Tested in `tests/tst_app` and `tests/tst_ui`.
 - `Preferences`, `Caches`: what Settings shows for torrent storage and the two caches.
 - `Downloads`: saving a video to the download folder (the `downloads` QML object): torrents in order through the stream broker or the normal way through `TorrentDownloader`, web links with Qt's network stack, sharing per download. Tested in `tests/tst_downloads`.
 - `KeyedListModel`: the `KeyedList` QML type. Poster lists and rows update in place through it, so a list that loads more keeps the posters it has.

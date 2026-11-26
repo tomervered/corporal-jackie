@@ -4,11 +4,11 @@
 // through a tracker the add-on names); a local folder offers a file with its
 // subtitle next to it.
 
-#include "Browser.h"
+#include "CatalogBrowser.h"
 #include "FakeHttpServer.h"
 #include "LocalLibrary.h"
-#include "MpvTarget.h"
-#include "Session.h"
+#include "MpvPlayer.h"
+#include "PlaybackSession.h"
 #include "StremioAdapter.h"
 #include "TorrentHarness.h"
 #include "TorrentTransport.h"
@@ -32,7 +32,7 @@ struct App
 {
     explicit App(const QString& dataDir)
         : transport(settings(dataDir))
-        , target(MpvTarget::Mode::Headless)
+        , target(MpvPlayer::Mode::Headless)
         , session(&target)
         , addons(QDir(dataDir).filePath("addons.json"), false)
         , local(QDir(dataDir).filePath("local-folders.json"))
@@ -40,14 +40,14 @@ struct App
     {
         transport.registerWith(target.handle());
         session.addSourceResolver([this](const QString& input) { return transport.resolve(input); });
-        QObject::connect(&session, &Session::sourceChanged, &transport, [this] { transport.setCurrent(session.source()); });
-        QObject::connect(&session, &Session::stateChanged, &transport, [this] {
+        QObject::connect(&session, &PlaybackSession::sourceChanged, &transport, [this] { transport.setCurrent(session.source()); });
+        QObject::connect(&session, &PlaybackSession::stateChanged, &transport, [this] {
             if (session.state() == PlaybackState::Idle)
                 transport.setCurrent({});
         });
-        QObject::connect(&session, &Session::durationChanged, &transport, [this] { transport.setDuration(session.duration()); });
-        QObject::connect(&transport, &TorrentTransport::statusChanged, &session, &Session::setStreamStatus);
-        QObject::connect(&transport, &TorrentTransport::openFailed, &session, &Session::reportSourceError);
+        QObject::connect(&session, &PlaybackSession::durationChanged, &transport, [this] { transport.setDuration(session.duration()); });
+        QObject::connect(&transport, &TorrentTransport::statusChanged, &session, &PlaybackSession::setStreamStatus);
+        QObject::connect(&transport, &TorrentTransport::openFailed, &session, &PlaybackSession::reportSourceError);
         browser.setStremio(&addons);
         browser.setLocal(&local);
     }
@@ -79,11 +79,11 @@ struct App
     }
 
     TorrentTransport transport;
-    MpvTarget target;
-    Session session;
+    MpvPlayer target;
+    PlaybackSession session;
     StremioAdapter addons;
     LocalLibrary local;
-    Browser browser;
+    CatalogBrowser browser;
 };
 
 } // namespace

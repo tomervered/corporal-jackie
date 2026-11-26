@@ -19,20 +19,20 @@ ui (QML)  ──binds to──▶  app (AppCore)
 
 An arrow means "links to and calls". Nothing calls upward, and the rules below are what keep the layers swappable:
 
-- **ui** binds only to the context properties `AppCore::exposeTo` gives it: `session`, `browser`, `library`, `preferences`, `caches`. It never sees mpv, libtorrent or the network.
+- **ui** binds only to the context properties `PlayerApplication::exposeTo` gives it: `session`, `browser`, `library`, `preferences`, `caches`. It never sees mpv, libtorrent or the network.
 - **session** owns the playing item, position, tracks and errors, and talks to a `PlaybackTarget` through the interface in [TARGET_CONTRACT.md](TARGET_CONTRACT.md). It includes no mpv header. Cast would be a second target.
-- **targets** has `MpvTarget`, the only code that calls libmpv for playback.
+- **targets** has `MpvPlayer`, the only code that calls libmpv for playback.
 - **transports** has `TorrentTransport`, which registers `torrent://` with mpv and maps mpv's stream callbacks onto the broker.
 - **broker** is the only code that calls libtorrent ([BROKER_CONTRACT.md](BROKER_CONTRACT.md)). It does not know that mpv is the reader.
 - **sources** turns a catalog pick, a local file or a pasted link into one `PlayableSource`. Adapters (`StremioAdapter`, `LocalLibrary`) sit behind `SourceAdapter`, so a new kind of source is one more adapter.
 - **storage** keeps settings, add-ons, folders, the library and watch history in one SQLite file.
-- **app** builds all of the above (`AppCore`) and opens the window (`main.cpp`). Tests build the same `AppCore` around a fake target.
+- **app** builds all of the above (`PlayerApplication`) and opens the window (`main.cpp`). Tests build the same `PlayerApplication` around a fake target.
 
 ## From a click to a picture
 
-1. The user picks a stream in Browse. `Browser::play` hands its `PlayableSource` to `Session::playSource`.
+1. The user picks a stream in Browse. `CatalogBrowser::play` hands its `PlayableSource` to `PlaybackSession::playSource`.
 2. For a magnet link, the Session asks its resolver, `TorrentTransport::resolve`, which returns `torrent://<info hash>/<file index>` and keeps the link's trackers and peers for the open.
-3. The Session tells `MpvTarget` to load that URL. mpv calls the transport's open callback on its own stream thread, and the transport calls `StreamBroker::open`, which adds the torrent and blocks until the file list arrives.
+3. The Session tells `MpvPlayer` to load that URL. mpv calls the transport's open callback on its own stream thread, and the transport calls `StreamBroker::open`, which adds the torrent and blocks until the file list arrives.
 4. mpv reads the file's start to probe the container. Each `StreamHandle::read` blocks until its piece is downloaded and verified, then copies the bytes out.
 
 ## How a byte gets from a peer to mpv
@@ -48,7 +48,7 @@ Every read also moves the reader's position, and `Engine::schedule` re-plans fro
 
 | Thread | Runs |
 |---|---|
-| UI (main) | QML, `Session`, `Browser`, `Library`; mpv's events are moved here before `MpvTarget` emits them |
+| UI (main) | QML, `PlaybackSession`, `CatalogBrowser`, `Library`; mpv's events are moved here before `MpvPlayer` emits them |
 | mpv's own threads | demuxing, decoding, rendering; the stream thread blocks in `StreamHandle::read` |
 | libtorrent's network and disk threads | peers, hashing, disk or RAM storage |
 | broker alert thread | libtorrent's alerts, once-a-second upkeep (rates, peers, idle pause), RAM trimming and reloads, the cache cap |

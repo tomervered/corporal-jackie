@@ -13,7 +13,7 @@
 
 namespace cj {
 
-class Storage;
+class LibraryDatabase;
 
 class Preferences : public QObject
 {
@@ -54,7 +54,7 @@ class Preferences : public QObject
 
 public:
     // defaultCacheFolder: the torrent cache under the app's cache folder.
-    Preferences(Storage& storage, const QString& defaultCacheFolder, QObject* parent = nullptr);
+    Preferences(LibraryDatabase& storage, const QString& defaultCacheFolder, QObject* parent = nullptr);
 
     bool torrentsInMemory() const { return m_inMemory; }
     int memoryCapMB() const { return m_memoryCapMB; }
@@ -140,7 +140,7 @@ private:
     void savePrivacy(bool catalogBefore);
     QString effectiveFolder() const;
 
-    Storage& m_storage;
+    LibraryDatabase& m_storage;
     QString m_defaultFolder;
     bool m_inMemory = false;
     int m_memoryCapMB = 1024;

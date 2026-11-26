@@ -1,4 +1,4 @@
-#include "Storage.h"
+#include "LibraryDatabase.h"
 #include "LibraryBackupFormat.h"
 
 #include "LinkRules.h"
@@ -48,7 +48,7 @@ const char* const kMigrations[] = {
     ALTER TABLE addons ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0;
     )sql",
 };
-static_assert(std::size(kMigrations) == Storage::kSchemaVersion, "one migration per schema version");
+static_assert(std::size(kMigrations) == LibraryDatabase::kSchemaVersion, "one migration per schema version");
 
 // The last SQLite error on this thread, for the write that failed.
 thread_local QString t_lastError;
@@ -240,7 +240,7 @@ std::optional<HistoryEntry> shareable(const HistoryEntry& e)
     // left (an add-on entry), the add-on's own key names the video.
     if (out.key.startsWith(QLatin1String("url:"))) {
         if (!s.url.isEmpty() || !s.origin.isEmpty())
-            out.key = QStringLiteral("url:") + Storage::sourceKey(s);
+            out.key = QStringLiteral("url:") + LibraryDatabase::sourceKey(s);
         else if (!e.adapter.isEmpty() && !e.itemId.isEmpty())
             out.key = e.adapter + QLatin1Char(':') + e.itemId + QLatin1Char(':') + e.videoId;
         else
@@ -309,7 +309,7 @@ bool writeEntry(sqlite3* db, const HistoryEntry& e)
     s.bind(1, e.key).bind(2, e.adapter).bind(3, e.provider).bind(4, e.itemId).bind(5, e.itemType)
         .bind(6, e.itemName).bind(7, e.poster).bind(8, e.videoId).bind(9, e.videoTitle).bind(10, e.season)
         .bind(11, e.episode)
-        .bind(12, QString::fromUtf8(QJsonDocument(Storage::sourceToJson(e.source)).toJson(QJsonDocument::Compact)))
+        .bind(12, QString::fromUtf8(QJsonDocument(LibraryDatabase::sourceToJson(e.source)).toJson(QJsonDocument::Compact)))
         .bind(13, e.position).bind(14, e.duration).bind(15, e.updatedAt).bind(16, e.finished ? 1 : 0);
     return s.run();
 }
@@ -356,7 +356,7 @@ bool writeFolders(sqlite3* db, const QStringList& folders)
 
 // --- Worker: one thread that owns the connection ------------------------------
 
-class Storage::Worker
+class LibraryDatabase::Worker
 {
 public:
     explicit Worker(const QString& file)
@@ -438,9 +438,9 @@ private:
     std::thread m_thread;
 };
 
-// --- Storage ---------------------------------------------------------------------
+// --- LibraryDatabase ---------------------------------------------------------------------
 
-Storage::Storage(const QString& file, QObject* parent)
+LibraryDatabase::LibraryDatabase(const QString& file, QObject* parent)
     : QObject(parent)
 {
     if (!file.isEmpty())
@@ -587,12 +587,12 @@ Storage::Storage(const QString& file, QObject* parent)
         qCCritical(lcStorage).noquote() << m_error;
 }
 
-Storage::~Storage()
+LibraryDatabase::~LibraryDatabase()
 {
     m_worker.reset();  // runs every pending write, then closes
 }
 
-void Storage::write(std::function<bool(sqlite3*)> job)
+void LibraryDatabase::write(std::function<bool(sqlite3*)> job)
 {
     if (!m_open)
         return;
@@ -604,35 +604,35 @@ void Storage::write(std::function<bool(sqlite3*)> job)
     });
 }
 
-void Storage::setWriteError(const QString& cause)
+void LibraryDatabase::setWriteError(const QString& cause)
 {
     {
         std::lock_guard lock(m_errorMutex);
         m_error = QStringLiteral("Saving to the database failed (%1). Recent changes may be lost when the app closes.").arg(cause);
     }
     qCCritical(lcStorage).noquote() << "Write failed:" << cause;
-    QMetaObject::invokeMethod(this, &Storage::errorChanged, Qt::QueuedConnection);
+    QMetaObject::invokeMethod(this, &LibraryDatabase::errorChanged, Qt::QueuedConnection);
 }
 
-QString Storage::error() const
+QString LibraryDatabase::error() const
 {
     std::lock_guard lock(m_errorMutex);
     return m_error;
 }
 
-void Storage::flush()
+void LibraryDatabase::flush()
 {
     m_worker->run([](sqlite3*) {});
 }
 
 // --- Settings -----------------------------------------------------------------------
 
-QVariant Storage::setting(const QString& key, const QVariant& fallback) const
+QVariant LibraryDatabase::setting(const QString& key, const QVariant& fallback) const
 {
     return m_settings.value(key, fallback);
 }
 
-void Storage::setSetting(const QString& key, const QVariant& value)
+void LibraryDatabase::setSetting(const QString& key, const QVariant& value)
 {
     if (m_settings.value(key) == value && m_settings.contains(key))
         return;
@@ -645,13 +645,13 @@ void Storage::setSetting(const QString& key, const QVariant& value)
 
 // --- Add-ons and folders ----------------------------------------------------------------
 
-void Storage::saveAddons(const QJsonArray& addons)
+void LibraryDatabase::saveAddons(const QJsonArray& addons)
 {
     m_addons = addons;
     write([addons](sqlite3* db) { return transaction(db, [&] { return writeAddons(db, addons); }); });
 }
 
-void Storage::saveFolders(const QStringList& folders)
+void LibraryDatabase::saveFolders(const QStringList& folders)
 {
     m_folders = folders;
     write([folders](sqlite3* db) { return transaction(db, [&] { return writeFolders(db, folders); }); });
@@ -659,15 +659,15 @@ void Storage::saveFolders(const QStringList& folders)
 
 // --- History ----------------------------------------------------------------------------
 
-bool Storage::keepsHistory() const { return setting(QStringLiteral("history/keep"), true).toBool(); }
+bool LibraryDatabase::keepsHistory() const { return setting(QStringLiteral("history/keep"), true).toBool(); }
 
-void Storage::setKeepsHistory(bool keep)
+void LibraryDatabase::setKeepsHistory(bool keep)
 {
     if (keep != keepsHistory())
         setSetting(QStringLiteral("history/keep"), keep);
 }
 
-void Storage::record(const HistoryEntry& entry)
+void LibraryDatabase::record(const HistoryEntry& entry)
 {
     if (entry.key.isEmpty() || !keepsHistory())
         return;
@@ -680,7 +680,7 @@ void Storage::record(const HistoryEntry& entry)
     emit historyChanged();
 }
 
-void Storage::keepInMemory(const HistoryEntry& e)
+void LibraryDatabase::keepInMemory(const HistoryEntry& e)
 {
     m_history.erase(std::remove_if(m_history.begin(), m_history.end(),
                                    [&](const HistoryEntry& h) { return h.key == e.key; }),
@@ -691,7 +691,7 @@ void Storage::keepInMemory(const HistoryEntry& e)
     m_history.insert(at, e);
 }
 
-void Storage::trimHistory()
+void LibraryDatabase::trimHistory()
 {
     if (m_history.size() <= kMaxHistory)
         return;
@@ -704,7 +704,7 @@ void Storage::trimHistory()
     });
 }
 
-std::optional<HistoryEntry> Storage::find(const QString& key) const
+std::optional<HistoryEntry> LibraryDatabase::find(const QString& key) const
 {
     for (const HistoryEntry& e : m_history)
         if (e.key == key)
@@ -712,7 +712,7 @@ std::optional<HistoryEntry> Storage::find(const QString& key) const
     return std::nullopt;
 }
 
-std::optional<HistoryEntry> Storage::findBySource(const PlayableSource& source) const
+std::optional<HistoryEntry> LibraryDatabase::findBySource(const PlayableSource& source) const
 {
     const QString key = sourceKey(source);
     for (const HistoryEntry& e : m_history)
@@ -721,7 +721,7 @@ std::optional<HistoryEntry> Storage::findBySource(const PlayableSource& source) 
     return std::nullopt;
 }
 
-void Storage::forget(const QString& itemKey)
+void LibraryDatabase::forget(const QString& itemKey)
 {
     QStringList keys;
     for (const HistoryEntry& e : std::as_const(m_history))
@@ -744,14 +744,14 @@ void Storage::forget(const QString& itemKey)
     emit historyChanged();
 }
 
-void Storage::clearHistory()
+void LibraryDatabase::clearHistory()
 {
     m_history.clear();
     write([](sqlite3* db) { return exec(db, "DELETE FROM history") && emptyWal(db); });
     emit historyChanged();
 }
 
-QList<HistoryEntry> Storage::continueWatching(int limit) const
+QList<HistoryEntry> LibraryDatabase::continueWatching(int limit) const
 {
     QList<HistoryEntry> out;
     QSet<QString> seen;
@@ -770,7 +770,7 @@ QList<HistoryEntry> Storage::continueWatching(int limit) const
     return out;
 }
 
-double Storage::resumePosition(const PlayableSource& source) const
+double LibraryDatabase::resumePosition(const PlayableSource& source) const
 {
     const auto e = findBySource(source);
     return e && !e->finished && e->position >= kMinResumeSeconds ? e->position : 0;
@@ -778,12 +778,12 @@ double Storage::resumePosition(const PlayableSource& source) const
 
 // --- Library -------------------------------------------------------------------------------
 
-bool Storage::inLibrary(const QString& key) const
+bool LibraryDatabase::inLibrary(const QString& key) const
 {
     return std::any_of(m_library.begin(), m_library.end(), [&](const LibraryItem& i) { return i.key() == key; });
 }
 
-void Storage::addToLibrary(const LibraryItem& item)
+void LibraryDatabase::addToLibrary(const LibraryItem& item)
 {
     if (item.itemId.isEmpty())
         return;
@@ -796,7 +796,7 @@ void Storage::addToLibrary(const LibraryItem& item)
     emit libraryChanged();
 }
 
-void Storage::keepInMemory(const LibraryItem& i)
+void LibraryDatabase::keepInMemory(const LibraryItem& i)
 {
     m_library.erase(std::remove_if(m_library.begin(), m_library.end(),
                                    [&](const LibraryItem& o) { return o.key() == i.key(); }),
@@ -806,7 +806,7 @@ void Storage::keepInMemory(const LibraryItem& i)
     m_library.insert(at, i);
 }
 
-void Storage::trimLibrary()
+void LibraryDatabase::trimLibrary()
 {
     while (m_library.size() > kMaxLibrary) {
         const QString oldest = m_library.takeLast().key();
@@ -814,7 +814,7 @@ void Storage::trimLibrary()
     }
 }
 
-void Storage::removeFromLibrary(const QString& key)
+void LibraryDatabase::removeFromLibrary(const QString& key)
 {
     const auto before = m_library.size();
     m_library.erase(std::remove_if(m_library.begin(), m_library.end(),
@@ -828,7 +828,7 @@ void Storage::removeFromLibrary(const QString& key)
 
 // --- Export and import -----------------------------------------------------------------------
 
-QByteArray Storage::exportJson(ExportMode mode) const
+QByteArray LibraryDatabase::exportJson(ExportMode mode) const
 {
     const bool full = mode == ExportMode::Full;
     QJsonArray history;
@@ -926,7 +926,7 @@ ImportedExtras newExtras(const QJsonObject& root, const QJsonArray& installed, c
 
 } // namespace
 
-QStringList Storage::importExtras(const QByteArray& json) const
+QStringList LibraryDatabase::importExtras(const QByteArray& json) const
 {
     const QJsonObject root = QJsonDocument::fromJson(json).object();
     if (root.value("format").toString() != QLatin1String("corporal-jackie-export"))
@@ -945,7 +945,7 @@ QStringList Storage::importExtras(const QByteArray& json) const
     return lines;
 }
 
-QString Storage::importJson(const QByteArray& json, ImportExtras extrasWanted)
+QString LibraryDatabase::importJson(const QByteArray& json, ImportExtras extrasWanted)
 {
     // 1. Read and check all of it. Nothing changes unless the whole file is good.
     QJsonParseError parseError;
@@ -1071,7 +1071,7 @@ QString Storage::importJson(const QByteArray& json, ImportExtras extrasWanted)
 
 // --- Playable sources as JSON --------------------------------------------------------------------
 
-QString Storage::sourceKey(const PlayableSource& source)
+QString LibraryDatabase::sourceKey(const PlayableSource& source)
 {
     const QString opened = source.origin.isEmpty() ? source.url.toString() : source.origin;
     if (!isMagnet(opened))

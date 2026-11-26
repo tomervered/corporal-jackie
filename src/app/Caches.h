@@ -15,7 +15,7 @@ class QNetworkDiskCache;
 
 namespace cj {
 
-class Storage;
+class LibraryDatabase;
 class TorrentTransport;
 
 // Tells every disk cache, each on its own thread, about a change. Queued
@@ -59,7 +59,7 @@ class Caches : public QObject
 public:
     static constexpr int kDefaultImageCacheMB = 250;
 
-    Caches(Storage& storage, TorrentTransport& torrents, const QString& imageFolder, QObject* parent = nullptr);
+    Caches(LibraryDatabase& storage, TorrentTransport& torrents, const QString& imageFolder, QObject* parent = nullptr);
     ~Caches() override;
     // Waits for a measurement in progress: it asks the torrent transport,
     // which must still be there.
@@ -89,7 +89,7 @@ signals:
 private:
     void runInBackground(std::function<void()> job);
 
-    Storage& m_storage;
+    LibraryDatabase& m_storage;
     TorrentTransport& m_torrents;
     ImageCacheFactory m_factory;
     int m_imageCacheMB;

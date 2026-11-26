@@ -1,8 +1,8 @@
 #include "Library.h"
 
-#include "Browser.h"
+#include "CatalogBrowser.h"
 #include "Logging.h"
-#include "Session.h"
+#include "PlaybackSession.h"
 
 #include <QFile>
 #include <QRegularExpression>
@@ -50,32 +50,32 @@ QString stillFor(const HistoryEntry& e)
 }
 } // namespace
 
-Library::Library(Storage& storage, Session& session, Browser& browser, QObject* parent)
+Library::Library(LibraryDatabase& storage, PlaybackSession& session, CatalogBrowser& browser, QObject* parent)
     : QObject(parent)
     , m_storage(storage)
     , m_session(session)
     , m_browser(browser)
 {
-    connect(&storage, &Storage::historyChanged, this, [this] {
+    connect(&storage, &LibraryDatabase::historyChanged, this, [this] {
         m_progress.reset();
         emit historyChanged();
     });
-    connect(&storage, &Storage::libraryChanged, this, &Library::itemsChanged);
-    connect(&storage, &Storage::errorChanged, this, &Library::storageErrorChanged);
+    connect(&storage, &LibraryDatabase::libraryChanged, this, &Library::itemsChanged);
+    connect(&storage, &LibraryDatabase::errorChanged, this, &Library::storageErrorChanged);
 
-    // A pick in the browse panel says what the next item is; the Session
+    // A pick in the browse panel says what the next item is; the PlaybackSession
     // then asks where to start it, and loads it.
-    connect(&browser, &Browser::aboutToPlay, this, [this](const PlayContext& context) {
+    connect(&browser, &CatalogBrowser::aboutToPlay, this, [this](const PlayContext& context) {
         m_pending = entryFor(context);
     });
     session.setResumeLookup([this](const PlayableSource& source) { return resumeAt(source); });
-    connect(&session, &Session::sourceChanged, this, &Library::bindPending);
+    connect(&session, &PlaybackSession::sourceChanged, this, &Library::bindPending);
 
-    connect(&session, &Session::resumePoint, this,
+    connect(&session, &PlaybackSession::resumePoint, this,
             [this](const PlayableSource& source, double position, double duration) {
         save(source, position, duration, false);
     });
-    connect(&session, &Session::stateChanged, this, [this] {
+    connect(&session, &PlaybackSession::stateChanged, this, [this] {
         if (m_session.state() == PlaybackState::Ended)
             save(m_session.playableSource(), m_session.position(), m_session.duration(), true);
     });
@@ -111,7 +111,7 @@ double Library::resumeAt(const PlayableSource& source) const
         e = m_storage.find(m_pending->key);
     if (!e)
         e = m_storage.findBySource(source);
-    return e && !e->finished && e->position >= Storage::kMinResumeSeconds ? e->position : 0;
+    return e && !e->finished && e->position >= LibraryDatabase::kMinResumeSeconds ? e->position : 0;
 }
 
 void Library::bindPending()
@@ -132,7 +132,7 @@ void Library::save(const PlayableSource& source, double position, double duratio
     if (m_current && m_current->url == source.url) {
         e = m_current->entry;
     } else {
-        e.key = QStringLiteral("url:") + Storage::sourceKey(source);
+        e.key = QStringLiteral("url:") + LibraryDatabase::sourceKey(source);
         e.itemName = source.title;
     }
     e.source = source;
@@ -195,7 +195,7 @@ void Library::resume(const QString& key)
             m_pending = *e;
     };
     // An item finished or barely started plays from the beginning.
-    const double start = !e->finished && e->position >= Storage::kMinResumeSeconds ? e->position : 0;
+    const double start = !e->finished && e->position >= LibraryDatabase::kMinResumeSeconds ? e->position : 0;
     if (!m_session.playSource(e->source, start, rememberEpisode))
         return;
     // The player's episode list.
@@ -286,7 +286,7 @@ void Library::open(const QString& key)
 QString Library::exportTo(const QUrl& file, bool everything) const
 {
     QSaveFile out(pathOf(file));
-    const auto mode = everything ? Storage::ExportMode::Full : Storage::ExportMode::Shareable;
+    const auto mode = everything ? LibraryDatabase::ExportMode::Full : LibraryDatabase::ExportMode::Shareable;
     if (!out.open(QIODevice::WriteOnly) || out.write(m_storage.exportJson(mode)) < 0 || !out.commit())
         return QStringLiteral("Could not save the file (%1).").arg(out.errorString());
     qCInfo(lcStorage).noquote() << "Exported to" << pathOf(file);
@@ -325,7 +325,7 @@ QString Library::importFrom(const QUrl& file, bool withAddonsAndFolders)
     const auto json = readExport(pathOf(file), &error);
     if (!json)
         return error;
-    return m_storage.importJson(*json, withAddonsAndFolders ? Storage::ImportExtras::Include : Storage::ImportExtras::Skip);
+    return m_storage.importJson(*json, withAddonsAndFolders ? LibraryDatabase::ImportExtras::Include : LibraryDatabase::ImportExtras::Skip);
 }
 
 } // namespace cj

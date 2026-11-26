@@ -1,5 +1,5 @@
 #pragma once
-// Plain types shared by the Session, every playback target, and the UI.
+// Plain types shared by the PlaybackSession, every playback target, and the UI.
 // See docs/TARGET_CONTRACT.md.
 
 #include <QFlags>
@@ -28,7 +28,7 @@ enum class PlaybackError {
 };
 Q_ENUM_NS(PlaybackError)
 
-// Optional features. A target lists the ones it has; the Session never sends
+// Optional features. A target lists the ones it has; the PlaybackSession never sends
 // the others and the UI hides them. "Local only" ones need the video to be
 // decoded on this computer, so a Cast target will not offer them.
 enum class Capability : unsigned {
@@ -94,7 +94,7 @@ struct SubtitleSource {
     bool operator==(const SubtitleSource&) const = default;
 };
 
-// The one record every source adapter produces (Step 5), so the Session never
+// The one record every source adapter produces (Step 5), so the PlaybackSession never
 // cares where an item came from.
 struct PlayableSource {
     enum class Kind { LocalFile, Http, Torrent };
@@ -127,7 +127,7 @@ struct PlayableSource {
     bool operator==(const PlayableSource&) const = default;
 };
 
-// How subtitles look. Size is separate (Session::subtitleScale), since keys
+// How subtitles look. Size is separate (PlaybackSession::subtitleScale), since keys
 // change it while watching.
 struct SubtitleStyle {
     Q_GADGET

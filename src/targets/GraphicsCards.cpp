@@ -1,7 +1,7 @@
 #include "GraphicsCards.h"
 
 #include "Logging.h"
-#include "MpvTarget.h"
+#include "MpvPlayer.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -144,7 +144,7 @@ Capabilities GraphicsCards::activeVsr()
     // run's video is on (the registry entry is read at start).
     static const Capabilities caps = [] {
         const Card card = cardFor(gpuPreferenceIn(readEntry()));
-        const Capabilities c = MpvTarget::vsrCapabilities(card.vendor, card.name);
+        const Capabilities c = MpvPlayer::vsrCapabilities(card.vendor, card.name);
         qCInfo(lcTargets).noquote() << "Graphics card:" << (card.name.isEmpty() ? QStringLiteral("none found") : card.name)
                                     << (!c ? "" : "(Video Super Resolution available)");
         return c;
@@ -167,9 +167,9 @@ GraphicsCards::GraphicsCards(QObject* parent)
     m_performanceName = cardFor(2).name;
     const Card active = cardFor(start);
     m_activeName = active.name;
-    if (!MpvTarget::vsrCapabilities(active.vendor, active.name)) {
+    if (!MpvPlayer::vsrCapabilities(active.vendor, active.name)) {
         for (const Card& card : cards) {
-            if (!MpvTarget::vsrCapabilities(card.vendor, card.name))
+            if (!MpvPlayer::vsrCapabilities(card.vendor, card.name))
                 continue;
             const bool isPerformance = card.name == m_performanceName;
             m_vsrHint = QStringLiteral("%1 can run Video Super Resolution, but the app runs on %2. "
